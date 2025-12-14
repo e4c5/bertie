@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.raditha</groupId>
+    <artifactId>bertie</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <name>Bertie - Duplicate Code Detector and Refactoring Tool</name>
+    <description>
+        Automatically detect and refactor duplicate code using advanced similarity algorithms 
+        and intelligent refactoring strategies.
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <slf4j.version>2.0.13</slf4j.version>
+        <javaparser.version>3.26.2</javaparser.version>
+        <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
+        <antikythera.version>0.1.2.4</antikythera.version>
+    </properties>
+
+    <dependencies>
+        <!-- Antikythera Core -->
+        <dependency>
+            <groupId>sa.com.cloudsolutions</groupId>
+            <artifactId>antikythera</artifactId>
+            <version>${antikythera.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-classic</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- JavaParser for code analysis -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>${javaparser.version}</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+        <!-- java-diff-utils for unified diff generation -->
+        <dependency>
+            <groupId>io.github.java-diff-utils</groupId>
+            <artifactId>java-diff-utils</artifactId>
+            <version>4.12</version>
+        </dependency>
+
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.9.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>5.11.0</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven.compiler.plugin.version}</version>
+                <configuration>
+                    <release>${maven.compiler.target}</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+            <!-- Maven Exec Plugin for running CLI -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>com.raditha.dedup.cli.DuplicationDetectorCLI</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
