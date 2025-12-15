@@ -38,7 +38,7 @@ duplication_detector:
 ### 2. Analyze Duplicates
 
 ```bash
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="analyze"
 ```
 
@@ -47,7 +47,7 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
 ### 3. Preview Refactorings (Dry Run)
 
 ```bash
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="refactor --mode dry-run"
 ```
 
@@ -56,7 +56,7 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
 ### 4. Apply Refactorings (Interactive)
 
 ```bash
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="refactor --mode interactive"
 ```
 
@@ -81,7 +81,7 @@ Detects duplicates without making changes.
 
 **Example**:
 ```bash
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="analyze --threshold 80 --min-lines 3"
 ```
 
@@ -104,15 +104,15 @@ Export duplication metrics to CSV or JSON for external analysis.
 **Examples**:
 ```bash
 # Export to CSV
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="analyze --export csv"
 
 # Export to JSON
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="analyze --export json"
 
 # Export both formats
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="analyze --export both --threshold 70"
 ```
 

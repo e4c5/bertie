@@ -97,7 +97,7 @@ Use predefined configuration presets via CLI:
 Override YAML settings from command line:
 
 ```bash
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.DuplicationDetectorCLI" \
+mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
   -Dexec.args="analyze --threshold 80 --min-lines 3"
 ```
 

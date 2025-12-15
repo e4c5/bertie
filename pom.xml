@@ -99,7 +99,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>com.raditha.dedup.cli.DuplicationDetectorCLI</mainClass>
+                    <mainClass>com.raditha.dedup.cli.BertieCLI</mainClass>
                 </configuration>
             </plugin>
         </plugins>
