@@ -63,7 +63,13 @@ public class ExtractMethodRefactorer {
             RefactoringRecommendation recommendation) {
         MethodDeclaration method = new MethodDeclaration();
         method.setName(recommendation.suggestedMethodName());
-        method.setModifiers(Modifier.Keyword.PRIVATE);
+
+        // Check if containing method is static - if so, make helper method static too
+        if (sequence.containingMethod() != null && sequence.containingMethod().isStatic()) {
+            method.setModifiers(Modifier.Keyword.PRIVATE, Modifier.Keyword.STATIC);
+        } else {
+            method.setModifiers(Modifier.Keyword.PRIVATE);
+        }
 
         // Set return type
         String returnType = recommendation.suggestedReturnType();

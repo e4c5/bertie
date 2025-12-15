@@ -1,8 +1,10 @@
 # Bertie Configuration Template
 # Copy this file to your project's src/main/resources/generator.yml
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
 
 # Project base path (required)
-base_path: /absolute/path/to/your/project
+base_path: ${projects_folder}/bertie/
 
 # Output path for generated files (optional)
 # output_path: /path/to/output
@@ -10,15 +12,15 @@ base_path: /absolute/path/to/your/project
 # Duplication Detector Settings
 duplication_detector:
   # Target class to analyze (fully qualified name)
-  target_class: "com.example.YourClass"
-  
+  target_class: "com.raditha.dedup.cli.BertieCLI"
+
   # Minimum lines to consider as duplicate
   min_lines: 5
-  
+
   # Similarity threshold (0.0 to 1.0)
   # 0.75 = 75% similar
   threshold: 0.75
-  
+
   # Similarity algorithm weights (optional)
   # similarity_weights:
   #   lcs_weight: 0.4

@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.raditha.dedup.refactoring.RefactoringEngineTest
--------------------------------------------------------------------------------
-Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.786 s -- in com.raditha.dedup.refactoring.RefactoringEngineTest
