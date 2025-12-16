@@ -14,15 +14,18 @@ import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Command-line interface for the Duplication Detector.
- * 
+ * <p>
  * Usage:
  * java -jar duplication-detector.jar [options] <file-or-directory>
- * 
+ * <p>
  * Configuration priority: CLI arguments > generator.yml > defaults
  */
 @SuppressWarnings("java:S106")
@@ -30,51 +33,40 @@ public class BertieCLI {
 
     private static final String VERSION = "1.0.0";
 
-    public static void main(String[] args) {
-        try {
-            CLIConfig config = parseArguments(args);
+    public static void main(String[] args) throws Exception {
+        CLIConfig config = parseArguments(args);
 
-            if (config.showHelp) {
-                printHelp();
-                return;
-            }
+        if (config.showHelp) {
+            printHelp();
+            return;
+        }
 
-            if (config.showVersion) {
-                System.out.println("Duplication Detector v" + VERSION);
-                return;
-            }
+        if (config.showVersion) {
+            System.out.println("Duplication Detector v" + VERSION);
+            return;
+        }
 
-            // Initialize Settings once
-            Settings.loadConfigMap();
-            if (config.basePath != null) {
-                Settings.setProperty(Settings.BASE_PATH, config.basePath);
-            }
-            if (config.outputPath != null) {
-                Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
-            }
+        // Initialize Settings once
+        Settings.loadConfigMap();
+        if (config.basePath != null) {
+            Settings.setProperty(Settings.BASE_PATH, config.basePath);
+        }
+        if (config.outputPath != null) {
+            Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
+        }
 
-            // Parse all source files once
-            AbstractCompiler.preProcess();
+        // Parse all source files once
+        AbstractCompiler.preProcess();
 
-            // Run detection or refactoring based on command
-            if (config.command.equals("refactor")) {
-                runRefactoring(config);
-            } else {
-                runAnalysis(config);
-            }
-
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error: " + e.getMessage());
-            System.err.println("Use --help for usage information");
-            System.exit(1);
-        } catch (Exception e) {
-            System.err.println("Fatal error: " + e.getMessage());
-            e.printStackTrace();
-            System.exit(2);
+        // Run detection or refactoring based on command
+        if (config.command.equals("refactor")) {
+            runRefactoring(config);
+        } else {
+            runAnalysis(config);
         }
     }
 
-    private static List<DuplicationReport> performAnalysis(CLIConfig config) throws IOException {
+    private static List<DuplicationReport> performAnalysis(CLIConfig config) {
         // Load configuration
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
                 config.minLines,
@@ -113,7 +105,7 @@ public class BertieCLI {
         return reports;
     }
 
-    private static void runAnalysis(CLIConfig config) throws IOException {
+    private static void runAnalysis(CLIConfig config) {
         List<DuplicationReport> reports = performAnalysis(config);
 
         // Load config again for display purposes
@@ -353,8 +345,8 @@ public class BertieCLI {
      * Print location information for a code sequence.
      */
     private static void printLocation(DuplicationReport report,
-            StatementSequence seq,
-            int locNum) {
+                                      StatementSequence seq,
+                                      int locNum) {
         String className = extractClassName(report.sourceFile().toString());
         String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "top-level";
         int startLine = seq.range().startLine();
@@ -560,23 +552,6 @@ public class BertieCLI {
         System.out.println();
     }
 
-    private static class CLIConfig {
-        String command = "detect"; // "detect" or "refactor"
-        Path targetPath;
-        String basePath = null;
-        String outputPath = null;
-        int minLines = 0; // 0 = use YAML/default
-        int threshold = 0; // 0 = use YAML/default
-        String preset = null;
-        boolean jsonOutput = false;
-        boolean showHelp = false;
-        boolean showVersion = false;
-        String exportFormat = null; // "csv", "json", or "both"
-        // Refactoring options
-        String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
-        String verifyMode = "compile"; // "none", "compile", "test"
-    }
-
     /**
      * Export metrics to CSV/JSON files.
      */
@@ -607,5 +582,22 @@ public class BertieCLI {
         } catch (Exception e) {
             System.err.println("⚠ Failed to export metrics: " + e.getMessage());
         }
+    }
+
+    private static class CLIConfig {
+        String command = "detect"; // "detect" or "refactor"
+        Path targetPath;
+        String basePath = null;
+        String outputPath = null;
+        int minLines = 0; // 0 = use YAML/default
+        int threshold = 0; // 0 = use YAML/default
+        String preset = null;
+        boolean jsonOutput = false;
+        boolean showHelp = false;
+        boolean showVersion = false;
+        String exportFormat = null; // "csv", "json", or "both"
+        // Refactoring options
+        String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
+        String verifyMode = "compile"; // "none", "compile", "test"
     }
 }
