@@ -44,6 +44,18 @@ public class BertieCLI {
                 return;
             }
 
+            // Initialize Settings once
+            Settings.loadConfigMap();
+            if (config.basePath != null) {
+                Settings.setProperty(Settings.BASE_PATH, config.basePath);
+            }
+            if (config.outputPath != null) {
+                Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
+            }
+
+            // Parse all source files once
+            AbstractCompiler.preProcess();
+
             // Run detection or refactoring based on command
             if (config.command.equals("refactor")) {
                 runRefactoring(config);
@@ -62,83 +74,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runAnalysis(CLIConfig config) throws IOException {
-        // Initialize Settings and parse source files (same as Logger.java,
-        // TestFixer.java)
-        Settings.loadConfigMap();
-
-        // Apply CLI overrides to Settings
-        if (config.basePath != null) {
-            Settings.setProperty(Settings.BASE_PATH, config.basePath);
-        }
-        if (config.outputPath != null) {
-            Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
-        }
-
-        // Parse all source files
-        AbstractCompiler.preProcess();
-
-        // Load configuration (generator.yml + CLI overrides)
-        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                config.minLines,
-                config.threshold,
-                config.preset);
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
-
-        // Get compilation units and filter criteria
-        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-        String targetClass = DuplicationDetectorSettings.getTargetClass();
-
-        List<DuplicationReport> reports = new ArrayList<>();
-
-        // Single iteration - filter and analyze
-        for (var entry : allCUs.entrySet()) {
-            String className = entry.getKey();
-
-            // Apply filters inline
-            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
-                continue;
-            }
-            if (config.targetPath != null && !matchesTargetPath(className, config.targetPath)) {
-                continue;
-            }
-
-            try {
-                Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
-                        AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
-                reports.add(report);
-            } catch (Exception e) {
-                System.err.println("Error analyzing " + className + ": " + e.getMessage());
-            }
-        }
-
-        // Print the detailed report
-        if (config.jsonOutput) {
-            printJsonReport(reports, dupConfig);
-        } else {
-            printTextReport(reports, dupConfig);
-        }
-
-        // Export metrics if requested
-        if (config.exportFormat != null && !config.exportFormat.isEmpty()) {
-            exportMetrics(reports, config);
-        }
-    }
-
-    private static void runRefactoring(CLIConfig config) throws IOException {
-        // First run detection
-        System.out.println("=== PHASE 1: Duplicate Detection ===");
-        System.out.println();
-
-        // Initialize Settings
-        Settings.loadConfigMap();
-        if (config.basePath != null) {
-            Settings.setProperty(Settings.BASE_PATH, config.basePath);
-        }
-
-        AbstractCompiler.preProcess();
-
+    private static List<DuplicationReport> performAnalysis(CLIConfig config) throws IOException {
         // Load configuration
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
                 config.minLines,
@@ -173,6 +109,37 @@ public class BertieCLI {
                 System.err.println("Error analyzing " + className + ": " + e.getMessage());
             }
         }
+
+        return reports;
+    }
+
+    private static void runAnalysis(CLIConfig config) throws IOException {
+        List<DuplicationReport> reports = performAnalysis(config);
+
+        // Load config again for display purposes
+        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
+                config.minLines,
+                config.threshold,
+                config.preset);
+
+        // Print the detailed report
+        if (config.jsonOutput) {
+            printJsonReport(reports, dupConfig);
+        } else {
+            printTextReport(reports, dupConfig);
+        }
+
+        // Export metrics if requested
+        if (config.exportFormat != null && !config.exportFormat.isEmpty()) {
+            exportMetrics(reports, config);
+        }
+    }
+
+    private static void runRefactoring(CLIConfig config) throws IOException {
+        System.out.println("=== PHASE 1: Duplicate Detection ===");
+        System.out.println();
+
+        List<DuplicationReport> reports = performAnalysis(config);
 
         if (reports.isEmpty()) {
             System.out.println("No files found matching criteria");
