@@ -85,66 +85,28 @@ public class BertieCLI {
                 config.preset);
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
 
-        // Get all compilation units from AntikytheraRuntime
+        // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-
-        // Check for target_class in YAML (highest priority)
         String targetClass = DuplicationDetectorSettings.getTargetClass();
 
-        // Filter to target class or target path if specified, otherwise process all
-        List<Map.Entry<String, CompilationUnit>> targetCUs;
-        if (targetClass != null && !targetClass.isEmpty()) {
-            // Single class analysis from YAML
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> e.getKey().equals(targetClass))
-                    .toList();
-
-            if (targetCUs.isEmpty()) {
-                System.err.println("Target class not found: " + targetClass);
-                System.err.println("Make sure the class is in your base_path and properly loaded");
-                return;
-            }
-            System.out.println("Analyzing single class from YAML: " + targetClass);
-        } else if (config.targetPath != null) {
-            // CLI target path filter
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> matchesTargetPath(e.getKey(), config.targetPath))
-                    .toList();
-
-            if (targetCUs.isEmpty()) {
-                System.err.println("No Java files found matching: " + config.targetPath);
-                return;
-            }
-        } else {
-            // Process all files from Antikythera runtime (like Logger, TestFixer,
-            // QueryOptimizer)
-            targetCUs = new ArrayList<>(allCUs.entrySet());
-        }
-
-        System.out.printf("Analyzing %d Java files...%n", targetCUs.size());
-        System.out.println();
-
         List<DuplicationReport> reports = new ArrayList<>();
-        int fileCount = 0;
 
-        for (var entry : targetCUs) {
+        // Single iteration - filter and analyze
+        for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
-            CompilationUnit cu = entry.getValue();
-            fileCount++;
+
+            // Apply filters inline
+            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
+                continue;
+            }
+            if (config.targetPath != null && !matchesTargetPath(className, config.targetPath)) {
+                continue;
+            }
 
             try {
-                // Show progress every 10 files or for large files
-                if (fileCount % 10 == 0 || fileCount == 1) {
-                    System.out.printf("Progress: %d/%d files (%.1f%%) - Current: %s%n",
-                            fileCount, targetCUs.size(),
-                            (fileCount * 100.0 / targetCUs.size()),
-                            className.substring(className.lastIndexOf('.') + 1));
-                }
-
-                // Build source file path (like Logger.java does)
                 Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
                         AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
                 reports.add(report);
             } catch (Exception e) {
                 System.err.println("Error analyzing " + className + ": " + e.getMessage());
@@ -184,38 +146,37 @@ public class BertieCLI {
                 config.preset);
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
 
-        // Get compilation units
+        // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
         String targetClass = DuplicationDetectorSettings.getTargetClass();
 
-        List<Map.Entry<String, CompilationUnit>> targetCUs;
-        if (targetClass != null && !targetClass.isEmpty()) {
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> e.getKey().equals(targetClass))
-                    .toList();
-        } else if (config.targetPath != null) {
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> matchesTargetPath(e.getKey(), config.targetPath))
-                    .toList();
-        } else {
-            targetCUs = new ArrayList<>(allCUs.entrySet());
-        }
-
-        System.out.printf("Analyzing %d Java files...%n", targetCUs.size());
         List<DuplicationReport> reports = new ArrayList<>();
 
-        for (var entry : targetCUs) {
+        // Single iteration - filter and analyze
+        for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
-            CompilationUnit cu = entry.getValue();
+
+            // Apply filters inline
+            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
+                continue;
+            }
+            if (config.targetPath != null && !matchesTargetPath(className, config.targetPath)) {
+                continue;
+            }
 
             try {
                 Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
                         AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
                 reports.add(report);
             } catch (Exception e) {
                 System.err.println("Error analyzing " + className + ": " + e.getMessage());
             }
+        }
+
+        if (reports.isEmpty()) {
+            System.out.println("No files found matching criteria");
+            return;
         }
 
         // Show detection summary
