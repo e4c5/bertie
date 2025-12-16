@@ -4,6 +4,8 @@ import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.Variation;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.model.VariationType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,7 +17,19 @@ import java.util.stream.Collectors;
  */
 public class ParameterExtractor {
 
+    private static final Logger logger = LoggerFactory.getLogger(ParameterExtractor.class);
     private static final int MAX_PARAMETERS = 5;
+
+    private final AIParameterNamer aiNamer;
+
+    public ParameterExtractor() {
+        this.aiNamer = new AIParameterNamer();
+        if (aiNamer.isAvailable()) {
+            logger.info("AI-powered parameter naming enabled");
+        } else {
+            logger.info("Using pattern-based parameter naming (AI not configured)");
+        }
+    }
 
     /**
      * Extract parameter specifications from variations.
@@ -80,76 +94,90 @@ public class ParameterExtractor {
     }
 
     /**
-     * Infer a meaningful parameter name from variations.
+     * Infer parameter name using three-tier strategy: AI → Pattern → Generic.
      */
     private String inferParameterName(List<Variation> variations, int position) {
-        VariationType varType = variations.get(0).type();
-
-        // Try to infer name based on variation type
-        return switch (varType) {
-            case LITERAL -> inferLiteralParameterName(variations, position);
-            case VARIABLE -> inferVariableParameterName(variations);
-            case METHOD_CALL -> "method" + position;
-            case TYPE -> "type" + position;
-            default -> "param" + position;
-        };
-    }
-
-    /**
-     * Infer parameter name from literal variations.
-     */
-    private String inferLiteralParameterName(List<Variation> variations, int position) {
-        String firstValue = variations.get(0).value1();
-
-        // Infer from literal type
-        if (isNumeric(firstValue)) {
-            return "value" + position;
-        } else if (isBoolean(firstValue)) {
-            return "flag" + position;
-        } else if (isString(firstValue)) {
-            // Try to infer from string content
-            return inferFromStringContent(firstValue, position);
+        if (variations.isEmpty()) {
+            return "param" + position;
         }
 
-        return "literal" + position;
-    }
+        Variation first = variations.get(0);
+        String type = first.inferredType();
+        String value = first.value1();
 
-    /**
-     * Infer parameter name from variable name variations.
-     */
-    private String inferVariableParameterName(List<Variation> variations) {
-        // Look for common patterns in variable names
-        List<String> names = variations.stream()
+        // Collect example values for AI
+        List<String> exampleValues = variations.stream()
                 .map(Variation::value1)
+                .distinct()
+                .limit(3)
                 .toList();
 
-        // Find common suffix/prefix
-        String commonPart = findCommonPart(names);
-        if (commonPart != null && !commonPart.isEmpty()) {
-            return uncapitalize(commonPart);
+        // Tier 1: Try AI naming (PRIMARY)
+        if (aiNamer != null && aiNamer.isAvailable()) {
+            String aiName = aiNamer.suggestName(value, exampleValues, null);
+            if (aiName != null) {
+                logger.debug("AI suggested '{}' for value '{}'", aiName, value);
+                return aiName;
+            }
         }
 
-        // Use a generic name based on content
-        return "value";
+        // Tier 2: Try pattern-based naming (BACKUP)
+        String patternName = inferFromPattern(value, first.type());
+        if (patternName != null) {
+            logger.debug("Pattern matched '{}' for value '{}'", patternName, value);
+            return patternName;
+        }
+
+        // Tier 3: Generic fallback (LAST RESORT)
+        String genericName = generateGenericName(type, first.type(), position);
+        logger.debug("Using generic name '{}' for value '{}'", genericName, value);
+        return genericName;
     }
 
     /**
-     * Infer parameter name from string content.
+     * Try to infer name from obvious patterns (Tier 2).
+     * Returns null if no pattern matches.
      */
-    private String inferFromStringContent(String stringLiteral, int position) {
-        // Remove quotes
-        String content = stringLiteral.replaceAll("^\"|\"$", "");
-
-        // Look for patterns
-        if (content.contains("@") && content.contains(".")) {
-            return "email" + position;
-        } else if (content.matches("\\d+")) {
-            return "id" + position;
-        } else if (content.length() < 20) {
-            return "name" + position;
+    private String inferFromPattern(String value, VariationType varType) {
+        // Only for literals and variables
+        if (varType != VariationType.LITERAL && varType != VariationType.VARIABLE) {
+            return null;
         }
 
-        return "text" + position;
+        String content = value.replaceAll("^\"|\"$", "");
+        String upper = content.toUpperCase();
+
+        // Essential, unambiguous patterns only
+        if (content.contains("@") && content.contains(".")) {
+            return "email";
+        }
+        if (content.startsWith("http://") || content.startsWith("https://")) {
+            return "url";
+        }
+        if (content.matches("\\d+")) {
+            return "id";
+        }
+        if (content.contains("/") || content.contains("\\\\")) {
+            return "path";
+        }
+        if (upper.startsWith("SELECT") || upper.startsWith("INSERT") ||
+                upper.startsWith("UPDATE") || upper.startsWith("DELETE")) {
+            return "query";
+        }
+
+        return null;
+    }
+
+    /**
+     * Generate generic parameter name (Tier 3).
+     */
+    private String generateGenericName(String type, VariationType varType, int position) {
+        return switch (varType) {
+            case LITERAL -> type.equalsIgnoreCase("String") ? "text" + position : "value" + position;
+            case VARIABLE -> "value" + position;
+            case METHOD_CALL -> "result" + position;
+            default -> "param" + position;
+        };
     }
 
     /**
@@ -180,53 +208,27 @@ public class ParameterExtractor {
      */
     private List<ParameterSpec> sortParameters(List<ParameterSpec> parameters) {
         return parameters.stream()
-                .sorted((a, b) -> {
-                    boolean aPrimitive = isPrimitive(a.type());
-                    boolean bPrimitive = isPrimitive(b.type());
+                .sorted((p1, p2) -> {
+                    boolean p1IsPrimitive = isPrimitiveType(p1.type());
+                    boolean p2IsPrimitive = isPrimitiveType(p2.type());
 
-                    if (aPrimitive && !bPrimitive)
+                    if (p1IsPrimitive && !p2IsPrimitive) {
                         return -1;
-                    if (!aPrimitive && bPrimitive)
+                    } else if (!p1IsPrimitive && p2IsPrimitive) {
                         return 1;
-                    return 0; // Keep original order
+                    }
+                    return 0;
                 })
                 .toList();
     }
 
     /**
-     * Check if a type is primitive.
+     * Check if a type is a primitive or primitive wrapper.
      */
-    private boolean isPrimitive(String type) {
-        return switch (type) {
-            case "int", "long", "double", "float", "boolean", "char", "byte", "short" -> true;
-            default -> false;
-        };
-    }
-
-    /**
-     * Check if string is numeric.
-     */
-    private boolean isNumeric(String value) {
-        try {
-            Integer.parseInt(value);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
-    }
-
-    /**
-     * Check if string is boolean.
-     */
-    private boolean isBoolean(String value) {
-        return "true".equals(value) || "false".equals(value);
-    }
-
-    /**
-     * Check if string is a string literal.
-     */
-    private boolean isString(String value) {
-        return value.startsWith("\"") && value.endsWith("\"");
+    private boolean isPrimitiveType(String type) {
+        return type.equals("int") || type.equals("long") || type.equals("double") ||
+                type.equals("boolean") || type.equals("Integer") || type.equals("Long") ||
+                type.equals("Double") || type.equals("Boolean");
     }
 
     /**
@@ -237,15 +239,5 @@ public class ParameterExtractor {
             return str;
         }
         return str.substring(0, 1).toUpperCase() + str.substring(1);
-    }
-
-    /**
-     * Uncapitalize first letter.
-     */
-    private String uncapitalize(String str) {
-        if (str == null || str.isEmpty()) {
-            return str;
-        }
-        return str.substring(0, 1).toLowerCase() + str.substring(1);
     }
 }
