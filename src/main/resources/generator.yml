@@ -20,6 +20,15 @@ duplication_detector:
   # Similarity threshold (0.0 to 1.0)
   # 0.75 = 75% similar
   threshold: 0.75
+  
+  # Performance optimization: limit window size growth
+  # Prevents exponential sequence generation
+  max_window_growth: 5
+  
+  # Extract only maximal sequences (longest at each position)
+  # For test classes with repetitive setup, use false to detect partial duplicates
+  # For large codebases, use true for better performance
+  maximal_only: true
 
   # Similarity algorithm weights (optional)
   # similarity_weights:
@@ -29,15 +38,16 @@ duplication_detector:
 
 # AI Service Configuration (optional)
 # Required for AI-powered method naming
-ai_service:
-  provider: "gemini"
-  model: "gemini-2.0-flash-exp"
-  api_endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-  api_key: "${GEMINI_API_KEY}"
-  timeout_seconds: 30
-  max_retries: 2
-  track_usage: true
-  cost_per_1k_tokens: 0.00015
+# DISABLED: No API key available
+# ai_service:
+#   provider: "gemini"
+#   model: "gemini-2.0-flash-exp"
+#   api_endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+#   api_key: "${GEMINI_API_KEY}"
+#   timeout_seconds: 30
+#   max_retries: 2
+#   track_usage: true
+#   cost_per_1k_tokens: 0.00015
 
 # Environment Variables
 # Set these in your shell before running:

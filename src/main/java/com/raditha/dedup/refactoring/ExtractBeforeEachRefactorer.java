@@ -102,13 +102,15 @@ public class ExtractBeforeEachRefactorer {
     }
 
     /**
-     * Get existing @BeforeEach method or create new one.
+     * Get existing @BeforeEach method with the same name or create new one.
+     * Each unique method name gets its own @BeforeEach method.
      */
     private MethodDeclaration getOrCreateBeforeEachMethod(
             ClassOrInterfaceDeclaration testClass, String methodName) {
 
-        // Look for existing @BeforeEach method
+        // Look for existing @BeforeEach method WITH THE SAME NAME
         Optional<MethodDeclaration> existing = testClass.getMethods().stream()
+                .filter(m -> m.getNameAsString().equals(methodName))
                 .filter(m -> m.getAnnotations().stream()
                         .anyMatch(a -> a.getNameAsString().equals("BeforeEach")))
                 .findFirst();
