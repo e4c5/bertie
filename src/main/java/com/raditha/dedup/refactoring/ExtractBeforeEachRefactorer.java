@@ -89,9 +89,9 @@ public class ExtractBeforeEachRefactorer {
                 if (exprStmt.getExpression().isVariableDeclarationExpr()) {
                     VariableDeclarationExpr varDecl = exprStmt.getExpression().asVariableDeclarationExpr();
 
-                    for (VariableDeclarator var : varDecl.getVariables()) {
-                        String varName = var.getNameAsString();
-                        String varType = var.getType().asString();
+                    for (VariableDeclarator variable : varDecl.getVariables()) {
+                        String varName = variable.getNameAsString();
+                        String varType = variable.getType().asString();
                         variables.put(varName, varType);
                     }
                 }
@@ -156,14 +156,14 @@ public class ExtractBeforeEachRefactorer {
                 if (exprStmt.getExpression().isVariableDeclarationExpr()) {
                     VariableDeclarationExpr varDecl = exprStmt.getExpression().asVariableDeclarationExpr();
 
-                    for (VariableDeclarator var : varDecl.getVariables()) {
-                        if (promotedVariables.containsKey(var.getNameAsString())) {
+                    for (VariableDeclarator variable : varDecl.getVariables()) {
+                        if (promotedVariables.containsKey(variable.getNameAsString())) {
                             // Convert to assignment: type var = value -> var = value
-                            if (var.getInitializer().isPresent()) {
+                            if (variable.getInitializer().isPresent()) {
                                 exprStmt.setExpression(
                                         new com.github.javaparser.ast.expr.AssignExpr(
-                                                new NameExpr(var.getNameAsString()),
-                                                var.getInitializer().get(),
+                                                new NameExpr(variable.getNameAsString()),
+                                                variable.getInitializer().get(),
                                                 com.github.javaparser.ast.expr.AssignExpr.Operator.ASSIGN));
                             }
                         }
@@ -181,9 +181,9 @@ public class ExtractBeforeEachRefactorer {
     private void promoteVariablesToFields(ClassOrInterfaceDeclaration testClass,
             Map<String, String> variables) {
 
-        for (Map.Entry<String, String> var : variables.entrySet()) {
-            String varName = var.getKey();
-            String varType = var.getValue();
+        for (Map.Entry<String, String> variable : variables.entrySet()) {
+            String varName = variable.getKey();
+            String varType = variable.getValue();
 
             // Check if field already exists
             boolean fieldExists = testClass.getFields().stream()

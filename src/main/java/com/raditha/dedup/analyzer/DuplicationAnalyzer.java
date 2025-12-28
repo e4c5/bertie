@@ -45,7 +45,7 @@ public class DuplicationAnalyzer {
      */
     public DuplicationAnalyzer(DuplicationConfig config) {
         this.config = config;
-        this.extractor = new StatementExtractor(config.minLines());
+        this.extractor = new StatementExtractor(config.minLines(), config.maxWindowGrowth(), config.maximalOnly());
         this.preFilter = new PreFilterChain();
         this.normalizer = new TokenNormalizer();
         this.variationTracker = new VariationTracker();

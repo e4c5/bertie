@@ -19,24 +19,52 @@ import java.util.List;
 public class StatementExtractor {
     
     private final int minStatements;
+    private final int maxWindowGrowth;
+    private final boolean maximalOnly;
     
     /**
-     * Create extractor with default minimum statement count (5).
+     * Create extractor with default minimum statement count (5) and window growth (5).
      */
     public StatementExtractor() {
-        this(5);
+        this(5, 5, true);
     }
     
     /**
-     * Create extractor with custom minimum statement count.
+     * Create extractor with custom minimum statement count and default window growth.
      * 
      * @param minStatements Minimum number of statements in a sequence
      */
     public StatementExtractor(int minStatements) {
+        this(minStatements, 5, true);
+    }
+    
+    /**
+     * Create extractor with custom minimum statement count and window growth.
+     * 
+     * @param minStatements Minimum number of statements in a sequence
+     * @param maxWindowGrowth Maximum window size growth beyond minStatements
+     */
+    public StatementExtractor(int minStatements, int maxWindowGrowth) {
+        this(minStatements, maxWindowGrowth, true);
+    }
+    
+    /**
+     * Create extractor with full configuration.
+     * 
+     * @param minStatements Minimum number of statements in a sequence
+     * @param maxWindowGrowth Maximum window size growth beyond minStatements
+     * @param maximalOnly If true, only extract maximal (longest possible) sequences at each position
+     */
+    public StatementExtractor(int minStatements, int maxWindowGrowth, boolean maximalOnly) {
         if (minStatements < 1) {
             throw new IllegalArgumentException("Minimum statements must be at least 1");
         }
+        if (maxWindowGrowth < 0) {
+            throw new IllegalArgumentException("Max window growth must be >= 0");
+        }
         this.minStatements = minStatements;
+        this.maxWindowGrowth = maxWindowGrowth;
+        this.maximalOnly = maximalOnly;
     }
     
     /**
@@ -87,9 +115,16 @@ public class StatementExtractor {
         }
         
         /**
-         * Extract all possible sliding windows of statements.
-         * For a method with N statements and minimum M statements,
-         * extracts windows: [0..M-1], [1..M], [2..M+1], ..., [N-M..N-1]
+         * Extract sliding windows of statements with optimized strategy.
+         * 
+         * Two modes:
+         * 1. maximalOnly=true: Extract only the longest possible sequence at each position.
+         *    This generates O(N) sequences and avoids comparing smaller duplicates 
+         *    that are subsets of larger ones.
+         *    For a method with 100 statements: ~100 sequences
+         * 
+         * 2. maximalOnly=false: Extract limited-size windows (minStatements to minStatements + maxWindowGrowth).
+         *    For a method with 100 statements and maxWindowGrowth=5: ~576 sequences
          */
         private void extractSlidingWindows(List<Statement> statements, MethodDeclaration method) {
             int totalStatements = statements.size();
@@ -99,9 +134,51 @@ public class StatementExtractor {
                 return;
             }
             
-            // Extract all possible windows
+            if (StatementExtractor.this.maximalOnly) {
+                // Strategy 1: Extract only maximal sequences (one per starting position)
+                // This dramatically reduces sequences when you only want the largest duplicates
+                extractMaximalSequences(statements, method, totalStatements);
+            } else {
+                // Strategy 2: Extract limited window sizes for more coverage
+                extractLimitedWindowSizes(statements, method, totalStatements);
+            }
+        }
+        
+        /**
+         * Extract only maximal (longest possible) sequence at each starting position.
+         * Generates exactly (totalStatements - minStatements + 1) sequences.
+         */
+        private void extractMaximalSequences(List<Statement> statements, MethodDeclaration method, int totalStatements) {
+            // For each starting position, create the longest possible sequence
             for (int start = 0; start <= totalStatements - minStatements; start++) {
-                for (int windowSize = minStatements; windowSize <= totalStatements - start; windowSize++) {
+                // Calculate the maximum size we can extract from this position
+                int remainingStatements = totalStatements - start;
+                int maxPossibleSize = Math.min(
+                    minStatements + StatementExtractor.this.maxWindowGrowth,
+                    remainingStatements
+                );
+                
+                // Only create the largest window from this position
+                List<Statement> window = statements.subList(start, start + maxPossibleSize);
+                StatementSequence sequence = createSequence(window, method);
+                sequences.add(sequence);
+            }
+        }
+        
+        /**
+         * Extract windows with limited size variation (original strategy).
+         * Generates multiple window sizes per position for better duplicate detection coverage.
+         */
+        private void extractLimitedWindowSizes(List<Statement> statements, MethodDeclaration method, int totalStatements) {
+            // Limit window size growth to prevent exponential explosion
+            final int maxWindowSize = Math.min(
+                minStatements + StatementExtractor.this.maxWindowGrowth,
+                totalStatements
+            );
+            
+            // Extract windows with limited size variation
+            for (int start = 0; start <= totalStatements - minStatements; start++) {
+                for (int windowSize = minStatements; windowSize <= maxWindowSize && start + windowSize <= totalStatements; windowSize++) {
                     int end = start + windowSize;
                     
                     List<Statement> window = statements.subList(start, end);

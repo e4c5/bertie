@@ -2,7 +2,6 @@ package com.raditha.dedup.metrics;
 
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
-import com.raditha.dedup.model.RefactoringStrategy;
 
 import java.io.IOException;
 import java.nio.file.Files;

@@ -108,13 +108,6 @@ public class SimilarityCalculator {
 
         // Be lenient with type compatibility - only reject if explicitly incompatible
         // (null or unknown types are OK)
-        if (typeCompatibility != null && !typeCompatibility.isFeasible()) {
-            // Only reject if there are actual type conflicts, not just unknowns
-            if (typeCompatibility.isTypeSafe() == false) {
-                return false;
-            }
-        }
-
-        return true; // Default to allowing refactoring unless explicitly problematic
+        return typeCompatibility == null || typeCompatibility.isFeasible() || typeCompatibility.isTypeSafe();// Default to allowing refactoring unless explicitly problematic
     }
 }

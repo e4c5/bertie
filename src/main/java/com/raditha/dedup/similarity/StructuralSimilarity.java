@@ -1,7 +1,6 @@
 package com.raditha.dedup.similarity;
 
 import com.raditha.dedup.model.Token;
-import com.raditha.dedup.model.TokenType;
 
 import java.util.HashSet;
 import java.util.List;

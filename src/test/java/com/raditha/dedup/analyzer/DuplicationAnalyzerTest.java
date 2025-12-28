@@ -86,6 +86,18 @@ class DuplicationAnalyzerTest {
 
     @Test
     void testPartialDuplicateInLargeMethod() {
+        // Use maximalOnly=false to detect partial duplicates within larger methods
+        DuplicationConfig config = new DuplicationConfig(
+                5, // minLines
+                0.75, // threshold
+                com.raditha.dedup.config.SimilarityWeights.balanced(),
+                false, // includeTests
+                java.util.List.of(), // excludePatterns
+                5, // maxWindowGrowth
+                false // maximalOnly - need to extract sub-sequences to find partial match
+        );
+        DuplicationAnalyzer partialAnalyzer = new DuplicationAnalyzer(config);
+        
         String code = """
                 class Test {
                     void smallMethod() {
@@ -116,7 +128,7 @@ class DuplicationAnalyzerTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("Test.java"));
+        DuplicationReport report = partialAnalyzer.analyzeFile(cu, Paths.get("Test.java"));
 
         // Should find the duplicate despite one being inside a larger method
         assertTrue(report.hasDuplicates());

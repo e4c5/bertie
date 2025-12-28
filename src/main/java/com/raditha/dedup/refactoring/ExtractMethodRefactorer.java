@@ -195,7 +195,6 @@ public class ExtractMethodRefactorer {
             return -1;
         }
 
-        Statement firstStmt = sequence.statements().get(0);
         NodeList<Statement> blockStmts = block.getStatements();
 
         // Simple approach: match by line number
