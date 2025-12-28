@@ -24,8 +24,7 @@ public class ExtractMethodRefactorer {
     /**
      * Perform extract method refactoring.
      */
-    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation)
-            throws IOException {
+    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
         StatementSequence primary = cluster.primary();
 
@@ -120,7 +119,7 @@ public class ExtractMethodRefactorer {
                 Expression expr = stmt.asExpressionStmt().getExpression();
                 if (expr.isVariableDeclarationExpr()) {
                     VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
-                    if (varDecl.getVariables().size() > 0) {
+                    if (!varDecl.getVariables().isEmpty()) {
                         var variable = varDecl.getVariable(0);
                         String varType = variable.getType().asString();
                         if (varType.contains(returnType) || returnType.contains(varType)) {

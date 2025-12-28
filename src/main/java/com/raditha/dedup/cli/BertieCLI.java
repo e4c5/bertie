@@ -92,7 +92,9 @@ public class BertieCLI {
                 continue;
             }
 
-            Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
+            // Determine if this is a test class and use the correct source directory
+            String sourceDir = isTestClass(className) ? "src/test/java" : "src/main/java";
+            Path sourceFile = Paths.get(Settings.getBasePath(), sourceDir,
                     AbstractCompiler.classToPath(className));
             DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
             reports.add(report);
@@ -216,6 +218,19 @@ public class BertieCLI {
         // Check if class name contains target path (package or path segment)
         return className.contains(targetStr.replace("/", ".")) ||
                 className.replace(".", "/").contains(targetStr);
+    }
+    
+    /**
+     * Determine if a class is a test class based on naming conventions.
+     * Test classes typically end with "Test", "Tests", or "TestCase".
+     */
+    private static boolean isTestClass(String className) {
+        // Check common test class name patterns
+        return className.endsWith("Test") || 
+               className.endsWith("Tests") || 
+               className.endsWith("TestCase") ||
+               className.contains(".test.") ||
+               className.contains(".tests.");
     }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
