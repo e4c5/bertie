@@ -8,6 +8,7 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.ReferenceType;
 import com.raditha.dedup.model.*;
 
 import java.io.IOException;
@@ -80,6 +81,14 @@ public class ExtractMethodRefactorer {
             method.addParameter(new Parameter(
                     new ClassOrInterfaceType(null, param.type()),
                     param.name()));
+        }
+
+        // Copy thrown exceptions from containing method
+        if (sequence.containingMethod() != null) {
+            NodeList<ReferenceType> exceptions = sequence.containingMethod().getThrownExceptions();
+            for (ReferenceType exception : exceptions) {
+                method.addThrownException(exception.clone());
+            }
         }
 
         // Set method body (clone the statements)

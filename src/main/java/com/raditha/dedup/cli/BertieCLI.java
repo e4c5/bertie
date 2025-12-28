@@ -14,15 +14,18 @@ import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Command-line interface for the Duplication Detector.
- * 
+ * <p>
  * Usage:
  * java -jar duplication-detector.jar [options] <file-or-directory>
- * 
+ * <p>
  * Configuration priority: CLI arguments > generator.yml > defaults
  */
 @SuppressWarnings("java:S106")
@@ -30,44 +33,21 @@ public class BertieCLI {
 
     private static final String VERSION = "1.0.0";
 
-    public static void main(String[] args) {
-        try {
-            CLIConfig config = parseArguments(args);
+    public static void main(String[] args) throws Exception {
+        CLIConfig config = parseArguments(args);
 
-            if (config.showHelp) {
-                printHelp();
-                return;
-            }
-
-            if (config.showVersion) {
-                System.out.println("Duplication Detector v" + VERSION);
-                return;
-            }
-
-            // Run detection or refactoring based on command
-            if (config.command.equals("refactor")) {
-                runRefactoring(config);
-            } else {
-                runAnalysis(config);
-            }
-
-        } catch (IllegalArgumentException e) {
-            System.err.println("Error: " + e.getMessage());
-            System.err.println("Use --help for usage information");
-            System.exit(1);
-        } catch (Exception e) {
-            System.err.println("Fatal error: " + e.getMessage());
-            e.printStackTrace();
-            System.exit(2);
+        if (config.showHelp) {
+            printHelp();
+            return;
         }
-    }
 
-    private static void runAnalysis(CLIConfig config) throws IOException {
-        // Initialize Settings and parse source files (same as Logger.java,
-        // TestFixer.java)
+        if (config.showVersion) {
+            System.out.println("Duplication Detector v" + VERSION);
+            return;
+        }
+
+        // Initialize Settings once
         Settings.loadConfigMap();
-
-        // Apply CLI overrides to Settings
         if (config.basePath != null) {
             Settings.setProperty(Settings.BASE_PATH, config.basePath);
         }
@@ -75,81 +55,64 @@ public class BertieCLI {
             Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
         }
 
-        // Parse all source files
+        // Parse all source files once
         AbstractCompiler.preProcess();
 
-        // Load configuration (generator.yml + CLI overrides)
+        // Run detection or refactoring based on command
+        if (config.command.equals("refactor")) {
+            runRefactoring(config);
+        } else {
+            runAnalysis(config);
+        }
+    }
+
+    private static List<DuplicationReport> performAnalysis(CLIConfig config) {
+        // Load configuration
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
                 config.minLines,
                 config.threshold,
                 config.preset);
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
 
-        // Get all compilation units from AntikytheraRuntime
+        // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-
-        // Check for target_class in YAML (highest priority)
         String targetClass = DuplicationDetectorSettings.getTargetClass();
 
-        // Filter to target class or target path if specified, otherwise process all
-        List<Map.Entry<String, CompilationUnit>> targetCUs;
-        if (targetClass != null && !targetClass.isEmpty()) {
-            // Single class analysis from YAML
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> e.getKey().equals(targetClass))
-                    .toList();
-
-            if (targetCUs.isEmpty()) {
-                System.err.println("Target class not found: " + targetClass);
-                System.err.println("Make sure the class is in your base_path and properly loaded");
-                return;
-            }
-            System.out.println("Analyzing single class from YAML: " + targetClass);
-        } else if (config.targetPath != null) {
-            // CLI target path filter
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> matchesTargetPath(e.getKey(), config.targetPath))
-                    .toList();
-
-            if (targetCUs.isEmpty()) {
-                System.err.println("No Java files found matching: " + config.targetPath);
-                return;
-            }
-        } else {
-            // Process all files from Antikythera runtime (like Logger, TestFixer,
-            // QueryOptimizer)
-            targetCUs = new ArrayList<>(allCUs.entrySet());
-        }
-
-        System.out.printf("Analyzing %d Java files...%n", targetCUs.size());
-        System.out.println();
-
         List<DuplicationReport> reports = new ArrayList<>();
-        int fileCount = 0;
 
-        for (var entry : targetCUs) {
+        // Single iteration - filter and analyze
+        for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
-            CompilationUnit cu = entry.getValue();
-            fileCount++;
+
+            // Apply filters inline
+            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
+                continue;
+            }
+            if (config.targetPath != null && !matchesTargetPath(className, config.targetPath)) {
+                continue;
+            }
 
             try {
-                // Show progress every 10 files or for large files
-                if (fileCount % 10 == 0 || fileCount == 1) {
-                    System.out.printf("Progress: %d/%d files (%.1f%%) - Current: %s%n",
-                            fileCount, targetCUs.size(),
-                            (fileCount * 100.0 / targetCUs.size()),
-                            className.substring(className.lastIndexOf('.') + 1));
-                }
-
-                // Build source file path (like Logger.java does)
                 Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
                         AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
                 reports.add(report);
             } catch (Exception e) {
                 System.err.println("Error analyzing " + className + ": " + e.getMessage());
             }
         }
+
+        return reports;
+    }
+
+    private static void runAnalysis(CLIConfig config) {
+        List<DuplicationReport> reports = performAnalysis(config);
+
+        // Load config again for display purposes
+        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
+                config.minLines,
+                config.threshold,
+                config.preset);
 
         // Print the detailed report
         if (config.jsonOutput) {
@@ -165,57 +128,14 @@ public class BertieCLI {
     }
 
     private static void runRefactoring(CLIConfig config) throws IOException {
-        // First run detection
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
-        // Initialize Settings
-        Settings.loadConfigMap();
-        if (config.basePath != null) {
-            Settings.setProperty(Settings.BASE_PATH, config.basePath);
-        }
+        List<DuplicationReport> reports = performAnalysis(config);
 
-        AbstractCompiler.preProcess();
-
-        // Load configuration
-        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                config.minLines,
-                config.threshold,
-                config.preset);
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
-
-        // Get compilation units
-        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-        String targetClass = DuplicationDetectorSettings.getTargetClass();
-
-        List<Map.Entry<String, CompilationUnit>> targetCUs;
-        if (targetClass != null && !targetClass.isEmpty()) {
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> e.getKey().equals(targetClass))
-                    .toList();
-        } else if (config.targetPath != null) {
-            targetCUs = allCUs.entrySet().stream()
-                    .filter(e -> matchesTargetPath(e.getKey(), config.targetPath))
-                    .toList();
-        } else {
-            targetCUs = new ArrayList<>(allCUs.entrySet());
-        }
-
-        System.out.printf("Analyzing %d Java files...%n", targetCUs.size());
-        List<DuplicationReport> reports = new ArrayList<>();
-
-        for (var entry : targetCUs) {
-            String className = entry.getKey();
-            CompilationUnit cu = entry.getValue();
-
-            try {
-                Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
-                        AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
-                reports.add(report);
-            } catch (Exception e) {
-                System.err.println("Error analyzing " + className + ": " + e.getMessage());
-            }
+        if (reports.isEmpty()) {
+            System.out.println("No files found matching criteria");
+            return;
         }
 
         // Show detection summary
@@ -425,8 +345,8 @@ public class BertieCLI {
      * Print location information for a code sequence.
      */
     private static void printLocation(DuplicationReport report,
-            StatementSequence seq,
-            int locNum) {
+                                      StatementSequence seq,
+                                      int locNum) {
         String className = extractClassName(report.sourceFile().toString());
         String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "top-level";
         int startLine = seq.range().startLine();
@@ -632,23 +552,6 @@ public class BertieCLI {
         System.out.println();
     }
 
-    private static class CLIConfig {
-        String command = "detect"; // "detect" or "refactor"
-        Path targetPath;
-        String basePath = null;
-        String outputPath = null;
-        int minLines = 0; // 0 = use YAML/default
-        int threshold = 0; // 0 = use YAML/default
-        String preset = null;
-        boolean jsonOutput = false;
-        boolean showHelp = false;
-        boolean showVersion = false;
-        String exportFormat = null; // "csv", "json", or "both"
-        // Refactoring options
-        String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
-        String verifyMode = "compile"; // "none", "compile", "test"
-    }
-
     /**
      * Export metrics to CSV/JSON files.
      */
@@ -679,5 +582,22 @@ public class BertieCLI {
         } catch (Exception e) {
             System.err.println("⚠ Failed to export metrics: " + e.getMessage());
         }
+    }
+
+    private static class CLIConfig {
+        String command = "detect"; // "detect" or "refactor"
+        Path targetPath;
+        String basePath = null;
+        String outputPath = null;
+        int minLines = 0; // 0 = use YAML/default
+        int threshold = 0; // 0 = use YAML/default
+        String preset = null;
+        boolean jsonOutput = false;
+        boolean showHelp = false;
+        boolean showVersion = false;
+        String exportFormat = null; // "csv", "json", or "both"
+        // Refactoring options
+        String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
+        String verifyMode = "compile"; // "none", "compile", "test"
     }
 }
