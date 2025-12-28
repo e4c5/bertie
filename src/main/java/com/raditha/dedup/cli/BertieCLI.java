@@ -6,6 +6,7 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.metrics.MetricsExporter;
+import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringVerifier;
@@ -13,7 +14,6 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -92,14 +92,10 @@ public class BertieCLI {
                 continue;
             }
 
-            try {
-                Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
-                        AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
-                reports.add(report);
-            } catch (Exception e) {
-                System.err.println("Error analyzing " + className + ": " + e.getMessage());
-            }
+            Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
+                    AbstractCompiler.classToPath(className));
+            DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
+            reports.add(report);
         }
 
         return reports;
@@ -116,7 +112,7 @@ public class BertieCLI {
 
         // Print the detailed report
         if (config.jsonOutput) {
-            printJsonReport(reports, dupConfig);
+            printJsonReport(reports);
         } else {
             printTextReport(reports, dupConfig);
         }
@@ -127,7 +123,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runRefactoring(CLIConfig config) throws IOException {
+    private static void runRefactoring(CLIConfig config)  {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
@@ -330,7 +326,7 @@ public class BertieCLI {
         System.out.println("=".repeat(80));
         int totalLOCReduction = reports.stream()
                 .flatMap(r -> r.clusters().stream())
-                .mapToInt(c -> c.estimatedLOCReduction())
+                .mapToInt(DuplicateCluster::estimatedLOCReduction)
                 .sum();
         System.out.printf("Total potential LOC reduction: %d lines%n", totalLOCReduction);
         System.out.printf("Refactorable duplicates: %d%n",
@@ -385,7 +381,7 @@ public class BertieCLI {
         }
     }
 
-    private static void printJsonReport(List<DuplicationReport> reports, DuplicationConfig config) {
+    private static void printJsonReport(List<DuplicationReport> reports) {
         // Simple JSON output (would use proper JSON library in production)
         System.out.println("{");
         System.out.printf("  \"version\": \"%s\",%n", VERSION);
