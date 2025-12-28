@@ -9,6 +9,7 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.ReferenceType;
+import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.*;
 
 import java.io.IOException;
@@ -110,26 +111,18 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Find the variable to return (heuristic - finds variable of matching type).
+     * Find the variable to return using data flow analysis.
+     * 
+     * FIXED Gap 5: Now uses DataFlowAnalyzer to find variables that are:
+     * - Defined in the sequence
+     * - Actually used AFTER the sequence
+     * - Match the expected return type
+     * 
+     * This ensures we return the CORRECT variable, not just the first one.
      */
     private String findReturnVariable(StatementSequence sequence, String returnType) {
-        // Simple heuristic: look for variable declarations of the return type
-        for (Statement stmt : sequence.statements()) {
-            if (stmt.isExpressionStmt()) {
-                Expression expr = stmt.asExpressionStmt().getExpression();
-                if (expr.isVariableDeclarationExpr()) {
-                    VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
-                    if (!varDecl.getVariables().isEmpty()) {
-                        var variable = varDecl.getVariable(0);
-                        String varType = variable.getType().asString();
-                        if (varType.contains(returnType) || returnType.contains(varType)) {
-                            return variable.getNameAsString();
-                        }
-                    }
-                }
-            }
-        }
-        return null;
+        DataFlowAnalyzer analyzer = new DataFlowAnalyzer();
+        return analyzer.findReturnVariable(sequence, returnType);
     }
 
     /**

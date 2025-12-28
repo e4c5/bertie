@@ -14,6 +14,7 @@ import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.StatementSequence;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -204,28 +205,37 @@ public class ExtractBeforeEachRefactorer {
     private void removeDuplicatesFromTests(DuplicateCluster cluster,
             ClassOrInterfaceDeclaration testClass) {
 
-        // Get all affected method names
-        Set<String> affectedMethods = new HashSet<>();
-        affectedMethods.add(cluster.primary().containingMethod().getNameAsString());
+        // Remove statements from primary sequence
+        removeStatementsFromSequence(cluster.primary(), testClass);
 
+        // Remove statements from duplicate sequences
         cluster.duplicates().forEach(dup -> {
-            affectedMethods.add(dup.seq2().containingMethod().getNameAsString());
+            removeStatementsFromSequence(dup.seq2(), testClass);
         });
+    }
 
-        // Remove the duplicate statements from each method
-        for (String methodName : affectedMethods) {
-            testClass.getMethodsByName(methodName).forEach(method -> {
-                method.getBody().ifPresent(body -> {
-                    // Remove the first N statements (the duplicated setup code)
-                    int statementsToRemove = cluster.primary().statements().size();
-                    NodeList<Statement> statements = body.getStatements();
+    /**
+     * Remove statements from a specific sequence.
+     * Uses startOffset to remove from the correct position.
+     */
+    private void removeStatementsFromSequence(StatementSequence sequence,
+            ClassOrInterfaceDeclaration testClass) {
 
-                    for (int i = 0; i < statementsToRemove && i < statements.size(); i++) {
-                        statements.remove(0);
-                    }
-                });
+        String methodName = sequence.containingMethod().getNameAsString();
+        int startOffset = sequence.startOffset();
+        int count = sequence.statements().size();
+
+        testClass.getMethodsByName(methodName).forEach(method -> {
+            method.getBody().ifPresent(body -> {
+                NodeList<Statement> statements = body.getStatements();
+
+                // Remove from the ACTUAL position (startOffset), not from index 0!
+                // This fixes Gap 9: removes statements at their correct position
+                for (int i = 0; i < count && startOffset < statements.size(); i++) {
+                    statements.remove(startOffset);
+                }
             });
-        }
+        });
     }
 
     /**
