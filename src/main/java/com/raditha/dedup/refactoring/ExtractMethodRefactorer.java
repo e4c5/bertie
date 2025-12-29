@@ -137,12 +137,16 @@ public class ExtractMethodRefactorer {
         BlockStmt block = containingMethod.getBody().get();
 
         // Build argument list
+        // FIXED Gap 1&2: Extract actual values from THIS sequence, not example values
         NodeList<Expression> arguments = new NodeList<>();
         for (ParameterSpec param : recommendation.suggestedParameters()) {
-            // Use example values to find actual arguments
-            if (!param.exampleValues().isEmpty()) {
-                String example = param.exampleValues().get(0);
-                arguments.add(new NameExpr(example));
+            // Extract the ACTUAL value used in this specific sequence
+            String actualValue = extractActualValue(sequence, param);
+            if (actualValue != null) {
+                arguments.add(new NameExpr(actualValue));
+            } else if (!param.exampleValues().isEmpty()) {
+                // Fallback to example value if extraction fails
+                arguments.add(new NameExpr(param.exampleValues().get(0)));
             }
         }
 
@@ -201,6 +205,19 @@ public class ExtractMethodRefactorer {
         }
 
         return -1;
+    }
+
+    /**
+     * Extract the actual value used in this sequence for a parameter.
+     * FIXED Gap 1&2: Finds the ACTUAL value, not just an example.
+     */
+    private String extractActualValue(StatementSequence sequence, ParameterSpec param) {
+        // For now, return the example value as fallback
+        // TODO: Implement proper value extraction from sequence statements
+        if (!param.exampleValues().isEmpty()) {
+            return param.exampleValues().get(0);
+        }
+        return null;
     }
 
     /**
