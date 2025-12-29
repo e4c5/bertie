@@ -60,18 +60,26 @@ public class RefactoringRecommendationGenerator {
             DuplicateCluster cluster,
             TypeCompatibility typeCompat) {
 
+        // CRITICAL FIX: Check if ANY duplicate is in a source (non-test) file
+        // If so, we MUST use EXTRACT_HELPER_METHOD, not test-specific strategies
+        boolean hasSourceFiles = cluster.allSequences().stream()
+                .anyMatch(seq -> !isTestFile(seq.sourceFilePath()));
+
+        // If duplicates span source files, always use EXTRACT_HELPER_METHOD
+        if (hasSourceFiles) {
+            return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+        }
+
+        // ALL duplicates are in test files only - can safely use test-specific
+        // strategies
         StatementSequence primary = cluster.primary();
 
-        // Check if in test class
-        boolean isTestClass = primary.sourceFilePath() != null &&
-                primary.sourceFilePath().toString().contains("Test.java");
+        if (isSetupCode(primary)) {
+            return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
+        }
 
-        if (isTestClass) {
-            if (isSetupCode(primary)) {
-                return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
-            } else if (canParameterize(cluster)) {
-                return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
-            }
+        if (canParameterize(cluster)) {
+            return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
         }
 
         // Cross-class?
@@ -80,6 +88,17 @@ public class RefactoringRecommendationGenerator {
         }
 
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+    }
+
+    /**
+     * Check if a file path is a test file.
+     */
+    private boolean isTestFile(java.nio.file.Path filePath) {
+        if (filePath == null) {
+            return false;
+        }
+        String path = filePath.toString();
+        return path.contains("Test.java") || path.contains("/test/") || path.contains("\\test\\");
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy) {

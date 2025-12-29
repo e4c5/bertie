@@ -1,6 +1,8 @@
 package com.raditha.dedup.model;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * A cluster of duplicate code blocks.
@@ -52,5 +54,20 @@ public record DuplicateCluster(
                 getDuplicateCount(),
                 getAverageSimilarity() * 100,
                 estimatedLOCReduction);
+    }
+
+    /**
+     * Get all distinct statement sequences in this cluster.
+     * Includes primary and all sequences from similarity pairs.
+     */
+    public List<StatementSequence> allSequences() {
+        List<StatementSequence> all = new ArrayList<>();
+        all.add(primary);
+        for (SimilarityPair pair : duplicates) {
+            all.add(pair.seq1());
+            all.add(pair.seq2());
+        }
+        // Return distinct sequences only
+        return all.stream().distinct().collect(Collectors.toList());
     }
 }
