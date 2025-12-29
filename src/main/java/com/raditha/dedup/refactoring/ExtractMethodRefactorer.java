@@ -1,6 +1,7 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -16,7 +17,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Extracts duplicate code to a private helper method.
@@ -26,35 +29,47 @@ public class ExtractMethodRefactorer {
 
     /**
      * Perform extract method refactoring.
+     * 
+     * FIXED: Now tracks ALL modified compilation units, not just primary.
+     * This fixes the bug where seq1/seq2 in different files had method calls
+     * but the method definition was never written to their files.
      */
     public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
         StatementSequence primary = cluster.primary();
 
+        // Track all modified compilation units
+        Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
+        modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
+
         // 1. Create the new helper method
         MethodDeclaration helperMethod = createHelperMethod(primary, recommendation);
 
-        // 2. Add method to the class
+        // 2. Add method to the class (modifies primary CU)
         ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
                 .findAncestor(ClassOrInterfaceDeclaration.class)
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
         containingClass.addMember(helperMethod);
 
-        // 3. Replace all duplicate occurrences with method calls
+        // 3. Replace all duplicate occurrences with method calls (track each CU)
         for (SimilarityPair pair : cluster.duplicates()) {
             replaceWithMethodCall(pair.seq1(), recommendation);
+            modifiedCUs.put(pair.seq1().compilationUnit(), pair.seq1().sourceFilePath());
+
             replaceWithMethodCall(pair.seq2(), recommendation);
+            modifiedCUs.put(pair.seq2().compilationUnit(), pair.seq2().sourceFilePath());
         }
 
-        // 4. Write the modified compilation unit back to file
-        String refactoredCode = primary.compilationUnit().toString();
-        Path sourceFile = primary.sourceFilePath();
+        // 4. Convert all modified CUs to code strings
+        Map<Path, String> modifiedFiles = modifiedCUs.entrySet().stream()
+                .collect(LinkedHashMap::new,
+                        (map, entry) -> map.put(entry.getValue(), entry.getKey().toString()),
+                        Map::putAll);
 
-        // Create result
+        // Create result with ALL modified files
         return new RefactoringResult(
-                sourceFile,
-                refactoredCode,
+                modifiedFiles,
                 recommendation.strategy(),
                 "Extracted method: " + recommendation.suggestedMethodName());
     }
@@ -284,18 +299,29 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Result of a refactoring operation.
+     * Result of a refactoring operation containing the modified source code.
+     * Now supports multiple files being modified in a single refactoring operation.
      */
     public record RefactoringResult(
-            Path sourceFile,
-            String refactoredCode,
+            Map<Path, String> modifiedFiles, // file path -> refactored code
             RefactoringStrategy strategy,
             String description) {
+
         /**
-         * Write the refactored code to file.
+         * Convenience constructor for single-file refactorings.
+         */
+        public RefactoringResult(Path sourceFile, String refactoredCode,
+                RefactoringStrategy strategy, String description) {
+            this(Map.of(sourceFile, refactoredCode), strategy, description);
+        }
+
+        /**
+         * Write all refactored files.
          */
         public void apply() throws IOException {
-            Files.writeString(sourceFile, refactoredCode);
+            for (Map.Entry<Path, String> entry : modifiedFiles.entrySet()) {
+                Files.writeString(entry.getKey(), entry.getValue());
+            }
         }
     }
 }

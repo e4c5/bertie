@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Main orchestrator for automated refactoring.
@@ -118,12 +119,14 @@ public class RefactoringEngine {
                     continue;
                 }
 
-                // Create backup before writing
-                verifier.createBackup(result.sourceFile());
+                // Create backups before writing (for all modified files)
+                for (Path file : result.modifiedFiles().keySet()) {
+                    verifier.createBackup(file);
+                }
 
-                // Write refactored code
+                // Write refactored code to all files
                 result.apply();
-                System.out.println("  ✓ Refactoring applied");
+                System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
 
                 // Verify compilation
                 RefactoringVerifier.VerificationResult verify = verifier.verify();
@@ -221,10 +224,15 @@ public class RefactoringEngine {
         // Generate and show actual diff
         try {
             ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
-            String diff = diffGenerator.generateUnifiedDiff(result.sourceFile(), result.refactoredCode());
+            // For diff preview, show the primary file (first in map)
+            Map.Entry<Path, String> primaryFile = result.modifiedFiles().entrySet().iterator().next();
+            String diff = diffGenerator.generateUnifiedDiff(primaryFile.getKey(), primaryFile.getValue());
 
             System.out.println("  === DIFF PREVIEW ===");
             System.out.println(diff);
+            if (result.modifiedFiles().size() > 1) {
+                System.out.println("  (+ " + (result.modifiedFiles().size() - 1) + " more file(s) will be modified)");
+            }
             System.out.println("  " + "=".repeat(70));
         } catch (Exception e) {
             System.out.println("  ⚠️  Could not generate diff preview: " + e.getMessage());
@@ -309,14 +317,18 @@ public class RefactoringEngine {
     private void collectDryRunDiff(DuplicateCluster cluster, RefactoringRecommendation recommendation,
             ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
         try {
-            String diff = diffGenerator.generateUnifiedDiff(result.sourceFile(), result.refactoredCode());
-
             StringBuilder entry = new StringBuilder();
             entry.append(String.format("\n### Cluster #%d: %s ###\n", clusterNum, recommendation.strategy()));
             entry.append(String.format("Confidence: %.0f%%\n", recommendation.confidenceScore() * 100));
-            entry.append(String.format("File: %s\n", result.sourceFile().getFileName()));
+            entry.append(String.format("Files modified: %d\n", result.modifiedFiles().size()));
             entry.append(String.format("Method: %s\n", recommendation.generateMethodSignature()));
-            entry.append(diff);
+
+            // Show diff for each modified file
+            for (Map.Entry<Path, String> fileEntry : result.modifiedFiles().entrySet()) {
+                entry.append(String.format("\n--- File: %s ---\n", fileEntry.getKey().getFileName()));
+                String diff = diffGenerator.generateUnifiedDiff(fileEntry.getKey(), fileEntry.getValue());
+                entry.append(diff);
+            }
             entry.append("\n");
 
             dryRunDiffs.add(entry.toString());
