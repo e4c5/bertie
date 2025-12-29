@@ -15,6 +15,8 @@ import com.raditha.dedup.model.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Extracts duplicate code to a private helper method.
@@ -209,15 +211,76 @@ public class ExtractMethodRefactorer {
 
     /**
      * Extract the actual value used in this sequence for a parameter.
-     * FIXED Gap 1&2: Finds the ACTUAL value, not just an example.
+     * FIXED Gap 1&2: Finds the ACTUAL value from the sequence AST.
      */
     private String extractActualValue(StatementSequence sequence, ParameterSpec param) {
-        // For now, return the example value as fallback
-        // TODO: Implement proper value extraction from sequence statements
+        // Strategy: Search through sequence statements for expressions matching the
+        // parameter type
+        // and extract the actual variable/literal used
+
+        List<String> foundValues = new ArrayList<>();
+
+        for (Statement stmt : sequence.statements()) {
+            // Collect all expressions of the matching type from this statement
+            stmt.findAll(Expression.class).forEach(expr -> {
+                String exprStr = expr.toString();
+                // Check if this expression could be a parameter value
+                if (couldBeParameterValue(expr, param)) {
+                    foundValues.add(exprStr);
+                }
+            });
+        }
+
+        // Return the first found value, or fall back to example
+        if (!foundValues.isEmpty()) {
+            return foundValues.get(0);
+        }
+
+        // Fallback to example value
         if (!param.exampleValues().isEmpty()) {
             return param.exampleValues().get(0);
         }
+
         return null;
+    }
+
+    /**
+     * Check if an expression could be a parameter value based on type and pattern.
+     */
+    private boolean couldBeParameterValue(Expression expr, ParameterSpec param) {
+        String exprStr = expr.toString();
+
+        // Skip this/super references
+        if (exprStr.equals("this") || exprStr.equals("super")) {
+            return false;
+        }
+
+        // For string literals, check if it's a string
+        if (expr.isStringLiteralExpr() && "String".equals(param.type())) {
+            return true;
+        }
+
+        // For integer literals
+        if (expr.isIntegerLiteralExpr() && ("int".equals(param.type()) || "Integer".equals(param.type()))) {
+            return true;
+        }
+
+        // For boolean literals
+        if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || "Boolean".equals(param.type()))) {
+            return true;
+        }
+
+        // For variable names, check if it matches one of the example patterns
+        if (expr.isNameExpr() && !param.exampleValues().isEmpty()) {
+            // If any example value matches this name, it's likely the parameter
+            for (String example : param.exampleValues()) {
+                if (example.equals(exprStr)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
