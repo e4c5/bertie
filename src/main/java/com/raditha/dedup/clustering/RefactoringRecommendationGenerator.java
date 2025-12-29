@@ -60,33 +60,38 @@ public class RefactoringRecommendationGenerator {
             DuplicateCluster cluster,
             TypeCompatibility typeCompat) {
 
-        // CRITICAL FIX: Check if ANY duplicate is in a source (non-test) file
-        // If so, we MUST use EXTRACT_HELPER_METHOD, not test-specific strategies
+        // DEFAULT: EXTRACT_HELPER_METHOD is the primary, safest strategy
+        // It works for both source and test files
+
+        // Only use test-specific strategies if:
+        // 1. ALL duplicates are in test files
+        // 2. There's a specific, strong signal for that strategy
+
         boolean hasSourceFiles = cluster.allSequences().stream()
                 .anyMatch(seq -> !isTestFile(seq.sourceFilePath()));
 
-        // If duplicates span source files, always use EXTRACT_HELPER_METHOD
+        // If ANY source files involved, always use EXTRACT_HELPER_METHOD
         if (hasSourceFiles) {
             return RefactoringStrategy.EXTRACT_HELPER_METHOD;
         }
 
-        // ALL duplicates are in test files only - can safely use test-specific
-        // strategies
-        StatementSequence primary = cluster.primary();
+        // ALL duplicates in test files - but still default to EXTRACT_HELPER_METHOD
+        // Only use specialized strategies for clear, specific cases
 
-        if (isSetupCode(primary)) {
-            return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
-        }
+        // Note: Parameterized tests and @BeforeEach are DISABLED by default
+        // They require very specific patterns and have higher risk of false positives
 
-        if (canParameterize(cluster)) {
-            return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
-        }
+        // Example: When to enable:
+        // if (hasExplicitTestSetupPattern(cluster)) {
+        // return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
+        // }
 
-        // Cross-class?
+        // Cross-class refactoring (when implemented)
         if (isCrossClass(cluster)) {
             return RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
         }
 
+        // Default to the most robust, general-purpose strategy
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
     }
 
