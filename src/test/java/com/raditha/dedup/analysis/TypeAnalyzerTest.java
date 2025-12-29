@@ -29,7 +29,7 @@ class TypeAnalyzerTest {
                 new Variation(VariationType.LITERAL, 0, 0, "\"John\"", "\"Jane\"", "String"),
                 new Variation(VariationType.LITERAL, 1, 1, "\"test@example.com\"", "\"user@example.com\"", "String"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
         TypeCompatibility compatibility = analyzer.analyzeTypeCompatibility(analysis);
 
         assertTrue(compatibility.allVariationsTypeSafe());
@@ -42,7 +42,7 @@ class TypeAnalyzerTest {
                 new Variation(VariationType.LITERAL, 0, 0, "1", "2", "int"),
                 new Variation(VariationType.LITERAL, 1, 1, "5", "10", "int"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
         TypeCompatibility compatibility = analyzer.analyzeTypeCompatibility(analysis);
 
         assertTrue(compatibility.allVariationsTypeSafe());
@@ -54,7 +54,7 @@ class TypeAnalyzerTest {
         List<Variation> variations = List.of(
                 new Variation(VariationType.LITERAL, 0, 0, "\"text\"", "123", "String"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of());
         TypeCompatibility compatibility = analyzer.analyzeTypeCompatibility(analysis);
 
         // Should have type info even if inconsistent
@@ -66,7 +66,7 @@ class TypeAnalyzerTest {
         List<Variation> variations = List.of(
                 new Variation(VariationType.CONTROL_FLOW, 0, 0, "if", "while", null));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of());
         TypeCompatibility compatibility = analyzer.analyzeTypeCompatibility(analysis);
 
         assertFalse(compatibility.allVariationsTypeSafe());
@@ -75,7 +75,7 @@ class TypeAnalyzerTest {
 
     @Test
     void testNoVariations() {
-        VariationAnalysis analysis = new VariationAnalysis(List.of(), false);
+        VariationAnalysis analysis = new VariationAnalysis(List.of(), false, java.util.Map.of());
         TypeCompatibility compatibility = analyzer.analyzeTypeCompatibility(analysis);
 
         assertTrue(compatibility.allVariationsTypeSafe());

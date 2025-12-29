@@ -77,7 +77,7 @@ public class SimilarityCalculator {
             SimilarityWeights weights) {
 
         // Use empty/default analyses
-        VariationAnalysis emptyVariations = new VariationAnalysis(List.of(), false);
+        VariationAnalysis emptyVariations = new VariationAnalysis(List.of(), false, java.util.Map.of());
         TypeCompatibility unknownType = new TypeCompatibility(
                 false,
                 java.util.Map.of(),

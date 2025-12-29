@@ -12,6 +12,7 @@ import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.raditha.dedup.analysis.MutabilityAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
@@ -180,13 +181,27 @@ public class ExtractBeforeEachRefactorer {
 
     /**
      * Promote local variables to instance fields.
+     * 
+     * FIXED Gap 6: Now uses MutabilityAnalyzer to check if types are safe to
+     * promote.
+     * Only promotes immutable types and mock objects to avoid test isolation
+     * issues.
      */
     private void promoteVariablesToFields(ClassOrInterfaceDeclaration testClass,
             Map<String, String> variables) {
 
+        MutabilityAnalyzer mutabilityAnalyzer = new MutabilityAnalyzer();
+
         for (Map.Entry<String, String> variable : variables.entrySet()) {
             String varName = variable.getKey();
             String varType = variable.getValue();
+
+            // Gap 6 FIX: Skip mutable types - they would break test isolation
+            // Only promote immutable types and mocks to instance fields
+            if (!mutabilityAnalyzer.isSafeToPromote(varType)) {
+                // Don't promote mutable types - keep them local to each test
+                continue;
+            }
 
             // Check if field already exists
             boolean fieldExists = testClass.getFields().stream()

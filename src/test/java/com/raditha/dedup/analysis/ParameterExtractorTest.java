@@ -30,7 +30,7 @@ class ParameterExtractorTest {
                 new Variation(VariationType.LITERAL, 0, 0, "\"John\"", "\"Jane\"", "String"),
                 new Variation(VariationType.LITERAL, 1, 1, "\"test@example.com\"", "\"user@example.com\"", "String"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
         Map<String, String> types = Map.of("param0", "String", "param1", "String");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -49,7 +49,7 @@ class ParameterExtractorTest {
                 new Variation(VariationType.LITERAL, 0, 0, "1", "2", "int"),
                 new Variation(VariationType.LITERAL, 1, 1, "true", "false", "boolean"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of());
         Map<String, String> types = Map.of("param0", "int", "param1", "boolean");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -67,7 +67,7 @@ class ParameterExtractorTest {
                 new Variation(VariationType.VARIABLE, 0, 0, "userId", "customerId", "int"),
                 new Variation(VariationType.VARIABLE, 1, 1, "userName", "customerName", "String"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
         Map<String, String> types = Map.of("param0", "int", "param1", "String");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -93,8 +93,8 @@ class ParameterExtractorTest {
                     "String"));
         }
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
-        Map<String, String> types = new java.util.HashMap<>();
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
+        Map<String, String> types = new java.util.HashMap<>( java.util.Map.of());
         for (int i = 0; i < 10; i++) {
             types.put("param" + i, "String");
         }
@@ -111,7 +111,7 @@ class ParameterExtractorTest {
                 new Variation(VariationType.CONTROL_FLOW, 0, 0, "if", "while", null),
                 new Variation(VariationType.LITERAL, 1, 1, "1", "2", "int"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false);
+        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
         Map<String, String> types = Map.of("param1", "int");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -123,7 +123,7 @@ class ParameterExtractorTest {
 
     @Test
     void testNoVariations() {
-        VariationAnalysis analysis = new VariationAnalysis(List.of(), false);
+        VariationAnalysis analysis = new VariationAnalysis(List.of(), false, java.util.Map.of());
         Map<String, String> types = Map.of();
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
