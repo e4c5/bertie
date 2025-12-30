@@ -313,6 +313,18 @@ All refactorings follow: validate → backup → apply → verify → commit or 
 - Test rollback on verification failure
 - Test all refactoring strategies with edge cases
 
+## Run the CLI
+ - after each development cycle  do the following
+   1. git reset --hard on the test-bed
+   2. run the cli (com.raditha.dedup.cli.BertieCLI) with the following arguments refactor --mode batch --config-file src/main/resources/bertie.yml
+   3. Make sure that the code in the test-bed is modified.
+   4. validate that the test-bed code is compilable (check mvn compile exit status)
+   5. reset the tests in the test-bed (test-bed/src/test/java folder)
+   6. run the tests in the test-bed (mvn test)
+   7. validate that the tests in the test-bed pass
+
+ - if any of the above steps fail, then the refactoring is not successful and should be retried.
+
 ## Metrics and Observability
 
 The tool exports metrics in CSV and JSON formats for CI/CD integration:
@@ -334,3 +346,4 @@ The tool exports metrics in CSV and JSON formats for CI/CD integration:
 - Recommended strategies
 
 Files are timestamped and can be tracked over time to measure code quality trends.
+
