@@ -110,16 +110,48 @@ public class ExtractMethodRefactorer {
 
         // Set method body (clone the statements)
         BlockStmt body = new BlockStmt();
-        for (Statement stmt : sequence.statements()) {
-            body.addStatement(stmt.clone());
+        // Determine if we need to transform return statements
+        String targetReturnVar = null;
+        if (!"void".equals(returnType)) {
+            targetReturnVar = findReturnVariable(sequence, returnType);
         }
 
-        // Add return statement if needed
-        if (!"void".equals(returnType)) {
-            // Try to find the variable we should return
-            String varToReturn = findReturnVariable(sequence, returnType);
-            if (varToReturn != null) {
-                body.addStatement(new ReturnStmt(new NameExpr(varToReturn)));
+        for (Statement stmt : sequence.statements()) {
+            Statement clonedStmt = stmt.clone();
+
+            // If this is a return statement AND we have a specific variable to return
+            // AND the return statement is complex (e.g. return user.getName())
+            // WE MUST REPLACE IT with `return user;`
+            if (targetReturnVar != null && clonedStmt.isReturnStmt()
+                    && clonedStmt.asReturnStmt().getExpression().isPresent()) {
+                // Check if the current return expression is exactly the variable
+                Expression returnExpr = clonedStmt.asReturnStmt().getExpression().get();
+                if (!returnExpr.isNameExpr() || !returnExpr.asNameExpr().getNameAsString().equals(targetReturnVar)) {
+                    // It's a complex expression (e.g. user.getName()) or different variable
+                    // Check if it USES the target variable
+                    List<NameExpr> usedNames = returnExpr.findAll(NameExpr.class);
+                    boolean usesTarget = false;
+                    for (NameExpr name : usedNames) {
+                        if (name.getNameAsString().equals(targetReturnVar)) {
+                            usesTarget = true;
+                            break;
+                        }
+                    }
+
+                    if (usesTarget) {
+                        // Replace with simple return of the variable
+                        clonedStmt = new ReturnStmt(new NameExpr(targetReturnVar));
+                    }
+                }
+            }
+            body.addStatement(clonedStmt);
+        }
+
+        // Add return statement if needed (and not already present/unreachable)
+        if (!"void".equals(returnType) && targetReturnVar != null) {
+            // Only add if the last statement isn't already a return
+            if (body.getStatements().isEmpty() || !body.getStatements().getLast().get().isReturnStmt()) {
+                body.addStatement(new ReturnStmt(new NameExpr(targetReturnVar)));
             }
         }
 
@@ -129,13 +161,6 @@ public class ExtractMethodRefactorer {
 
     /**
      * Find the variable to return using data flow analysis.
-     * 
-     * FIXED Gap 5: Now uses DataFlowAnalyzer to find variables that are:
-     * - Defined in the sequence
-     * - Actually used AFTER the sequence
-     * - Match the expected return type
-     * 
-     * This ensures we return the CORRECT variable, not just the first one.
      */
     private String findReturnVariable(StatementSequence sequence, String returnType) {
         DataFlowAnalyzer analyzer = new DataFlowAnalyzer();
@@ -154,15 +179,12 @@ public class ExtractMethodRefactorer {
         BlockStmt block = containingMethod.getBody().get();
 
         // Build argument list
-        // FIXED Gap 1&2: Extract actual values from THIS sequence, not example values
         NodeList<Expression> arguments = new NodeList<>();
         for (ParameterSpec param : recommendation.suggestedParameters()) {
-            // Extract the ACTUAL value used in this specific sequence
             String actualValue = extractActualValue(sequence, param);
             if (actualValue != null) {
                 arguments.add(new NameExpr(actualValue));
             } else if (!param.exampleValues().isEmpty()) {
-                // Fallback to example value if extraction fails
                 arguments.add(new NameExpr(param.exampleValues().get(0)));
             }
         }
@@ -171,6 +193,17 @@ public class ExtractMethodRefactorer {
         MethodCallExpr methodCall = new MethodCallExpr(
                 recommendation.suggestedMethodName(),
                 arguments.toArray(new Expression[0]));
+
+        // Check if the original sequence contained a return statement that we
+        // "swallowed"
+        // and if so, what expression it was returning.
+        ReturnStmt originalReturnValues = null;
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isReturnStmt()) {
+                originalReturnValues = stmt.asReturnStmt();
+                break; // Assume only one return path relevant for replacement logic
+            }
+        }
 
         // Find and replace the statements
         int startIdx = findStatementIndex(block, sequence);
@@ -181,20 +214,48 @@ public class ExtractMethodRefactorer {
                 block.getStatements().remove(startIdx);
             }
 
-            // Insert method call
+            // Insert new logic
             if ("void".equals(recommendation.suggestedReturnType())) {
+                // Void return: just the call
                 block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+
+                // If original had return (void), add it back
+                if (originalReturnValues != null) {
+                    block.getStatements().add(startIdx + 1, new ReturnStmt());
+                }
             } else {
-                // If method returns something, create assignment
+                // Returns a value
                 String varName = findReturnVariable(sequence, recommendation.suggestedReturnType());
+
+                // If we found a return variable, we assign it
                 if (varName != null) {
                     VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
                             new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
                             varName);
                     varDecl.getVariable(0).setInitializer(methodCall);
                     block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+
+                    // IF the original code had a return, we must RECONSTRUCT it
+                    if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                        // We need to assume the original return expression used 'varName'
+                        // and we should now return that SAME expression
+                        // BUT 'varName' is now the result of the method call.
+                        // So effectively we just copy the original return statement!
+                        // Since 'varName' is now defined in the scope (we just added it),
+                        // `return varName.getName()` will work validly.
+                        block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+                    }
                 } else {
-                    block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+                    // No variable found (maybe direct return?), just add call
+                    // This case is tricky if we need to return.
+                    if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                        // Fallback: return methodCall() directly?
+                        // Only if types match. If mismatched (User vs String), this is broken.
+                        // But we can't solve everything.
+                        block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+                    } else {
+                        block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+                    }
                 }
             }
         }

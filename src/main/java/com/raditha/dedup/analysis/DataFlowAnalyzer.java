@@ -96,6 +96,19 @@ public class DataFlowAnalyzer {
     }
 
     /**
+     * Find all variables used (referenced) within the sequence.
+     */
+    public Set<String> findVariablesUsedInSequence(StatementSequence sequence) {
+        Set<String> used = new HashSet<>();
+        for (Statement stmt : sequence.statements()) {
+            stmt.findAll(NameExpr.class).forEach(nameExpr -> {
+                used.add(nameExpr.getNameAsString());
+            });
+        }
+        return used;
+    }
+
+    /**
      * Find the correct return variable for an extracted method.
      * 
      * Returns the variable that is:
@@ -123,8 +136,25 @@ public class DataFlowAnalyzer {
                         String varName = variable.getNameAsString();
                         String varType = variable.getType().asString();
 
-                        // Must be live out AND match type
-                        if (liveOut.contains(varName) &&
+                        // Must be live out OR returned in a return statement within the sequence
+                        boolean isLiveOut = liveOut.contains(varName);
+                        boolean isReturned = false;
+
+                        // Check if this variable is used in any return statement in the sequence
+                        for (Statement s : sequence.statements()) {
+                            if (s.isReturnStmt() && s.asReturnStmt().getExpression().isPresent()) {
+                                List<NameExpr> nameExprs = s.asReturnStmt().getExpression().get()
+                                        .findAll(NameExpr.class);
+                                for (NameExpr nameExpr : nameExprs) {
+                                    if (nameExpr.getNameAsString().equals(varName)) {
+                                        isReturned = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if ((isLiveOut || isReturned) &&
                                 (varType.contains(returnType) || returnType.contains(varType))) {
                             candidates.add(varName);
                         }

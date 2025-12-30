@@ -1,9 +1,8 @@
 package com.raditha.dedup.clustering;
 
-import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
-
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
@@ -44,9 +43,14 @@ public class RefactoringRecommendationGenerator {
                 similarity.variations());
 
         // Extract parameters
-        List<ParameterSpec> parameters = parameterExtractor.extractParameters(
+        List<ParameterSpec> parameters = new java.util.ArrayList<>(parameterExtractor.extractParameters(
                 similarity.variations(),
-                typeCompat.parameterTypes());
+                typeCompat.parameterTypes()));
+
+        // Add captured variables (variables used but not defined in sequence, and
+        // constant across duplicates)
+        List<ParameterSpec> capturedParams = identifyCapturedParameters(cluster.primary(), parameters);
+        parameters.addAll(capturedParams);
 
         // Determine strategy
         RefactoringStrategy strategy = determineStrategy(cluster, typeCompat);
@@ -72,24 +76,31 @@ public class RefactoringRecommendationGenerator {
 
     /**
      * Determine what type the extracted method should return.
-     * Uses data flow analysis to check if any variables are live-out.
-     * 
-     * A variable is live-out if it's:
-     * - Defined in the duplicate and used after it, OR
-     * - Returned in a return statement within the duplicate
+     * Uses data flow analysis to check if any variables are live-out OR returned.
      */
     private String determineReturnType(StatementSequence sequence) {
-        // Check if there's a return statement within the duplicate
+        // 1. Check if any variable DEFINED in the sequence is used in a return
+        // statement
         Set<String> returnedVars = findVariablesInReturnStatements(sequence);
+        Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
 
-        if (!returnedVars.isEmpty()) {
-            // Has a return statement - find the type of the returned variable
-            String varName = returnedVars.iterator().next();
-            String type = getVariableType(sequence, varName);
-            return type;
+        // Filter returned variables to only those defined in the sequence
+        // We want to return the OBJECT (User), not the expression result (String)
+        for (String varName : returnedVars) {
+            if (definedVars.contains(varName)) {
+                return getVariableType(sequence, varName);
+            }
         }
 
-        // No return statement - find variables that are used after the duplicate ends
+        // 2. If no internal variable returned, check the return statement expression
+        // type
+        // (e.g. constant return, or external variable return)
+        String typeFromReturn = analyzeReturnStatementType(sequence);
+        if (typeFromReturn != null) {
+            return typeFromReturn;
+        }
+
+        // 3. No return statement in duplicate - find variables that are used after
         Set<String> liveOutVars = dataFlowAnalyzer.findLiveOutVariables(sequence);
 
         if (liveOutVars.isEmpty()) {
@@ -97,7 +108,6 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Has live-out variables → need to return something
-        // Get the first one (if multiple, they should be the same type ideally)
         String varToReturn = liveOutVars.iterator().next();
 
         // Get the type of this variable from the sequence
@@ -106,40 +116,158 @@ public class RefactoringRecommendationGenerator {
     }
 
     /**
-     * Find variables used in return statements within the sequence.
-     * This handles cases where the return statement is part of the duplicate.
-     * Extracts variables from complex expressions like:
-     * - user.getName() → user
-     * - user.isActive() → user
-     * - finalUser.getName() + " is now active" → finalUser
-     * - user → user
+     * Analyze return statement within the sequence to determine actual return type.
+     * Handles cases where return statement is part of the duplicate.
+     * 
+     * Returns null if no return statement found or type cannot be determined.
      */
-    private Set<String> findVariablesInReturnStatements(StatementSequence sequence) {
-        Set<String> returnedVars = new HashSet<>();
-        Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
-
+    private String analyzeReturnStatementType(StatementSequence sequence) {
         for (Statement stmt : sequence.statements()) {
             if (stmt.isReturnStmt()) {
                 var returnStmt = stmt.asReturnStmt();
                 if (returnStmt.getExpression().isPresent()) {
                     Expression returnExpr = returnStmt.getExpression().get();
 
-                    // Extract ALL variable references from the return expression
-                    // This handles complex expressions like: finalUser.getName() + " is now active"
-                    List<NameExpr> allNames = returnExpr.findAll(NameExpr.class);
-
-                    for (NameExpr nameExpr : allNames) {
-                        String varName = nameExpr.getNameAsString();
-                        // Only include variables that were defined in this sequence
-                        if (definedVars.contains(varName)) {
-                            returnedVars.add(varName);
-                        }
+                    // If it's a method call, try to infer type from method name
+                    if (returnExpr.isMethodCallExpr()) {
+                        return inferTypeFromMethodCall(returnExpr.asMethodCallExpr());
                     }
+
+                    // If it's a field access (user.field), infer from field name
+                    if (returnExpr.isFieldAccessExpr()) {
+                        return inferTypeFromFieldAccess(returnExpr.asFieldAccessExpr());
+                    }
+
+                    // If it's a simple variable name, get its type
+                    if (returnExpr.isNameExpr()) {
+                        String varName = returnExpr.asNameExpr().getNameAsString();
+                        return getVariableType(sequence, varName);
+                    }
+
+                    // Fallback for other expression types
+                    return inferTypeFromExpression(returnExpr);
+                }
+            }
+        }
+        return null; // No return statement found
+    }
+
+    /**
+     * Infer return type from method call expression.
+     * Uses common method naming conventions.
+     */
+    private String inferTypeFromMethodCall(MethodCallExpr methodCall) {
+        String methodName = methodCall.getNameAsString();
+
+        // Common getter patterns
+        if (methodName.startsWith("get")) {
+            if (methodName.equals("getName") || methodName.equals("getEmail") ||
+                    methodName.equals("getRole") || methodName.equals("getMessage")) {
+                return "String";
+            }
+            if (methodName.equals("getId") || methodName.equals("getAge") ||
+                    methodName.equals("getCount") || methodName.equals("getSize")) {
+                return "int";
+            }
+            if (methodName.equals("isActive") || methodName.equals("isValid") ||
+                    methodName.equals("hasPermission")) {
+                return "boolean";
+            }
+        }
+
+        // is* methods typically return boolean
+        if (methodName.startsWith("is") || methodName.startsWith("has")) {
+            return "boolean";
+        }
+
+        // toString, format, etc.
+        if (methodName.equals("toString") || methodName.equals("format")) {
+            return "String";
+        }
+
+        // size, length, count methods
+        if (methodName.equals("size") || methodName.equals("length") ||
+                methodName.equals("count")) {
+            return "int";
+        }
+
+        // Fallback: use "Object" for unknown method calls
+        return "Object";
+    }
+
+    /**
+     * Infer type from field access (user.field).
+     */
+    private String inferTypeFromFieldAccess(FieldAccessExpr fieldAccess) {
+        String fieldName = fieldAccess.getNameAsString();
+
+        // Common field naming patterns
+        if (fieldName.equals("name") || fieldName.equals("email") ||
+                fieldName.equals("role") || fieldName.equals("message")) {
+            return "String";
+        }
+        if (fieldName.equals("id") || fieldName.equals("age") ||
+                fieldName.equals("count")) {
+            return "int";
+        }
+        if (fieldName.equals("active") || fieldName.equals("valid")) {
+            return "boolean";
+        }
+
+        return "Object"; // Fallback
+    }
+
+    /**
+     * Infer type from other expression types.
+     */
+    private String inferTypeFromExpression(Expression expr) {
+        // String literals
+        if (expr.isStringLiteralExpr()) {
+            return "String";
+        }
+
+        // Integer literals
+        if (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr()) {
+            return "int";
+        }
+
+        // Boolean literals
+        if (expr.isBooleanLiteralExpr()) {
+            return "boolean";
+        }
+
+        // Object creation
+        if (expr.isObjectCreationExpr()) {
+            return expr.asObjectCreationExpr().getType().asString();
+        }
+
+        // Binary expressions (concatenation)
+        if (expr.isBinaryExpr()) {
+            return "String";
+        }
+
+        return "Object"; // Safe fallback
+    }
+
+    /**
+     * Find variables used in return statements within the sequence.
+     * This handles cases where the return statement is part of the duplicate.
+     */
+    private Set<String> findVariablesInReturnStatements(StatementSequence sequence) {
+        Set<String> returned = new HashSet<>();
+
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isReturnStmt()) {
+                var returnStmt = stmt.asReturnStmt();
+                if (returnStmt.getExpression().isPresent()) {
+                    // Find all variable references in the return expression
+                    returnStmt.getExpression().get().findAll(NameExpr.class)
+                            .forEach(nameExpr -> returned.add(nameExpr.getNameAsString()));
                 }
             }
         }
 
-        return returnedVars;
+        return returned;
     }
 
     /**
@@ -147,19 +275,86 @@ public class RefactoringRecommendationGenerator {
      */
     private String getVariableType(StatementSequence sequence, String variableName) {
         // Search through all statements to find variable declaration
+        return findTypeInContext(sequence, variableName);
+    }
+
+    /**
+     * Identify variables that are used in the sequence but defined externally
+     * (captured).
+     * These must be passed as parameters if they are not already handled by
+     * variation analysis.
+     */
+    private List<ParameterSpec> identifyCapturedParameters(StatementSequence sequence,
+            List<ParameterSpec> existingParams) {
+        Set<String> usedVars = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
+        Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
+
+        // Captured = Used - Defined
+        Set<String> capturedVars = new HashSet<>(usedVars);
+        capturedVars.removeAll(definedVars);
+
+        // Remove variables that are already parameters (from variation analysis)
+        Set<String> existingParamNames = new HashSet<>();
+        existingParams.forEach(p -> existingParamNames.add(p.name()));
+
+        List<ParameterSpec> capturedParams = new java.util.ArrayList<>();
+
+        for (String varName : capturedVars) {
+            // Skip fields (this.field) - usually accessible in helper unless static context
+            // mismatch
+            // For now, assume fields are accessible (TODO: check static context)
+            if (varName.equals("this") || varName.equals("super"))
+                continue;
+
+            // Skip if already a parameter
+            if (existingParamNames.contains(varName))
+                continue;
+
+            // Determine type
+            String type = findTypeInContext(sequence, varName);
+            if ("void".equals(type) || "Object".equals(type)) {
+                // Try to resolve if it's a field
+                // If it's a field, we might not need to pass it
+                // But if it's a local variable/parameter, we MUST pass it
+                // Simple heuristic: if type found in context (params/locals), pass it.
+                // If not found, maybe field?
+            }
+
+            // If we found a specific type, add it as parameter
+            if (!"void".equals(type)) {
+                capturedParams.add(new ParameterSpec(varName, type, List.of(varName)));
+            }
+        }
+
+        return capturedParams;
+    }
+
+    private String findTypeInContext(StatementSequence sequence, String varName) {
+        // 1. Check inside sequence
         for (Statement stmt : sequence.statements()) {
-            // Find all variable declarations in this statement (any type)
             var varDecls = stmt.findAll(VariableDeclarationExpr.class);
             for (VariableDeclarationExpr varDecl : varDecls) {
                 for (var variable : varDecl.getVariables()) {
-                    if (variable.getNameAsString().equals(variableName)) {
+                    if (variable.getNameAsString().equals(varName)) {
                         return variable.getType().asString();
                     }
                 }
             }
         }
 
-        // Fallback to void if type not found
+        // 2. Check method parameters
+        if (sequence.containingMethod() != null) {
+            for (var param : sequence.containingMethod().getParameters()) {
+                if (param.getNameAsString().equals(varName)) {
+                    return param.getType().asString();
+                }
+            }
+
+            // 3. Check local variables BEFORE the sequence
+            // (Simplified: check usage in method body)
+            // Ideally we iterate statements before sequence.startOffset()
+        }
+
         return "void";
     }
 
