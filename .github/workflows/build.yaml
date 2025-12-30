@@ -1,0 +1,81 @@
+name: Java CI with Maven
+
+on:
+  push:
+    branches: [ "master" ]
+    tags: '*'
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Clone dependent projects
+        run: |
+          git clone https://github.com/Cloud-Solutions-International/antikythera-common.git ../antikythera-common
+          git clone https://github.com/Cloud-Solutions-International/antikythera-agent.git ../antikythera-agent
+          git clone https://github.com/Cloud-Solutions-International/antikythera-test-helper.git ../antikythera-test-helper
+          git clone https://github.com/Cloud-Solutions-International/antikythera-sample-project.git ../antikythera-sample-project
+
+      - name: Set up JDK 21 with Temurin
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Build antikythera-common
+        run: cd ../antikythera-common && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+
+      - name: Build antikythera-agent
+        run: cd ../antikythera-agent && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+
+      - name: Build antikythera-sample-project
+        run: cd ../antikythera-sample-project && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+
+      - name: Build and Test
+        run: MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+
+      - name: Generate JaCoCo report
+        run: mvn jacoco:report
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: target/site/jacoco/jacoco.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 with Temurin
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          server-id: github
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+
+      - name: Publish to GitHub Packages
+        run: MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn deploy -DskipTests
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
