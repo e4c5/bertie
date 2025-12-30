@@ -72,7 +72,7 @@ public class DataFlowAnalyzer {
         Set<String> usedAfter = new HashSet<>();
 
         MethodDeclaration method = sequence.containingMethod();
-        if (method == null || !method.getBody().isPresent()) {
+        if (method == null || method.getBody().isEmpty()) {
             return usedAfter;
         }
 
@@ -135,7 +135,7 @@ public class DataFlowAnalyzer {
 
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {
-            return candidates.get(0);
+            return candidates.getFirst();
         }
 
         // Multiple candidates or no candidates = unsafe to extract
