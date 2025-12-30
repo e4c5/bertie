@@ -11,8 +11,10 @@ import java.util.List;
  * @param weights         Weights for combining similarity metrics
  * @param includeTests    Include test classes in analysis
  * @param excludePatterns File patterns to exclude (glob format)
- * @param maxWindowGrowth Maximum window size growth beyond minLines (for performance tuning)
- * @param maximalOnly     If true, extract only maximal (longest) sequences to ignore smaller duplicates
+ * @param maxWindowGrowth Maximum window size growth beyond minLines (for
+ *                        performance tuning)
+ * @param maximalOnly     If true, extract only maximal (longest) sequences to
+ *                        ignore smaller duplicates
  */
 public record DuplicationConfig(
         int minLines,
@@ -21,7 +23,8 @@ public record DuplicationConfig(
         boolean includeTests,
         List<String> excludePatterns,
         int maxWindowGrowth,
-        boolean maximalOnly) {
+        boolean maximalOnly,
+        boolean enableBoundaryRefinement) {
     /**
      * Validate configuration.
      */
@@ -55,7 +58,8 @@ public record DuplicationConfig(
                 false, // includeTests
                 List.of(), // excludePatterns
                 5, // maxWindowGrowth - creates windows from 5 to 10 statements
-                true); // maximalOnly - only extract largest sequences
+                true, // maximalOnly - only extract largest sequences
+                true); // enableBoundaryRefinement - trim usage-only statements
     }
 
     /**
@@ -70,7 +74,8 @@ public record DuplicationConfig(
                 false, // includeTests
                 List.of(), // excludePatterns
                 3, // maxWindowGrowth - smaller for strict mode
-                true); // maximalOnly
+                true, // maximalOnly
+                true); // enableBoundaryRefinement
     }
 
     /**
@@ -85,7 +90,8 @@ public record DuplicationConfig(
                 false, // includeTests
                 List.of(), // excludePatterns
                 7, // maxWindowGrowth - larger for lenient mode
-                false); // maximalOnly - extract more variations in lenient mode
+                false, // maximalOnly - extract more variations in lenient mode
+                true); // enableBoundaryRefinement
     }
 
     /**
@@ -102,7 +108,8 @@ public record DuplicationConfig(
                 true,
                 defaultExcludePatterns(),
                 10, // maxWindowGrowth - largest for aggressive mode
-                false); // maximalOnly - extract all variations in aggressive mode
+                false, // maximalOnly - extract all variations in aggressive mode
+                true); // enableBoundaryRefinement
     }
 
     /**
@@ -119,7 +126,8 @@ public record DuplicationConfig(
                 true,
                 defaultExcludePatterns(),
                 7, // maxWindowGrowth
-                true); // maximalOnly
+                true, // maximalOnly
+                true); // enableBoundaryRefinement
     }
 
     /**

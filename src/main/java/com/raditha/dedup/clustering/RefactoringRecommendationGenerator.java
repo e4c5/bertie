@@ -1,5 +1,8 @@
 package com.raditha.dedup.clustering;
 
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
@@ -71,20 +74,16 @@ public class RefactoringRecommendationGenerator {
      * Uses data flow analysis to check if any variables are live-out OR returned.
      */
     private String determineReturnType(StatementSequence sequence) {
-        // Find variables that are used after the duplicate code
+        // First, check if any statements within the duplicate contain a return
+        String typeFromReturn = analyzeReturnStatementType(sequence);
+        if (typeFromReturn != null) {
+            return typeFromReturn;
+        }
+
+        // No return statement in duplicate - find variables that are used after
         Set<String> liveOutVars = dataFlowAnalyzer.findLiveOutVariables(sequence);
 
         if (liveOutVars.isEmpty()) {
-            // No variables used after - check if any are RETURNED within the duplicate
-            Set<String> returnedVars = findVariablesInReturnStatements(sequence);
-
-            if (!returnedVars.isEmpty()) {
-                // Variable is returned - use that!
-                String varToReturn = returnedVars.iterator().next();
-                String type = getVariableType(sequence, varToReturn);
-                return type;
-            }
-
             return "void";
         }
 
@@ -94,6 +93,135 @@ public class RefactoringRecommendationGenerator {
         // Get the type of this variable from the sequence
         String type = getVariableType(sequence, varToReturn);
         return type;
+    }
+
+    /**
+     * Analyze return statement within the sequence to determine actual return type.
+     * Handles cases where return statement is part of the duplicate.
+     * 
+     * Returns null if no return statement found or type cannot be determined.
+     */
+    private String analyzeReturnStatementType(StatementSequence sequence) {
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isReturnStmt()) {
+                var returnStmt = stmt.asReturnStmt();
+                if (returnStmt.getExpression().isPresent()) {
+                    Expression returnExpr = returnStmt.getExpression().get();
+
+                    // If it's a method call, try to infer type from method name
+                    if (returnExpr.isMethodCallExpr()) {
+                        return inferTypeFromMethodCall(returnExpr.asMethodCallExpr());
+                    }
+
+                    // If it's a field access (user.field), infer from field name
+                    if (returnExpr.isFieldAccessExpr()) {
+                        return inferTypeFromFieldAccess(returnExpr.asFieldAccessExpr());
+                    }
+
+                    // If it's a simple variable name, get its type
+                    if (returnExpr.isNameExpr()) {
+                        String varName = returnExpr.asNameExpr().getNameAsString();
+                        return getVariableType(sequence, varName);
+                    }
+
+                    // Fallback for other expression types
+                    return inferTypeFromExpression(returnExpr);
+                }
+            }
+        }
+        return null; // No return statement found
+    }
+
+    /**
+     * Infer return type from method call expression.
+     * Uses common method naming conventions.
+     */
+    private String inferTypeFromMethodCall(MethodCallExpr methodCall) {
+        String methodName = methodCall.getNameAsString();
+
+        // Common getter patterns
+        if (methodName.startsWith("get")) {
+            if (methodName.equals("getName") || methodName.equals("getEmail") ||
+                    methodName.equals("getRole") || methodName.equals("getMessage")) {
+                return "String";
+            }
+            if (methodName.equals("getId") || methodName.equals("getAge") ||
+                    methodName.equals("getCount") || methodName.equals("getSize")) {
+                return "int";
+            }
+            if (methodName.equals("isActive") || methodName.equals("isValid") ||
+                    methodName.equals("hasPermission")) {
+                return "boolean";
+            }
+        }
+
+        // is* methods typically return boolean
+        if (methodName.startsWith("is") || methodName.startsWith("has")) {
+            return "boolean";
+        }
+
+        // toString, format, etc.
+        if (methodName.equals("toString") || methodName.equals("format")) {
+            return "String";
+        }
+
+        // size, length, count methods
+        if (methodName.equals("size") || methodName.equals("length") ||
+                methodName.equals("count")) {
+            return "int";
+        }
+
+        // Fallback: use "Object" for unknown method calls
+        return "Object";
+    }
+
+    /**
+     * Infer type from field access (user.field).
+     */
+    private String inferTypeFromFieldAccess(FieldAccessExpr fieldAccess) {
+        String fieldName = fieldAccess.getNameAsString();
+
+        // Common field naming patterns
+        if (fieldName.equals("name") || fieldName.equals("email") ||
+                fieldName.equals("role") || fieldName.equals("message")) {
+            return "String";
+        }
+        if (fieldName.equals("id") || fieldName.equals("age") ||
+                fieldName.equals("count")) {
+            return "int";
+        }
+        if (fieldName.equals("active") || fieldName.equals("valid")) {
+            return "boolean";
+        }
+
+        return "Object"; // Fallback
+    }
+
+    /**
+     * Infer type from other expression types.
+     */
+    private String inferTypeFromExpression(Expression expr) {
+        // String literals
+        if (expr.isStringLiteralExpr()) {
+            return "String";
+        }
+
+        // Integer literals
+        if (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr()) {
+            return "int";
+        }
+
+        // Boolean literals
+        if (expr.isBooleanLiteralExpr()) {
+            return "boolean";
+        }
+
+        // Object creation
+        if (expr.isObjectCreationExpr()) {
+            return expr.asObjectCreationExpr().getType().asString();
+        }
+
+        return "Object"; // Safe fallback
     }
 
     /**

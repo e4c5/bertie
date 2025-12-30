@@ -4,8 +4,8 @@
 variables:
   projects_folder: ${HOME}/csi/Antikythera
 
-# Point to Bertie's test-bed
-base_path: ${projects_folder}/bertie/test-bed/src/test/java
+# Point to Bertie's test-bed MAIN source (not tests!)
+base_path: ${projects_folder}/bertie/test-bed/src/main/java
 base_package: com.raditha.bertie.testbed
 
 # Output directory for any generated files
@@ -15,8 +15,8 @@ output_path: /tmp/bertie-test-output
 min_lines: 3
 threshold: 70
 
-# Test class to analyze (leave empty to analyze all)
-# target_class: com.raditha.bertie.testbed.wrongarguments.ArgumentExtractionEdgeCases
+# Analyze all classes in base_path (leave empty to analyze all)
+# target_class:
 
 # Skip getters/setters
 skip_getters_setters: true

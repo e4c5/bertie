@@ -94,10 +94,11 @@ class DuplicationAnalyzerTest {
                 false, // includeTests
                 java.util.List.of(), // excludePatterns
                 5, // maxWindowGrowth
-                false // maximalOnly - need to extract sub-sequences to find partial match
+                false, // maximalOnly - need to extract sub-sequences to find partial match
+                true // enableBoundaryRefinement
         );
         DuplicationAnalyzer partialAnalyzer = new DuplicationAnalyzer(config);
-        
+
         String code = """
                 class Test {
                     void smallMethod() {

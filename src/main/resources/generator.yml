@@ -4,15 +4,15 @@ variables:
   projects_folder: ${HOME}/csi/Antikythera
 
 # Project base path (required)
-base_path: ${projects_folder}/csi-bm-invoice-java-service/
+base_path: ${projects_folder}/bertie/test-bed/
 
 # Output path for generated files (optional)
 # output_path: /path/to/output
 
 # Duplication Detector Settings
 duplication_detector:
-  # Target class to analyze (fully qualified name)
-  target_class: "com.csi.bm.invoice.service.impl.InvoiceTransactionServiceImplTest"
+  # Leave empty to analyze all classes in base_path
+  # target_class: ""
 
   # Minimum lines to consider as duplicate
   min_lines: 5

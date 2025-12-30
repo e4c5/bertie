@@ -63,10 +63,10 @@ public class DuplicationDetectorSettings {
 
         // Build similarity weights (from YAML or defaults)
         SimilarityWeights weights = buildWeights(config);
-        
+
         // Get max window growth (from YAML or default to 5)
         int maxWindowGrowth = getInt(config, "max_window_growth", 5);
-        
+
         // Get maximalOnly flag (from YAML or default to true)
         boolean maximalOnly = getBoolean(config, "maximal_only", true);
 
@@ -77,7 +77,8 @@ public class DuplicationDetectorSettings {
                 includeTests,
                 excludePatterns,
                 maxWindowGrowth,
-                maximalOnly);
+                maximalOnly,
+                true); // enableBoundaryRefinement
     }
 
     /**
@@ -123,7 +124,8 @@ public class DuplicationDetectorSettings {
                 includeTests,
                 excludePatterns,
                 maxWindowGrowth,
-                maximalOnly);
+                maximalOnly,
+                true); // enableBoundaryRefinement
     }
 
     private static SimilarityWeights buildWeights(Map<String, Object> config) {

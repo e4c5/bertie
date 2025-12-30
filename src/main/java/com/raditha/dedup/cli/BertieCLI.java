@@ -46,8 +46,12 @@ public class BertieCLI {
             return;
         }
 
-        // Initialize Settings once
-        Settings.loadConfigMap();
+        // Initialize Settings once, optionally from custom config file
+        if (config.configFile != null) {
+            Settings.loadConfigMap(new java.io.File(config.configFile));
+        } else {
+            Settings.loadConfigMap();
+        }
         if (config.basePath != null) {
             Settings.setProperty(Settings.BASE_PATH, config.basePath);
         }
@@ -125,7 +129,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runRefactoring(CLIConfig config)  {
+    private static void runRefactoring(CLIConfig config) {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
@@ -219,18 +223,18 @@ public class BertieCLI {
         return className.contains(targetStr.replace("/", ".")) ||
                 className.replace(".", "/").contains(targetStr);
     }
-    
+
     /**
      * Determine if a class is a test class based on naming conventions.
      * Test classes typically end with "Test", "Tests", or "TestCase".
      */
     private static boolean isTestClass(String className) {
         // Check common test class name patterns
-        return className.endsWith("Test") || 
-               className.endsWith("Tests") || 
-               className.endsWith("TestCase") ||
-               className.contains(".test.") ||
-               className.contains(".tests.");
+        return className.endsWith("Test") ||
+                className.endsWith("Tests") ||
+                className.endsWith("TestCase") ||
+                className.contains(".test.") ||
+                className.contains(".tests.");
     }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
@@ -356,8 +360,8 @@ public class BertieCLI {
      * Print location information for a code sequence.
      */
     private static void printLocation(DuplicationReport report,
-                                      StatementSequence seq,
-                                      int locNum) {
+            StatementSequence seq,
+            int locNum) {
         String className = extractClassName(report.sourceFile().toString());
         String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "top-level";
         int startLine = seq.range().startLine();
@@ -466,6 +470,11 @@ public class BertieCLI {
                         throw new IllegalArgumentException("Threshold must be 0-100");
                     }
                 }
+                case "--config-file" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--config-file requires a path");
+                    config.configFile = args[++i];
+                }
                 case "refactor" -> config.command = "refactor";
                 case "--mode" -> {
                     if (i + 1 >= args.length)
@@ -516,6 +525,7 @@ public class BertieCLI {
         System.out.println("  --version, -v    Show version information");
         System.out.println();
         System.out.println("GLOBAL OPTIONS:");
+        System.out.println("  --config-file PATH       Use custom configuration file (e.g., bertie.yml)");
         System.out.println("  --base-path PATH         Override project base path");
         System.out.println("  --output PATH            Custom output directory");
         System.out.println("  --min-lines N            Minimum lines to consider (default: 5)");
@@ -600,6 +610,7 @@ public class BertieCLI {
         Path targetPath;
         String basePath = null;
         String outputPath = null;
+        String configFile = null; // Custom configuration file path
         int minLines = 0; // 0 = use YAML/default
         int threshold = 0; // 0 = use YAML/default
         String preset = null;
