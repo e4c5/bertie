@@ -6,6 +6,7 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.metrics.MetricsExporter;
+import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringVerifier;
@@ -13,7 +14,6 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -46,8 +46,12 @@ public class BertieCLI {
             return;
         }
 
-        // Initialize Settings once
-        Settings.loadConfigMap();
+        // Initialize Settings once, optionally from custom config file
+        if (config.configFile != null) {
+            Settings.loadConfigMap(new java.io.File(config.configFile));
+        } else {
+            Settings.loadConfigMap();
+        }
         if (config.basePath != null) {
             Settings.setProperty(Settings.BASE_PATH, config.basePath);
         }
@@ -92,14 +96,12 @@ public class BertieCLI {
                 continue;
             }
 
-            try {
-                Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
-                        AbstractCompiler.classToPath(className));
-                DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
-                reports.add(report);
-            } catch (Exception e) {
-                System.err.println("Error analyzing " + className + ": " + e.getMessage());
-            }
+            // Determine if this is a test class and use the correct source directory
+            String sourceDir = isTestClass(className) ? "src/test/java" : "src/main/java";
+            Path sourceFile = Paths.get(Settings.getBasePath(), sourceDir,
+                    AbstractCompiler.classToPath(className));
+            DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
+            reports.add(report);
         }
 
         return reports;
@@ -116,7 +118,7 @@ public class BertieCLI {
 
         // Print the detailed report
         if (config.jsonOutput) {
-            printJsonReport(reports, dupConfig);
+            printJsonReport(reports);
         } else {
             printTextReport(reports, dupConfig);
         }
@@ -127,7 +129,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runRefactoring(CLIConfig config) throws IOException {
+    private static void runRefactoring(CLIConfig config) {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
@@ -220,6 +222,19 @@ public class BertieCLI {
         // Check if class name contains target path (package or path segment)
         return className.contains(targetStr.replace("/", ".")) ||
                 className.replace(".", "/").contains(targetStr);
+    }
+
+    /**
+     * Determine if a class is a test class based on naming conventions.
+     * Test classes typically end with "Test", "Tests", or "TestCase".
+     */
+    private static boolean isTestClass(String className) {
+        // Check common test class name patterns
+        return className.endsWith("Test") ||
+                className.endsWith("Tests") ||
+                className.endsWith("TestCase") ||
+                className.contains(".test.") ||
+                className.contains(".tests.");
     }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
@@ -330,7 +345,7 @@ public class BertieCLI {
         System.out.println("=".repeat(80));
         int totalLOCReduction = reports.stream()
                 .flatMap(r -> r.clusters().stream())
-                .mapToInt(c -> c.estimatedLOCReduction())
+                .mapToInt(DuplicateCluster::estimatedLOCReduction)
                 .sum();
         System.out.printf("Total potential LOC reduction: %d lines%n", totalLOCReduction);
         System.out.printf("Refactorable duplicates: %d%n",
@@ -345,8 +360,8 @@ public class BertieCLI {
      * Print location information for a code sequence.
      */
     private static void printLocation(DuplicationReport report,
-                                      StatementSequence seq,
-                                      int locNum) {
+            StatementSequence seq,
+            int locNum) {
         String className = extractClassName(report.sourceFile().toString());
         String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "top-level";
         int startLine = seq.range().startLine();
@@ -385,7 +400,7 @@ public class BertieCLI {
         }
     }
 
-    private static void printJsonReport(List<DuplicationReport> reports, DuplicationConfig config) {
+    private static void printJsonReport(List<DuplicationReport> reports) {
         // Simple JSON output (would use proper JSON library in production)
         System.out.println("{");
         System.out.printf("  \"version\": \"%s\",%n", VERSION);
@@ -455,6 +470,11 @@ public class BertieCLI {
                         throw new IllegalArgumentException("Threshold must be 0-100");
                     }
                 }
+                case "--config-file" -> {
+                    if (i + 1 >= args.length)
+                        throw new IllegalArgumentException("--config-file requires a path");
+                    config.configFile = args[++i];
+                }
                 case "refactor" -> config.command = "refactor";
                 case "--mode" -> {
                     if (i + 1 >= args.length)
@@ -505,6 +525,7 @@ public class BertieCLI {
         System.out.println("  --version, -v    Show version information");
         System.out.println();
         System.out.println("GLOBAL OPTIONS:");
+        System.out.println("  --config-file PATH       Use custom configuration file (e.g., bertie.yml)");
         System.out.println("  --base-path PATH         Override project base path");
         System.out.println("  --output PATH            Custom output directory");
         System.out.println("  --min-lines N            Minimum lines to consider (default: 5)");
@@ -589,6 +610,7 @@ public class BertieCLI {
         Path targetPath;
         String basePath = null;
         String outputPath = null;
+        String configFile = null; // Custom configuration file path
         int minLines = 0; // 0 = use YAML/default
         int threshold = 0; // 0 = use YAML/default
         String preset = null;

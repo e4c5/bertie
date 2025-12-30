@@ -131,7 +131,7 @@ class DuplicateClustererTest {
                 similarity, // structuralScore
                 0, // tokens1Count
                 0, // tokens2Count
-                new VariationAnalysis(List.of(), false),
+                new VariationAnalysis(List.of(), false, java.util.Map.of()),
                 new TypeCompatibility(true, java.util.Map.of(), null, List.of()),
                 false // canRefactor
         );

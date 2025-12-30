@@ -28,6 +28,7 @@ public class MethodNameGenerator {
     private final SemanticNameAnalyzer semanticAnalyzer;
     private GeminiAIService aiService;
     private final boolean useAI;
+    private final Set<String> generatedNames = new HashSet<>(); // Track names generated in this session
 
     public MethodNameGenerator() {
         this(true); // AI enabled by default
@@ -285,7 +286,7 @@ public class MethodNameGenerator {
     }
 
     /**
-     * Ensure name is unique in the class by appending number if needed.
+     * Ensure name is unique in the class AND not already generated in this session.
      */
     private String ensureUnique(String baseName, ClassOrInterfaceDeclaration containingClass) {
         if (containingClass == null) {
@@ -293,8 +294,12 @@ public class MethodNameGenerator {
         }
 
         Set<String> existingNames = getExistingMethodNames(containingClass);
+        
+        // Combine existing names with names generated in this session
+        existingNames.addAll(generatedNames);
 
         if (!existingNames.contains(baseName)) {
+            generatedNames.add(baseName); // Track this name
             return baseName;
         }
 
@@ -306,6 +311,7 @@ public class MethodNameGenerator {
             suffix++;
         } while (existingNames.contains(uniqueName));
 
+        generatedNames.add(uniqueName); // Track this name
         return uniqueName;
     }
 

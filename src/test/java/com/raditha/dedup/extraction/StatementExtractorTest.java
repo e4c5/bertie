@@ -22,7 +22,8 @@ class StatementExtractorTest {
 
     @BeforeEach
     void setUp() {
-        extractor = new StatementExtractor(); // Default min 5 statements
+        // Use maximalOnly=false to test all window sizes (original behavior)
+        extractor = new StatementExtractor(5, 5, false);
         testFile = Paths.get("TestFile.java");
     }
 
@@ -184,7 +185,7 @@ class StatementExtractorTest {
 
     @Test
     void testCustomMinStatements() {
-        extractor = new StatementExtractor(3); // Min 3 statements
+        extractor = new StatementExtractor(3, 5, false); // Min 3 statements, maximalOnly=false
 
         String code = """
                 class Test {
@@ -254,5 +255,105 @@ class StatementExtractorTest {
         assertThrows(IllegalArgumentException.class, () -> {
             new StatementExtractor(-1);
         });
+    }
+
+    // Tests for maximalOnly=true behavior
+    
+    @Test
+    void testMaximalOnly_6Statements() {
+        // With maximalOnly=true, only extract the maximal (longest) sequence at each position
+        StatementExtractor maximalExtractor = new StatementExtractor(5, 5, true);
+        
+        String code = """
+                class Test {
+                    void method() {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                        int f = 6;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
+
+        // With maximalOnly=true:
+        // Position 0: extract [0-5] (6 statements - maximal)
+        // Position 1: extract [1-5] (5 statements - maximal)
+        // Total: 2 sequences (much less than 3 with maximalOnly=false)
+        assertEquals(2, sequences.size());
+        assertEquals(6, sequences.get(0).statements().size()); // First is maximal
+        assertEquals(5, sequences.get(1).statements().size()); // Second is also maximal from position 1
+    }
+    
+    @Test
+    void testMaximalOnly_10Statements() {
+        StatementExtractor maximalExtractor = new StatementExtractor(5, 5, true);
+        
+        String code = """
+                class Test {
+                    void method() {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                        int f = 6;
+                        int g = 7;
+                        int h = 8;
+                        int i = 9;
+                        int j = 10;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
+
+        // With maximalOnly=true and maxWindowGrowth=5:
+        // Position 0-4: extract 10 statements (min 5 + growth 5)
+        // Position 5: extract 5 statements (only 5 remaining)
+        // Total: 6 sequences (much less than 21 with maximalOnly=false)
+        assertEquals(6, sequences.size());
+        
+        // First sequence should be maximal (10 statements)
+        assertEquals(10, sequences.get(0).statements().size());
+        
+        // Last sequence should have 5 statements
+        assertEquals(5, sequences.get(5).statements().size());
+    }
+    
+    @Test
+    void testMaximalOnly_WithSmallMaxWindowGrowth() {
+        // With smaller maxWindowGrowth, maximal sequences are smaller
+        StatementExtractor maximalExtractor = new StatementExtractor(5, 2, true);
+        
+        String code = """
+                class Test {
+                    void method() {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                        int f = 6;
+                        int g = 7;
+                        int h = 8;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
+
+        // With maxWindowGrowth=2: max window size is 5+2=7
+        // Position 0-1: extract 7 statements
+        // Position 2-3: extract 6, 5 statements respectively
+        // Total: 4 sequences
+        assertEquals(4, sequences.size());
+        assertEquals(7, sequences.get(0).statements().size());
     }
 }

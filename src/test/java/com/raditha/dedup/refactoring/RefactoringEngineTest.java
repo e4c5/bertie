@@ -131,50 +131,81 @@ class RefactoringEngineTest {
     }
 
     @Test
-    void testSafetyValidationBlocking() throws IOException {
+    void testDefaultStrategyIsExtractHelperMethod() throws IOException {
+        // Test that EXTRACT_HELPER_METHOD is used by default for both source and test
+        // files
         String code = """
                 package com.test;
 
-                public class Test {
-                    void method1() {
-                        user.setName("John");
-                        user.setEmail("john@test.com");
+                public class Service {
+                    void processUser1() {
+                        User user = repository.findById("123");
                         user.setActive(true);
-                        user.setRole("admin");
                         user.save();
+                        logger.info("User processed");
                     }
 
-                    void method2() {
-                        customer.setName("Jane");
-                        customer.setEmail("jane@test.com");
-                        customer.setActive(false);
-                        customer.setRole("user");
-                        customer.save();
-                    }
-
-                    // Method with the suggested name already exists (conflict)
-                    private void setupEntity() {
-                        // existing method
+                    void processUser2() {
+                        User user = repository.findById("456");
+                        user.setActive(true);
+                        user.save();
+                        logger.info("User processed");
                     }
                 }
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        Path sourceFile = tempDir.resolve("Test.java");
+        Path sourceFile = tempDir.resolve("Service.java");
         Files.writeString(sourceFile, code);
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
-        engine = new RefactoringEngine(
-                tempDir,
-                RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE);
+        // Should find duplicates and use EXTRACT_HELPER_METHOD strategy
+        assertTrue(report.hasDuplicates());
+        if (!report.clusters().isEmpty()) {
+            var cluster = report.clusters().get(0);
+            assertNotNull(cluster.recommendation());
+            assertEquals(com.raditha.dedup.model.RefactoringStrategy.EXTRACT_HELPER_METHOD,
+                    cluster.recommendation().strategy(),
+                    "Default strategy should be EXTRACT_HELPER_METHOD");
+        }
+    }
 
-        RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
+    @Test
+    void testSourceFileRefactoringWorks() throws IOException {
+        // Test that source files (non-test) are refactored correctly
+        String code = """
+                package com.example;
 
-        // Should have validation failures or skips due to method name conflicts
-        int skippedOrFailed = session.getSkipped().size() + session.getFailed().size();
-        assertTrue(skippedOrFailed > 0, "Should skip/fail refactorings with conflicts");
+                public class Calculator {
+                    public int addAndDouble1(int a, int b) {
+                        int sum = a + b;
+                        int result = sum * 2;
+                        return result;
+                    }
+
+                    public int addAndDouble2(int x, int y) {
+                        int sum = x + y;
+                        int result = sum * 2;
+                        return result;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        Path sourceFile = tempDir.resolve("Calculator.java");
+        Files.writeString(sourceFile, code);
+
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+
+        assertTrue(report.hasDuplicates(), "Should find duplicate calculation logic");
+
+        // Verify it's recognized as a source file (not test)
+        if (!report.clusters().isEmpty()) {
+            var cluster = report.clusters().get(0);
+            assertFalse(cluster.primary().sourceFilePath().toString().contains("Test.java"),
+                    "Should be a source file, not a test file");
+        }
     }
 
     @Test

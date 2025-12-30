@@ -1,18 +1,27 @@
 package com.raditha.dedup.model;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * Analysis of variations between two similar code sequences.
  * Categorizes differences by type for parameter extraction.
  * 
+ * FIXED Gap 1&2: Added valueBindings to track actual values per sequence.
+ * 
  * @param variations                All detected variations
  * @param hasControlFlowDifferences True if control structures differ
+ * @param valueBindings             Map from parameter index to (sequence ->
+ *                                  actual value)
+ *                                  This maps each parameter position to which
+ *                                  actual value
+ *                                  is used in each duplicate sequence.
  */
 public record VariationAnalysis(
         List<Variation> variations,
-        boolean hasControlFlowDifferences) {
+        boolean hasControlFlowDifferences,
+        Map<Integer, Map<StatementSequence, String>> valueBindings) {
     /**
      * Get variations of a specific type.
      */

@@ -1,0 +1,25 @@
+# Bertie Self-Test Configuration
+# Run Bertie on its own test-bed to validate refactoring capabilities
+
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
+
+# Point to Bertie's test-bed MAIN source (not tests!)
+base_path: ${projects_folder}/bertie/test-bed
+base_package: com.raditha.bertie.testbed
+
+# Output directory for any generated files
+output_path: /tmp/bertie-test-output
+
+# Detection settings - use lenient to find more duplicates
+min_lines: 3
+threshold: 70
+
+# Analyze all classes in base_path (leave empty to analyze all)
+# target_class:
+
+# Skip getters/setters
+skip_getters_setters: true
+
+# Log level
+log_level: INFO

@@ -12,8 +12,10 @@ import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.raditha.dedup.analysis.MutabilityAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.StatementSequence;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -89,9 +91,9 @@ public class ExtractBeforeEachRefactorer {
                 if (exprStmt.getExpression().isVariableDeclarationExpr()) {
                     VariableDeclarationExpr varDecl = exprStmt.getExpression().asVariableDeclarationExpr();
 
-                    for (VariableDeclarator var : varDecl.getVariables()) {
-                        String varName = var.getNameAsString();
-                        String varType = var.getType().asString();
+                    for (VariableDeclarator variable : varDecl.getVariables()) {
+                        String varName = variable.getNameAsString();
+                        String varType = variable.getType().asString();
                         variables.put(varName, varType);
                     }
                 }
@@ -102,13 +104,15 @@ public class ExtractBeforeEachRefactorer {
     }
 
     /**
-     * Get existing @BeforeEach method or create new one.
+     * Get existing @BeforeEach method with the same name or create new one.
+     * Each unique method name gets its own @BeforeEach method.
      */
     private MethodDeclaration getOrCreateBeforeEachMethod(
             ClassOrInterfaceDeclaration testClass, String methodName) {
 
-        // Look for existing @BeforeEach method
+        // Look for existing @BeforeEach method WITH THE SAME NAME
         Optional<MethodDeclaration> existing = testClass.getMethods().stream()
+                .filter(m -> m.getNameAsString().equals(methodName))
                 .filter(m -> m.getAnnotations().stream()
                         .anyMatch(a -> a.getNameAsString().equals("BeforeEach")))
                 .findFirst();
@@ -156,14 +160,14 @@ public class ExtractBeforeEachRefactorer {
                 if (exprStmt.getExpression().isVariableDeclarationExpr()) {
                     VariableDeclarationExpr varDecl = exprStmt.getExpression().asVariableDeclarationExpr();
 
-                    for (VariableDeclarator var : varDecl.getVariables()) {
-                        if (promotedVariables.containsKey(var.getNameAsString())) {
+                    for (VariableDeclarator variable : varDecl.getVariables()) {
+                        if (promotedVariables.containsKey(variable.getNameAsString())) {
                             // Convert to assignment: type var = value -> var = value
-                            if (var.getInitializer().isPresent()) {
+                            if (variable.getInitializer().isPresent()) {
                                 exprStmt.setExpression(
                                         new com.github.javaparser.ast.expr.AssignExpr(
-                                                new NameExpr(var.getNameAsString()),
-                                                var.getInitializer().get(),
+                                                new NameExpr(variable.getNameAsString()),
+                                                variable.getInitializer().get(),
                                                 com.github.javaparser.ast.expr.AssignExpr.Operator.ASSIGN));
                             }
                         }
@@ -177,13 +181,27 @@ public class ExtractBeforeEachRefactorer {
 
     /**
      * Promote local variables to instance fields.
+     * 
+     * FIXED Gap 6: Now uses MutabilityAnalyzer to check if types are safe to
+     * promote.
+     * Only promotes immutable types and mock objects to avoid test isolation
+     * issues.
      */
     private void promoteVariablesToFields(ClassOrInterfaceDeclaration testClass,
             Map<String, String> variables) {
 
-        for (Map.Entry<String, String> var : variables.entrySet()) {
-            String varName = var.getKey();
-            String varType = var.getValue();
+        MutabilityAnalyzer mutabilityAnalyzer = new MutabilityAnalyzer();
+
+        for (Map.Entry<String, String> variable : variables.entrySet()) {
+            String varName = variable.getKey();
+            String varType = variable.getValue();
+
+            // Gap 6 FIX: Skip mutable types - they would break test isolation
+            // Only promote immutable types and mocks to instance fields
+            if (!mutabilityAnalyzer.isSafeToPromote(varType)) {
+                // Don't promote mutable types - keep them local to each test
+                continue;
+            }
 
             // Check if field already exists
             boolean fieldExists = testClass.getFields().stream()
@@ -202,28 +220,37 @@ public class ExtractBeforeEachRefactorer {
     private void removeDuplicatesFromTests(DuplicateCluster cluster,
             ClassOrInterfaceDeclaration testClass) {
 
-        // Get all affected method names
-        Set<String> affectedMethods = new HashSet<>();
-        affectedMethods.add(cluster.primary().containingMethod().getNameAsString());
+        // Remove statements from primary sequence
+        removeStatementsFromSequence(cluster.primary(), testClass);
 
+        // Remove statements from duplicate sequences
         cluster.duplicates().forEach(dup -> {
-            affectedMethods.add(dup.seq2().containingMethod().getNameAsString());
+            removeStatementsFromSequence(dup.seq2(), testClass);
         });
+    }
 
-        // Remove the duplicate statements from each method
-        for (String methodName : affectedMethods) {
-            testClass.getMethodsByName(methodName).forEach(method -> {
-                method.getBody().ifPresent(body -> {
-                    // Remove the first N statements (the duplicated setup code)
-                    int statementsToRemove = cluster.primary().statements().size();
-                    NodeList<Statement> statements = body.getStatements();
+    /**
+     * Remove statements from a specific sequence.
+     * Uses startOffset to remove from the correct position.
+     */
+    private void removeStatementsFromSequence(StatementSequence sequence,
+            ClassOrInterfaceDeclaration testClass) {
 
-                    for (int i = 0; i < statementsToRemove && i < statements.size(); i++) {
-                        statements.remove(0);
-                    }
-                });
+        String methodName = sequence.containingMethod().getNameAsString();
+        int startOffset = sequence.startOffset();
+        int count = sequence.statements().size();
+
+        testClass.getMethodsByName(methodName).forEach(method -> {
+            method.getBody().ifPresent(body -> {
+                NodeList<Statement> statements = body.getStatements();
+
+                // Remove from the ACTUAL position (startOffset), not from index 0!
+                // This fixes Gap 9: removes statements at their correct position
+                for (int i = 0; i < count && startOffset < statements.size(); i++) {
+                    statements.remove(startOffset);
+                }
             });
-        }
+        });
     }
 
     /**

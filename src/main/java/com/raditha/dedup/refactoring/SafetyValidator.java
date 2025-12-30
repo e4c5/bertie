@@ -1,5 +1,6 @@
 package com.raditha.dedup.refactoring;
 
+import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.model.*;
 
 import java.util.ArrayList;
@@ -71,10 +72,31 @@ public class SafetyValidator {
 
     /**
      * Check for variable scope issues.
+     * 
+     * FIXED Gap 8: Now uses EscapeAnalyzer to detect variable capture.
+     * 
+     * Returns true if the sequence modifies variables from outer scope,
+     * which would break when extracted to a separate method.
      */
     private boolean hasVariableScopeIssues(DuplicateCluster cluster) {
-        // For now, assume scope is valid
-        // Full implementation would analyze variable declarations and usage
+        EscapeAnalyzer analyzer = new EscapeAnalyzer();
+
+        // Check primary sequence
+        EscapeAnalyzer.EscapeAnalysis primaryAnalysis = analyzer.analyze(cluster.primary());
+        if (primaryAnalysis.hasCapture()) {
+            return true;
+        }
+
+        // Check all duplicate sequences
+        for (SimilarityPair pair : cluster.duplicates()) {
+            EscapeAnalyzer.EscapeAnalysis analysis1 = analyzer.analyze(pair.seq1());
+            EscapeAnalyzer.EscapeAnalysis analysis2 = analyzer.analyze(pair.seq2());
+
+            if (analysis1.hasCapture() || analysis2.hasCapture()) {
+                return true;
+            }
+        }
+
         return false;
     }
 

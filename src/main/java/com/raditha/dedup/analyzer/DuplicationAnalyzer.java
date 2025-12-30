@@ -1,6 +1,8 @@
 package com.raditha.dedup.analyzer;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.analysis.BoundaryRefiner;
+import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.detection.TokenNormalizer;
 import com.raditha.dedup.analysis.VariationTracker;
@@ -32,6 +34,7 @@ public class DuplicationAnalyzer {
     private final TypeAnalyzer typeAnalyzer;
     private final DuplicateClusterer clusterer;
     private final RefactoringRecommendationGenerator recommendationGenerator;
+    private final BoundaryRefiner boundaryRefiner;
 
     /**
      * Create analyzer with default configuration.
@@ -45,7 +48,7 @@ public class DuplicationAnalyzer {
      */
     public DuplicationAnalyzer(DuplicationConfig config) {
         this.config = config;
-        this.extractor = new StatementExtractor(config.minLines());
+        this.extractor = new StatementExtractor(config.minLines(), config.maxWindowGrowth(), config.maximalOnly());
         this.preFilter = new PreFilterChain();
         this.normalizer = new TokenNormalizer();
         this.variationTracker = new VariationTracker();
@@ -53,6 +56,10 @@ public class DuplicationAnalyzer {
         this.typeAnalyzer = new TypeAnalyzer();
         this.clusterer = new DuplicateClusterer(config.threshold());
         this.recommendationGenerator = new RefactoringRecommendationGenerator();
+        this.boundaryRefiner = new BoundaryRefiner(
+                new DataFlowAnalyzer(),
+                config.minLines(),
+                config.threshold());
     }
 
     /**
@@ -81,7 +88,12 @@ public class DuplicationAnalyzer {
         // Step 3: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
 
-        // Step 3.5: Remove overlapping duplicates (keep only largest)
+        // Step 3.5: Refine boundaries (trim usage-only statements)
+        if (config.enableBoundaryRefinement()) {
+            duplicates = boundaryRefiner.refineBoundaries(duplicates);
+        }
+
+        // Step 3.6: Remove overlapping duplicates (keep only largest)
         duplicates = removeOverlappingDuplicates(duplicates);
 
         // Step 4: Cluster duplicates and generate recommendations

@@ -68,7 +68,7 @@ class SimilarityCalculatorTest {
         // High similarity, feasible variations & types
         VariationAnalysis variations = new VariationAnalysis(
                 List.of(new Variation(VariationType.LITERAL, 0, 0, "123", "456", "int")),
-                false);
+                false, java.util.Map.of());
 
         TypeCompatibility typeCompat = new TypeCompatibility(
                 true,
@@ -94,7 +94,7 @@ class SimilarityCalculatorTest {
         List<Token> tokens2 = List.of(
                 new Token(TokenType.METHOD_CALL, "METHOD_CALL(delete)", "delete"));
 
-        VariationAnalysis variations = new VariationAnalysis(List.of(), false);
+        VariationAnalysis variations = new VariationAnalysis(List.of(), false, java.util.Map.of());
         TypeCompatibility typeCompat = new TypeCompatibility(true, Map.of(), null, List.of());
 
         SimilarityResult result = calculator.calculate(
@@ -113,7 +113,7 @@ class SimilarityCalculatorTest {
                 new Token(TokenType.METHOD_CALL, "METHOD_CALL(save)", "save"));
 
         // Control flow differences → not refactorable
-        VariationAnalysis variations = new VariationAnalysis(List.of(), true);
+        VariationAnalysis variations = new VariationAnalysis(List.of(), true, java.util.Map.of());
         TypeCompatibility typeCompat = new TypeCompatibility(true, Map.of(), null, List.of());
 
         SimilarityResult result = calculator.calculate(

@@ -39,6 +39,13 @@ public class GeminiAIService {
             logger.debug("AI service configuration not found in Settings");
         }
 
+        // Validate API key is available - fail fast if not
+        String apiKey = getConfigString("api_key", null);
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            throw new IOException(
+                    "AI service API key is required. Set GEMINI_API_KEY environment variable or configure ai_service.api_key in generator.yml");
+        }
+
         int timeoutSeconds = getConfigInt("timeout_seconds", 60);
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(timeoutSeconds))
