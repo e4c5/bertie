@@ -2,6 +2,8 @@
 
 A sophisticated Java code duplication detector with clustering, refactoring recommendations, and intelligent analysis.
 
+**Status**: Core detection complete, refactoring in beta (see [Known Issues](#known-issues))
+
 ## Features
 
 - **Multi-Algorithm Similarity Detection**: LCS + Levenshtein + Structural analysis
@@ -9,96 +11,90 @@ A sophisticated Java code duplication detector with clustering, refactoring reco
 - **Clustering**: Groups related duplicates for better insights
 - **Refactoring Recommendations**: Suggests strategies (extract method, @BeforeEach, @ParameterizedTest, utility class)
 - **Type-Safe Analysis**: Infers types and checks refactoring feasibility
-- **CLI Interface**: Easy-to-use command-line tool
-- **Multiple Output Formats**: Text and JSON
+- **CLI Interface**: Easy-to-use command-line tool with 3 modes
+- **Multiple Output Formats**: Text, JSON, CSV metrics export
+- **AI-Powered Naming**: Uses Gemini AI for semantic method names
 
 ## Quick Start
 
-### Build
+See [QUICK_START.md](../QUICK_START.md) for detailed setup instructions.
+
+### Basic Commands
+
 ```bash
-mvn clean install
-```
+# Analyze duplicates (safe, read-only)
+mvn exec:java -Dexec.args="analyze"
 
-### Run
-```bash
-# Analyze a single file
-java -jar target/duplication-detector.jar MyClass.java
+# Preview refactorings without making changes
+mvn exec:java -Dexec.args="refactor --mode dry-run"
 
-# Analyze a directory
-java -jar target/duplication-detector.jar src/main/java
-
-# Use strict preset (90% threshold, 7+ lines)
-java -jar target/duplication-detector.jar --strict src/
-
-# JSON output for tooling
-java -jar target/duplication-detector.jar --json src/ > report.json
-```
-
-## CLI Options
-
-```
-Usage: java -jar duplication-detector.jar [options] <file-or-directory>
-
-Options:
-  --help, -h           Show help message
-  --version, -v        Show version
-  --min-lines N        Minimum lines for duplicate (default: 5)
-  --threshold N        Similarity threshold 0-100 (default: 75)
-  --strict             Use strict preset (90% threshold, 7 lines)
-  --lenient            Use lenient preset (60% threshold, 3 lines)
-  --json               Output as JSON
-
-Examples:
-  # Analyze with custom threshold
-  java -jar duplication-detector.jar --threshold 85 src/main/java
-
-  # Strict analysis with JSON output
-  java -jar duplication-detector.jar --strict --json src/ > report.json
-```
-
-## Configuration Presets
-
-- **Strict**: 90% similarity, 7+ lines (high confidence, fewer false positives)
-- **Moderate** (default): 75% similarity, 5+ lines (balanced)
-- **Lenient**: 60% similarity, 3+ lines (find more opportunities, more false positives)
-
-## Example Output
-
-```
-================================================================================
-DUPLICATION DETECTION SUMMARY
-================================================================================
-
-Files analyzed: 15
-Total duplicates found: 8 in 3 clusters
-Configuration: min-lines=5, threshold=75%
-
-Clusters:
-  #1: 3 occurrences, avg 92.5% similar, ~15 LOC reduction
-      Strategy: EXTRACT_HELPER_METHOD (confidence: 95%)
-  #2: 2 occurrences, avg 88.0% similar, ~8 LOC reduction
-      Strategy: EXTRACT_TO_BEFORE_EACH (confidence: 85%)
+# Interactive refactoring with review
+mvn exec:java -Dexec.args="refactor --mode interactive --verify compile"
 ```
 
 ## Architecture
 
-- **Phase 1-6**: Core detection engine (27 classes)
-- **Phase 7**: Analysis components (type inference, scope analysis)
-- **Phase 8**: Clustering & recommendations
-- **Phase 9**: CLI & reporting
+See design documentation for details:
+- [Design Document](duplication_detector_design.md) - Comprehensive technical design
+- [Class Design](class_design.md) - Package structure and class relationships
+- [Sequence Diagrams](sequence_diagrams.md) - Visual flow diagrams
+- [Implementation Status](implementation_task_list.md) - Current progress
 
-Total: 33 classes, ~117 tests, all passing ✅
+### Core Components
+
+- **Phase 1-6**: Detection engine (extraction, normalization, similarity, filtering, clustering)
+- **Phase 7**: Analysis components (type inference, scope analysis, variation tracking)
+- **Phase 8**: Clustering & refactoring recommendations
+- **Phase 9-10**: Refactoring engine + CLI
+
+**Total**: ~40 classes, 180 tests (92% passing)
 
 ## Performance
 
 - **Pre-filtering**: 94-100% reduction in comparisons
 - **Sliding window**: Efficient sequence extraction  
 - **Smart filtering**: Size, structural, and same-method filters
+- **Caching**: Compilation units cached by Antikythera's AbstractCompiler
+
+## Known Issues
+
+⚠️ **Refactoring has known bugs** - See [P0_GAP_FIXES_README.md](../P0_GAP_FIXES_README.md)
+
+**Safe to use**:
+- Duplicate detection (`analyze` command)
+- Dry-run mode (preview only)
+- Metrics export
+
+**Use with caution**:
+- Interactive refactoring (review changes carefully)
+- Simple single-method extractions
+
+**Not recommended**:
+- Batch mode (auto-apply)
+- Production CI/CD integration
+
+Current test status: 166/180 passing (14 failures in refactoring components)
+
+## Configuration
+
+See [CONFIGURATION.md](../CONFIGURATION.md) for all options.
+
+Basic configuration in `src/main/resources/generator.yml`:
+
+```yaml
+base_path: /path/to/your/project
+duplication_detector:
+  target_class: "com.example.YourClass"
+  min_lines: 5        # Minimum lines to consider duplicate
+  threshold: 0.75     # 75% similarity threshold
+```
 
 ## Use Cases
 
-1. **Code Review**: Find duplicates before merge
-2. **Refactoring**: Identify improvement opportunities
+1. **Code Review**: Find duplicates before merge (analyze command)
+2. **Technical Debt**: Identify refactoring opportunities
+3. **Metrics**: Export duplication metrics for dashboards
+4. **Refactoring**: Semi-automated refactoring with manual review
 3. **Technical Debt**: Measure and track duplication
 4. **CI/CD Integration**: Fail builds with too much duplication
 
