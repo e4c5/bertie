@@ -406,12 +406,19 @@ public class ExtractMethodRefactorer {
             return true;
         }
 
+        // For long literals
+        if (expr.isLongLiteralExpr() && ("long".equals(param.type()) || "Long".equals(param.type()))) {
+            return true;
+        }
+
         // For boolean literals
         if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || "Boolean".equals(param.type()))) {
             return true;
         }
 
         // For variable names, check if it matches one of the example patterns
+        // REVERTED: Conservative approach - only accept known example values
+        // This avoids TypeInferenceException for out-of-scope variables
         if (expr.isNameExpr() && !param.exampleValues().isEmpty()) {
             // If any example value matches this name, it's likely the parameter
             for (String example : param.exampleValues()) {

@@ -31,11 +31,38 @@ public record Token(
     /**
      * Check if this token matches another token semantically.
      * Used for similarity comparison.
+     * 
+     * CRITICAL: For literals, we compare ORIGINAL values to detect variations.
+     * For semantic tokens (method calls, types), we compare NORMALIZED values.
      */
     public boolean semanticallyMatches(Token other) {
         if (other == null)
             return false;
-        return this.type == other.type &&
-                this.normalizedValue.equals(other.normalizedValue);
+
+        // Must be same type
+        if (this.type != other.type)
+            return false;
+
+        // For literals: compare ORIGINAL values to detect variations
+        // This enables VariationTracker to see "John" != "Jane" != "Admin"
+        if (isLiteralType(this.type)) {
+            return this.originalValue.equals(other.originalValue);
+        }
+
+        // For semantic tokens: compare NORMALIZED values
+        // This enables similarity matching for method calls, types, etc.
+        return this.normalizedValue.equals(other.normalizedValue);
+    }
+
+    /**
+     * Check if a token type is a literal type (should compare original values).
+     */
+    private boolean isLiteralType(TokenType type) {
+        return type == TokenType.STRING_LIT ||
+                type == TokenType.INT_LIT ||
+                type == TokenType.LONG_LIT ||
+                type == TokenType.DOUBLE_LIT ||
+                type == TokenType.BOOLEAN_LIT ||
+                type == TokenType.NULL_LIT;
     }
 }

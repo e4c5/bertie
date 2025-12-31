@@ -55,6 +55,7 @@ class DuplicationAnalyzerTest {
         String code = """
                 class Test {
                     void setupUser1() {
+                        User user = new User();
                         user.setName("John");
                         user.setEmail("john@example.com");
                         user.setActive(true);
@@ -63,6 +64,7 @@ class DuplicationAnalyzerTest {
                     }
 
                     void setupUser2() {
+                        Customer customer = new Customer();
                         customer.setName("Jane");
                         customer.setEmail("jane@example.com");
                         customer.setActive(false);
@@ -102,6 +104,7 @@ class DuplicationAnalyzerTest {
         String code = """
                 class Test {
                     void smallMethod() {
+                        User user = new User();
                         user.setName("Test");
                         user.setEmail("test@example.com");
                         user.setActive(true);
@@ -110,11 +113,16 @@ class DuplicationAnalyzerTest {
                     }
 
                     void largeMethod() {
+                        Logger logger = Logger.getLogger("Test");
+                        Validator validator = new Validator();
+                        Cache cache = new Cache();
+
                         // Setup phase
                         logger.info("Starting");
                         validator.check();
 
                         // DUPLICATE CODE
+                        User user = new User();
                         user.setName("Test");
                         user.setEmail("test@example.com");
                         user.setActive(true);
