@@ -610,9 +610,7 @@ public class RefactoringRecommendationGenerator {
                     for (var field : classDecl.get().getFields()) {
                         for (var v : field.getVariables()) {
                             if (v.getNameAsString().equals(varName)) {
-                                if (field.getElementType().isClassOrInterfaceType()) {
-                                    return field.getElementType().asClassOrInterfaceType().getNameAsString();
-                                }
+                                // Use asString() to preserve generic type parameters (e.g., Repository<User>)
                                 return field.getElementType().asString();
                             }
                         }
