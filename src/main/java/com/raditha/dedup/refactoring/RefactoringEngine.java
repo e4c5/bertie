@@ -1,5 +1,6 @@
 package com.raditha.dedup.refactoring;
 
+import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.model.*;
 import com.raditha.dedup.analyzer.DuplicationReport;
 

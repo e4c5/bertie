@@ -97,13 +97,35 @@ public class TypeAnalyzer {
      * Infer type from literal variations.
      */
     private TypeInference inferLiteralType(List<Variation> variations) {
-        // Try to infer from the literal values
-        String firstValue = variations.get(0).value1();
+        // Collect all types first
+        boolean allInt = true;
+        boolean allLong = true;
 
-        // Simple heuristics
-        if (isNumeric(firstValue)) {
+        for (Variation var : variations) {
+            String value = var.value1();
+            if (var.value2() != null) {
+                // Check value2 as well if present (Variation contains pairs)
+                if (!isInteger(var.value2()))
+                    allInt = false;
+                if (!isLong(var.value2()))
+                    allLong = false;
+            }
+            if (!isInteger(value))
+                allInt = false;
+            if (!isLong(value))
+                allLong = false;
+        }
+
+        if (allInt) {
             return new TypeInference("int", true, null);
-        } else if (isBoolean(firstValue)) {
+        }
+        if (allLong) {
+            return new TypeInference("long", true, null);
+        }
+
+        // Try to infer from the literal values first value as fallback (old logic)
+        String firstValue = variations.get(0).value1();
+        if (isBoolean(firstValue)) {
             return new TypeInference("boolean", true, null);
         } else if (isString(firstValue)) {
             return new TypeInference("String", true, null);
@@ -123,12 +145,51 @@ public class TypeAnalyzer {
         return new TypeInference(inferredType, true, null);
     }
 
+    private boolean isInteger(String value) {
+        try {
+            Integer.parseInt(value.replace("L", "").replace("l", ""));
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private boolean isLong(String value) {
+        try {
+            Long.parseLong(value.replace("L", "").replace("l", ""));
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     /**
      * Infer type from variable variations.
      */
     private TypeInference inferVariableType(List<Variation> variations) {
-        // For variables, we'd need to look up their actual types
-        // This is a simplified implementation
+        // Collect all inferred types
+        boolean hasInt = false;
+        boolean hasLong = false;
+        boolean hasOther = false;
+        String firstType = null;
+
+        for (Variation var : variations) {
+            String type = var.inferredType();
+            if ("int".equals(type) || "Integer".equals(type)) {
+                hasInt = true;
+            } else if ("long".equals(type) || "Long".equals(type)) {
+                hasLong = true;
+            } else {
+                hasOther = true;
+            }
+            if (firstType == null)
+                firstType = type;
+        }
+
+        // Promote int to long if mixed
+        if (hasLong && hasInt && !hasOther) {
+            return new TypeInference("long", true, null);
+        }
 
         String inferredType = variations.get(0).inferredType();
         if (inferredType == null || inferredType.isEmpty()) {
@@ -147,18 +208,6 @@ public class TypeAnalyzer {
         }
 
         return new TypeInference(inferredType, true, null);
-    }
-
-    /**
-     * Check if a string represents a numeric literal.
-     */
-    private boolean isNumeric(String value) {
-        try {
-            Integer.parseInt(value);
-            return true;
-        } catch (NumberFormatException e) {
-            return false;
-        }
     }
 
     /**

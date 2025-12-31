@@ -257,7 +257,31 @@ public class TokenNormalizer {
         int line = node.getRange().map(r -> r.begin.line).orElse(0);
         int column = node.getRange().map(r -> r.begin.column).orElse(0);
 
-        return new Token(type, normalizedValue, originalValue, null, line, column);
+        String inferredType = null;
+        if (type == TokenType.VAR) {
+            try {
+                if (node instanceof NameExpr) {
+                    inferredType = ((NameExpr) node).calculateResolvedType().describe();
+                } else if (node instanceof FieldAccessExpr) {
+                    inferredType = ((FieldAccessExpr) node).calculateResolvedType().describe();
+                }
+            } catch (Exception e) {
+                // Type resolution failed (common if partial AST or no solver)
+                // Ignore and leave as null
+            }
+        } else if (type == TokenType.INT_LIT) {
+            inferredType = "int";
+        } else if (type == TokenType.LONG_LIT) {
+            inferredType = "long";
+        } else if (type == TokenType.DOUBLE_LIT) {
+            inferredType = "double";
+        } else if (type == TokenType.BOOLEAN_LIT) {
+            inferredType = "boolean";
+        } else if (type == TokenType.STRING_LIT) {
+            inferredType = "String";
+        }
+
+        return new Token(type, normalizedValue, originalValue, inferredType, line, column);
     }
 
     /**

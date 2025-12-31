@@ -76,10 +76,10 @@ public class BertieCLI {
                 config.minLines,
                 config.threshold,
                 config.preset);
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
-
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
         String targetClass = DuplicationDetectorSettings.getTargetClass();
 
         List<DuplicationReport> reports = new ArrayList<>();

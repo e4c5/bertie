@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Extracts duplicate code to a private helper method.
@@ -182,10 +183,43 @@ public class ExtractMethodRefactorer {
         NodeList<Expression> arguments = new NodeList<>();
         for (ParameterSpec param : recommendation.suggestedParameters()) {
             String actualValue = extractActualValue(sequence, param);
+            String valToUse = null;
+
             if (actualValue != null) {
-                arguments.add(new NameExpr(actualValue));
+                valToUse = actualValue;
             } else if (!param.exampleValues().isEmpty()) {
-                arguments.add(new NameExpr(param.exampleValues().get(0)));
+                valToUse = param.exampleValues().get(0);
+            }
+
+            if (valToUse != null) {
+                // If parameter is Class<?>, ensure we pass User.class, not just User
+                if (("Class<?>".equals(param.type()) || "Class".equals(param.type()))
+                        && !valToUse.endsWith(".class")) {
+                    // Create Class Expression: User.class
+                    arguments.add(new ClassExpr(new ClassOrInterfaceType(null, valToUse)));
+                } else {
+                    // Default: variable name or literal
+                    try {
+                        // Try to parse partial expression (like "5000" or "true")
+                        // But NameExpr is safer for variables to avoid parsing errors on reserved
+                        // words?
+                        // "User" is fine as NameExpr if it was a variable.
+                        // For literals, we should ideally use proper LiteralExpr.
+                        // But extractActualValue returns STRING.
+                        // Let's stick to NameExpr for variables, but if it looks like a number...
+                        if (valToUse.matches("-?\\d+(\\.\\d+)?")) {
+                            arguments.add(new IntegerLiteralExpr(valToUse));
+                        } else if ("true".equals(valToUse) || "false".equals(valToUse)) {
+                            arguments.add(new BooleanLiteralExpr(Boolean.parseBoolean(valToUse)));
+                        } else if (valToUse.startsWith("\"")) { // String lit
+                            arguments.add(new StringLiteralExpr(valToUse.replace("\"", "")));
+                        } else {
+                            arguments.add(new NameExpr(valToUse));
+                        }
+                    } catch (Exception e) {
+                        arguments.add(new NameExpr(valToUse));
+                    }
+                }
             }
         }
 
@@ -226,6 +260,37 @@ public class ExtractMethodRefactorer {
             } else {
                 // Returns a value
                 String varName = findReturnVariable(sequence, recommendation.suggestedReturnType());
+
+                DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+                Set<String> defined = dfa.findDefinedVariables(sequence);
+
+                // FALLBACK 1: Use primary return variable if defined in this sequence
+                if (varName == null && recommendation.primaryReturnVariable() != null) {
+                    if (defined.contains(recommendation.primaryReturnVariable())) {
+                        varName = recommendation.primaryReturnVariable();
+                    }
+                }
+
+                // FALLBACK 2: If still null, look for ANY defined variable matching the return
+                // type
+                // This handles parameter renaming (e.g. Primary returns 'user', Duplicate
+                // returns 'customer')
+                if (varName == null) {
+                    List<String> typedCandidates = new ArrayList<>();
+                    // Iterate statements to find variable declarations of matching type
+                    for (Statement stmt : sequence.statements()) {
+                        stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
+                            vde.getVariables().forEach(v -> {
+                                if (v.getType().asString().equals(recommendation.suggestedReturnType())) {
+                                    typedCandidates.add(v.getNameAsString());
+                                }
+                            });
+                        });
+                    }
+                    if (typedCandidates.size() == 1) {
+                        varName = typedCandidates.get(0);
+                    }
+                }
 
                 // If we found a return variable, we assign it
                 if (varName != null) {

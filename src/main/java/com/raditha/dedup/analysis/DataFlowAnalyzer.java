@@ -68,6 +68,12 @@ public class DataFlowAnalyzer {
      * 
      * This identifies which variables are "live" - needed by subsequent code.
      */
+    /**
+     * Find variables used AFTER the sequence ends in the containing method.
+     * 
+     * Uses physical source code ordering (Ranges) to be robust against
+     * list index shifting caused by boundary refinement.
+     */
     public Set<String> findVariablesUsedAfter(StatementSequence sequence) {
         Set<String> usedAfter = new HashSet<>();
 
@@ -76,21 +82,30 @@ public class DataFlowAnalyzer {
             return usedAfter;
         }
 
+        // Get the specific end line/column of the sequence
+        // We use Range to be absolutely sure about ordering
+        int endLine = sequence.range().endLine();
+        int endColumn = sequence.range().endColumn();
+
+        // Scan the entire method body for variable usages
         BlockStmt methodBody = method.getBody().get();
-        List<Statement> allStatements = methodBody.getStatements();
+        methodBody.findAll(NameExpr.class).forEach(nameExpr -> {
+            // Check if this usage is physically AFTER the sequence
+            if (nameExpr.getRange().isPresent()) {
+                var range = nameExpr.getRange().get();
+                boolean isAfter = false;
 
-        // Find where sequence ends
-        int sequenceEnd = sequence.startOffset() + sequence.statements().size();
+                if (range.begin.line > endLine) {
+                    isAfter = true;
+                } else if (range.begin.line == endLine && range.begin.column > endColumn) {
+                    isAfter = true;
+                }
 
-        // Analyze all statements AFTER the sequence
-        for (int i = sequenceEnd; i < allStatements.size(); i++) {
-            Statement stmt = allStatements.get(i);
-
-            // Find all variable references in this statement
-            stmt.findAll(NameExpr.class).forEach(nameExpr -> {
-                usedAfter.add(nameExpr.getNameAsString());
-            });
-        }
+                if (isAfter) {
+                    usedAfter.add(nameExpr.getNameAsString());
+                }
+            }
+        });
 
         return usedAfter;
     }
@@ -127,6 +142,7 @@ public class DataFlowAnalyzer {
 
         // Filter by type
         List<String> candidates = new ArrayList<>();
+        System.out.println("Analyzing return variable for type: " + returnType);
         for (Statement stmt : sequence.statements()) {
             if (stmt.isExpressionStmt()) {
                 var expr = stmt.asExpressionStmt().getExpression();
@@ -154,6 +170,12 @@ public class DataFlowAnalyzer {
                             }
                         }
 
+                        // DEBUG
+
+                        System.out.println("  Var: " + varName + " (" + varType + ")");
+                        System.out.println("    Default defined liveOut: " + isLiveOut);
+                        System.out.println("    Defined in return: " + isReturned);
+
                         if ((isLiveOut || isReturned) &&
                                 (varType.contains(returnType) || returnType.contains(varType))) {
                             candidates.add(varName);
@@ -166,6 +188,34 @@ public class DataFlowAnalyzer {
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {
             return candidates.getFirst();
+        }
+
+        // FALLBACK: If standard analysis found nothing, check if there is exactly
+        // one DEFINED variable matching the return type.
+        // This handles cases where:
+        // 1. Live-out analysis missed a usage (false negative)
+        // 2. The variable is defined but not used (safe to return/assign)
+        if (candidates.isEmpty() && !"void".equals(returnType)) {
+            List<String> fallbackCandidates = new ArrayList<>();
+            for (Statement stmt : sequence.statements()) {
+                if (stmt.isExpressionStmt()) {
+                    var expr = stmt.asExpressionStmt().getExpression();
+                    if (expr.isVariableDeclarationExpr()) {
+                        expr.asVariableDeclarationExpr().getVariables().forEach(v -> {
+                            if (v.getType().asString().equals(returnType)) { // Exact match prefered? Or contains?
+                                fallbackCandidates.add(v.getNameAsString());
+                            } else if (v.getType().asString().contains(returnType)
+                                    || returnType.contains(v.getType().asString())) {
+                                fallbackCandidates.add(v.getNameAsString());
+                            }
+                        });
+                    }
+                }
+            }
+
+            if (fallbackCandidates.size() == 1) {
+                return fallbackCandidates.getFirst();
+            }
         }
 
         // Multiple candidates or no candidates = unsafe to extract

@@ -16,7 +16,11 @@ import com.raditha.dedup.similarity.SimilarityCalculator;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Main orchestrator for duplicate detection.
@@ -24,6 +28,8 @@ import java.util.List;
  * aggregation.
  */
 public class DuplicationAnalyzer {
+
+    private static final Logger logger = LoggerFactory.getLogger(DuplicationAnalyzer.class);
 
     private final DuplicationConfig config;
     private final StatementExtractor extractor;
@@ -40,13 +46,17 @@ public class DuplicationAnalyzer {
      * Create analyzer with default configuration.
      */
     public DuplicationAnalyzer() {
-        this(DuplicationConfig.moderate());
+        this(DuplicationConfig.moderate(), Collections.emptyMap());
     }
 
     /**
      * Create analyzer with custom configuration.
      */
     public DuplicationAnalyzer(DuplicationConfig config) {
+        this(config, Collections.emptyMap());
+    }
+
+    public DuplicationAnalyzer(DuplicationConfig config, Map<String, CompilationUnit> allCUs) {
         this.config = config;
         this.extractor = new StatementExtractor(config.minLines(), config.maxWindowGrowth(), config.maximalOnly());
         this.preFilter = new PreFilterChain();
@@ -55,7 +65,7 @@ public class DuplicationAnalyzer {
         this.similarityCalculator = new SimilarityCalculator();
         this.typeAnalyzer = new TypeAnalyzer();
         this.clusterer = new DuplicateClusterer(config.threshold());
-        this.recommendationGenerator = new RefactoringRecommendationGenerator();
+        this.recommendationGenerator = new RefactoringRecommendationGenerator(allCUs);
         this.boundaryRefiner = new BoundaryRefiner(
                 new DataFlowAnalyzer(),
                 config.minLines(),
