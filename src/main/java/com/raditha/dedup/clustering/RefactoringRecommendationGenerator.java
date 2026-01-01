@@ -420,7 +420,6 @@ public class RefactoringRecommendationGenerator {
             return "int";
         }
 
-        // Fallback: use "Object" for unknown method calls
         throw new TypeInferenceException("Unable to infer return type for method call: " + methodCall);
     }
 
