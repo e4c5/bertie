@@ -134,15 +134,19 @@ public class DataFlowAnalyzer {
      * Returns null if no suitable variable found or multiple candidates.
      */
     public String findReturnVariable(StatementSequence sequence, String returnType) {
-        if ("void".equals(returnType)) {
-            return null;
-        }
+        System.out.println("DEBUG findReturnVariable: Called with sequence of " + sequence.statements().size()
+                + " statements, returnType=" + returnType);
+        // Don't early return for "void" - we need to check if variables are used in return statements
+        // within the sequence itself
 
         Set<String> liveOut = findLiveOutVariables(sequence);
 
-        // Filter by type
+        // CRITICAL FIX: Don't filter by returnType! That creates circular dependency.
+        // the returnType was determined FROM this method, so filtering by it is
+        // nonsensical.
+        // Just find variables that are live-out or returned.
         List<String> candidates = new ArrayList<>();
-        System.out.println("Analyzing return variable for type: " + returnType);
+        System.out.println("Analyzing return variable (ignoring expected type to avoid circular logic)");
         for (Statement stmt : sequence.statements()) {
             if (stmt.isExpressionStmt()) {
                 var expr = stmt.asExpressionStmt().getExpression();
@@ -171,13 +175,12 @@ public class DataFlowAnalyzer {
                         }
 
                         // DEBUG
-
                         System.out.println("  Var: " + varName + " (" + varType + ")");
-                        System.out.println("    Default defined liveOut: " + isLiveOut);
+                        System.out.println("    Defined liveOut: " + isLiveOut);
                         System.out.println("    Defined in return: " + isReturned);
 
-                        if ((isLiveOut || isReturned) &&
-                                (varType.contains(returnType) || returnType.contains(varType))) {
+                        // FIXED: Accept if live-out OR returned, regardless of type
+                        if (isLiveOut || isReturned) {
                             candidates.add(varName);
                         }
                     }
@@ -185,8 +188,39 @@ public class DataFlowAnalyzer {
             }
         }
 
+        System.out.println("DEBUG findReturnVariable: Found " + candidates.size() + " candidates: " + candidates);
+
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {
+            return candidates.getFirst();
+        }
+
+        // If multiple candidates, prefer the one with richest type (non-primitive)
+        if (candidates.size() > 1) {
+            // Try to find a non-primitive variable
+            for (String varName : candidates) {
+                // Find the variable's type
+                for (Statement stmt : sequence.statements()) {
+                    if (stmt.isExpressionStmt()) {
+                        var expr = stmt.asExpressionStmt().getExpression();
+                        if (expr.isVariableDeclarationExpr()) {
+                            VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
+                            for (var variable : varDecl.getVariables()) {
+                                if (variable.getNameAsString().equals(varName)) {
+                                    String varType = variable.getType().asString();
+                                    // Prefer non-primitives
+                                    if (!varType.equals("int") && !varType.equals("long") &&
+                                            !varType.equals("double") && !varType.equals("boolean") &&
+                                            !varType.equals("String")) {
+                                        return varName; // Return first non-primitive found
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // If all primitives, return first
             return candidates.getFirst();
         }
 
@@ -194,7 +228,6 @@ public class DataFlowAnalyzer {
         // one DEFINED variable matching the return type.
         // This handles cases where:
         // 1. Live-out analysis missed a usage (false negative)
-        // 2. The variable is defined but not used (safe to return/assign)
         if (candidates.isEmpty() && !"void".equals(returnType)) {
             List<String> fallbackCandidates = new ArrayList<>();
             for (Statement stmt : sequence.statements()) {

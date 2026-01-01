@@ -114,7 +114,10 @@ public class RefactoringRecommendationGenerator {
         Set<String> returnTypes = new HashSet<>();
 
         // Check primary
+        System.out.println("DEBUG determineReturnType: Analyzing PRIMARY sequence with "
+                + cluster.primary().statements().size() + " statements");
         String primaryType = analyzeReturnTypeForSequence(cluster.primary());
+        System.out.println("DEBUG determineReturnType: primary returned type = " + primaryType);
         if (primaryType != null) {
             returnTypes.add(primaryType);
         }
@@ -125,6 +128,8 @@ public class RefactoringRecommendationGenerator {
             // relative to primary
             // We want the duplicate sequence (seq2)
             StatementSequence duplicate = pair.seq2();
+            System.out.println("DEBUG determineReturnType: Analyzing DUPLICATE sequence with "
+                    + duplicate.statements().size() + " statements");
             String type = analyzeReturnTypeForSequence(duplicate);
             if (type != null) {
                 returnTypes.add(type);
@@ -182,33 +187,30 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String analyzeReturnTypeForSequence(StatementSequence sequence) {
-        // 1. Check for explicit return statements
-        // First try to analyze the full expression type (handles method calls, fields,
-        // etc.)
+        // CRITICAL FIX: Use findReturnVariable to find the variable, then get its type
+        // Don't try to determine type first (circular dependency!)
+
+        // Find variable that should be returned (live-out or used in return statements)
+        String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
+                                                                                      // filtering
+        System.out.println("DEBUG analyzeReturnTypeForSequence: findReturnVariable returned: " + returnVarName);
+
+        if (returnVarName != null) {
+            // Get the actual type of that variable
+            String varType = getVariableType(sequence, returnVarName);
+            System.out.println("DEBUG analyzeReturnTypeForSequence: Found return var '" + returnVarName
+                    + "' with type: " + varType);
+            // Return the variable's type, NOT the return statement's expression type
+            if (varType != null && !"void".equals(varType)) {
+                return varType;
+            }
+        }
+
+        // Fallback: Check for explicit return statements IN the duplicate sequence
+        // But DO NOT use this if we found a return variable - that would give us the wrong type
         String explicitType = analyzeReturnStatementType(sequence);
-        if (explicitType != null) {
-            return explicitType;
-        }
-
-        // Fallback: check for simple variables returned
-        Set<String> returnedVars = findVariablesInReturnStatements(sequence);
-        if (!returnedVars.isEmpty()) {
-            String varName = returnedVars.iterator().next();
-
-            if ("String".equals(varName))
-                return "String";
-            return getVariableType(sequence, varName);
-        }
-
-        // 2. Fallback to live-out variable
-        Set<String> liveOut = dataFlowAnalyzer.findLiveOutVariables(sequence);
-        if (liveOut.size() == 1) {
-            String varName = liveOut.iterator().next();
-            String type = getVariableType(sequence, varName);
-            return type;
-        }
-
-        return null;
+        System.out.println("DEBUG analyzeReturnTypeForSequence: Fallback to explicit type: " + explicitType);
+        return explicitType;
     }
 
     /**
