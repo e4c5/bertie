@@ -134,8 +134,6 @@ public class DataFlowAnalyzer {
      * Returns null if no suitable variable found or multiple candidates.
      */
     public String findReturnVariable(StatementSequence sequence, String returnType) {
-        System.out.println("DEBUG findReturnVariable: Called with sequence of " + sequence.statements().size()
-                + " statements, returnType=" + returnType);
         // Don't early return for "void" - we need to check if variables are used in return statements
         // within the sequence itself
 
@@ -173,13 +171,6 @@ public class DataFlowAnalyzer {
                                 }
                             }
                         }
-
-                        // DEBUG
-                        System.out.println("  Var: " + varName + " (" + varType + ")");
-                        System.out.println("    Defined liveOut: " + isLiveOut);
-                        System.out.println("    Defined in return: " + isReturned);
-
-                        // FIXED: Accept if live-out OR returned, regardless of type
                         if (isLiveOut || isReturned) {
                             candidates.add(varName);
                         }
