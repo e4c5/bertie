@@ -120,6 +120,9 @@ public class ExtractMethodRefactorer {
         for (Statement stmt : sequence.statements()) {
             Statement clonedStmt = stmt.clone();
 
+            // CRITICAL: Replace varying literals with parameter names
+            clonedStmt = substituteParameters(clonedStmt, sequence, recommendation);
+
             // If this is a return statement AND we have a specific variable to return
             // AND the return statement is complex (e.g. return user.getName())
             // WE MUST REPLACE IT with `return user;`
@@ -292,23 +295,46 @@ public class ExtractMethodRefactorer {
                     }
                 }
 
+                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a return statement
+                // If so, and the extracted method returns a value, just return the method call directly
+                boolean nextIsReturn = startIdx < block.getStatements().size() &&
+                        block.getStatements().get(startIdx).isReturnStmt();
+
                 // If we found a return variable, we assign it
                 if (varName != null) {
-                    VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                            new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
-                            varName);
-                    varDecl.getVariable(0).setInitializer(methodCall);
-                    block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+                    // CRITICAL FIX: If the next statement is a return and the extracted method
+                    // already has a return value, just return the method call directly
+                    // ALSO: If after removal the block becomes empty AND the containing method returns a value,
+                    // we should return the method call result
+                    boolean shouldReturnDirectly = (nextIsReturn && originalReturnValues != null) ||
+                            (block.getStatements().isEmpty() && 
+                             !containingMethod.getType().asString().equals("void") &&
+                             originalReturnValues != null);
+                    
+                    if (shouldReturnDirectly) {
+                        // Remove the orphaned return statement if it exists
+                        if (nextIsReturn) {
+                            block.getStatements().remove(startIdx);
+                        }
+                        // Return the method call directly
+                        block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+                    } else{
+                        VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
+                                new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
+                                varName);
+                        varDecl.getVariable(0).setInitializer(methodCall);
+                        block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
 
-                    // IF the original code had a return, we must RECONSTRUCT it
-                    if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                        // We need to assume the original return expression used 'varName'
-                        // and we should now return that SAME expression
-                        // BUT 'varName' is now the result of the method call.
-                        // So effectively we just copy the original return statement!
-                        // Since 'varName' is now defined in the scope (we just added it),
-                        // `return varName.getName()` will work validly.
-                        block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+                        // IF the original code had a return, we must RECONSTRUCT it
+                        if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                            // We need to assume the original return expression used 'varName'
+                            // and we should now return that SAME expression
+                            // BUT 'varName' is now the result of the method call.
+                            // So effectively we just copy the original return statement!
+                            // Since 'varName' is now defined in the scope (we just added it),
+                            // `return varName.getName()` will work validly.
+                            block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+                        }
                     }
                 } else {
                     // No variable found (maybe direct return?), just add call
@@ -426,6 +452,77 @@ public class ExtractMethodRefactorer {
                     return true;
                 }
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * Substitute varying literals/expressions with parameter names in the extracted method body.
+     * This ensures that the extracted method uses parameters instead of hardcoded values.
+     */
+    private Statement substituteParameters(Statement stmt, StatementSequence sequence,
+            RefactoringRecommendation recommendation) {
+        // For each parameter, find and replace its example values with the parameter name
+        for (ParameterSpec param : recommendation.suggestedParameters()) {
+            if (param.exampleValues().isEmpty()) {
+                continue;
+            }
+
+            // Get the actual value used in the primary sequence
+            String primaryValue = extractActualValue(sequence, param);
+            if (primaryValue == null) {
+                continue;
+            }
+
+            // Replace all occurrences of this value with the parameter name
+            stmt.findAll(Expression.class).forEach(expr -> {
+                if (shouldReplaceExpression(expr, primaryValue, param)) {
+                    // Replace with parameter name
+                    if (expr.getParentNode().isPresent()) {
+                        expr.replace(new NameExpr(param.name()));
+                    }
+                }
+            });
+        }
+
+        return stmt;
+    }
+
+    /**
+     * Check if an expression should be replaced with a parameter.
+     */
+    private boolean shouldReplaceExpression(Expression expr, String primaryValue, ParameterSpec param) {
+        String exprStr = expr.toString();
+
+        // String literals: compare the actual string value (without quotes)
+        if (expr.isStringLiteralExpr()) {
+            String literalValue = expr.asStringLiteralExpr().asString();
+            String primaryNoQuotes = primaryValue.replace("\"", "");
+            return literalValue.equals(primaryNoQuotes);
+        }
+
+        // Integer literals
+        if (expr.isIntegerLiteralExpr() && primaryValue.matches("-?\\d+")) {
+            return expr.toString().equals(primaryValue);
+        }
+
+        // Long literals
+        if (expr.isLongLiteralExpr() && primaryValue.matches("-?\\d+L?")) {
+            String exprValue = expr.toString().replace("L", "").replace("l", "");
+            String primaryNoL = primaryValue.replace("L", "").replace("l", "");
+            return exprValue.equals(primaryNoL);
+        }
+
+        // Boolean literals
+        if (expr.isBooleanLiteralExpr()) {
+            return expr.toString().equals(primaryValue);
+        }
+
+        // Variable names - only replace if it exactly matches the primary value
+        // and is in the list of example values (to avoid false positives)
+        if (expr.isNameExpr() && exprStr.equals(primaryValue)) {
+            return param.exampleValues().contains(primaryValue);
         }
 
         return false;
