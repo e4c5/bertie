@@ -66,11 +66,6 @@ public class DataFlowAnalyzer {
     /**
      * Find variables used AFTER the sequence ends in the containing method.
      * 
-     * This identifies which variables are "live" - needed by subsequent code.
-     */
-    /**
-     * Find variables used AFTER the sequence ends in the containing method.
-     * 
      * Uses physical source code ordering (Ranges) to be robust against
      * list index shifting caused by boundary refinement.
      */
@@ -93,15 +88,7 @@ public class DataFlowAnalyzer {
             // Check if this usage is physically AFTER the sequence
             if (nameExpr.getRange().isPresent()) {
                 var range = nameExpr.getRange().get();
-                boolean isAfter = false;
-
-                if (range.begin.line > endLine) {
-                    isAfter = true;
-                } else if (range.begin.line == endLine && range.begin.column > endColumn) {
-                    isAfter = true;
-                }
-
-                if (isAfter) {
+                if (range.begin.line > endLine || (range.begin.line == endLine && range.begin.column > endColumn)) {
                     usedAfter.add(nameExpr.getNameAsString());
                 }
             }
