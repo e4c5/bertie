@@ -116,37 +116,16 @@ public class DataFlowAnalyzer {
     public Set<String> findVariablesUsedInSequence(StatementSequence sequence) {
         Set<String> used = new HashSet<>();
         for (Statement stmt : sequence.statements()) {
-            stmt.findAll(NameExpr.class).forEach(nameExpr -> {
-                used.add(nameExpr.getNameAsString());
-            });
+            stmt.findAll(NameExpr.class).forEach(nameExpr ->
+                used.add(nameExpr.getNameAsString())
+            );
         }
         return used;
     }
 
-    /**
-     * Find the correct return variable for an extracted method.
-     * 
-     * Returns the variable that is:
-     * 1. Defined in the sequence
-     * 2. Used after the sequence
-     * 3. Matches the expected return type
-     * 
-     * Returns null if no suitable variable found or multiple candidates.
-     */
-    public String findReturnVariable(StatementSequence sequence, String returnType) {
-        System.out.println("DEBUG findReturnVariable: Called with sequence of " + sequence.statements().size()
-                + " statements, returnType=" + returnType);
-        // Don't early return for "void" - we need to check if variables are used in return statements
-        // within the sequence itself
-
-        Set<String> liveOut = findLiveOutVariables(sequence);
-
-        // CRITICAL FIX: Don't filter by returnType! That creates circular dependency.
-        // the returnType was determined FROM this method, so filtering by it is
-        // nonsensical.
-        // Just find variables that are live-out or returned.
+    public List<String> findCandidates(StatementSequence sequence, Set<String> liveOut) {
         List<String> candidates = new ArrayList<>();
-        System.out.println("Analyzing return variable (ignoring expected type to avoid circular logic)");
+
         for (Statement stmt : sequence.statements()) {
             if (stmt.isExpressionStmt()) {
                 var expr = stmt.asExpressionStmt().getExpression();
@@ -154,7 +133,6 @@ public class DataFlowAnalyzer {
                     VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
                     for (var variable : varDecl.getVariables()) {
                         String varName = variable.getNameAsString();
-                        String varType = variable.getType().asString();
 
                         // Must be live out OR returned in a return statement within the sequence
                         boolean isLiveOut = liveOut.contains(varName);
@@ -174,11 +152,6 @@ public class DataFlowAnalyzer {
                             }
                         }
 
-                        // DEBUG
-                        System.out.println("  Var: " + varName + " (" + varType + ")");
-                        System.out.println("    Defined liveOut: " + isLiveOut);
-                        System.out.println("    Defined in return: " + isReturned);
-
                         // FIXED: Accept if live-out OR returned, regardless of type
                         if (isLiveOut || isReturned) {
                             candidates.add(varName);
@@ -187,8 +160,24 @@ public class DataFlowAnalyzer {
                 }
             }
         }
+        return candidates;
+    }
 
-        System.out.println("DEBUG findReturnVariable: Found " + candidates.size() + " candidates: " + candidates);
+    /**
+     * Find the correct return variable for an extracted method.
+     * 
+     * Returns the variable that is:
+     * 1. Defined in the sequence
+     * 2. Used after the sequence
+     * 3. Matches the expected return type
+     * 
+     * Returns null if no suitable variable found or multiple candidates.
+     */
+    public String findReturnVariable(StatementSequence sequence, String returnType) {
+        Set<String> liveOut = findLiveOutVariables(sequence);
+
+        List<String> candidates = findCandidates(sequence, liveOut);
+
 
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {
@@ -197,38 +186,14 @@ public class DataFlowAnalyzer {
 
         // If multiple candidates, prefer the one with richest type (non-primitive)
         if (candidates.size() > 1) {
-            // Try to find a non-primitive variable
-            for (String varName : candidates) {
-                // Find the variable's type
-                for (Statement stmt : sequence.statements()) {
-                    if (stmt.isExpressionStmt()) {
-                        var expr = stmt.asExpressionStmt().getExpression();
-                        if (expr.isVariableDeclarationExpr()) {
-                            VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
-                            for (var variable : varDecl.getVariables()) {
-                                if (variable.getNameAsString().equals(varName)) {
-                                    String varType = variable.getType().asString();
-                                    // Prefer non-primitives
-                                    if (!varType.equals("int") && !varType.equals("long") &&
-                                            !varType.equals("double") && !varType.equals("boolean") &&
-                                            !varType.equals("String")) {
-                                        return varName; // Return first non-primitive found
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // If all primitives, return first
-            return candidates.getFirst();
+            return findBestCandidate(sequence, candidates);
         }
 
         // FALLBACK: If standard analysis found nothing, check if there is exactly
         // one DEFINED variable matching the return type.
         // This handles cases where:
         // 1. Live-out analysis missed a usage (false negative)
-        if (candidates.isEmpty() && !"void".equals(returnType)) {
+        if (!"void".equals(returnType)) {
             List<String> fallbackCandidates = new ArrayList<>();
             for (Statement stmt : sequence.statements()) {
                 if (stmt.isExpressionStmt()) {
@@ -253,6 +218,34 @@ public class DataFlowAnalyzer {
 
         // Multiple candidates or no candidates = unsafe to extract
         return null;
+    }
+
+    private static String findBestCandidate(StatementSequence sequence, List<String> candidates) {
+        // Try to find a non-primitive variable
+        for (String varName : candidates) {
+            // Find the variable's type
+            for (Statement stmt : sequence.statements()) {
+                if (stmt.isExpressionStmt()) {
+                    var expr = stmt.asExpressionStmt().getExpression();
+                    if (expr.isVariableDeclarationExpr()) {
+                        VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
+                        for (var variable : varDecl.getVariables()) {
+                            if (variable.getNameAsString().equals(varName)) {
+                                String varType = variable.getType().asString();
+                                // Prefer non-primitives
+                                if (!varType.equals("int") && !varType.equals("long") &&
+                                        !varType.equals("double") && !varType.equals("boolean") &&
+                                        !varType.equals("String")) {
+                                    return varName;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // If all primitives, return first
+        return candidates.getFirst();
     }
 
     /**
