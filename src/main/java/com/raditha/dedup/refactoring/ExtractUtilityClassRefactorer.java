@@ -1,15 +1,10 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.Modifier;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.stmt.BlockStmt;
-import com.github.javaparser.ast.stmt.ExpressionStmt;
-import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 
@@ -29,17 +24,12 @@ public class ExtractUtilityClassRefactorer {
     /**
      * Apply the refactoring to extract a utility class.
      */
-    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation)
-            throws IOException {
+    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
         // For now, this is a simplified version that works within a single file
         // Full cross-file implementation would require tracking multiple source files
         CompilationUnit cu = cluster.primary().compilationUnit();
         Path sourceFile = cluster.primary().sourceFilePath();
-
-        // Get the class containing the duplicate method
-        ClassOrInterfaceDeclaration sourceClass = cu.findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No class found"));
 
         // Get the method to extract
         MethodDeclaration methodToExtract = cluster.primary().containingMethod();
@@ -117,8 +107,8 @@ public class ExtractUtilityClassRefactorer {
      */
     private String getPackageName(CompilationUnit cu) {
         return cu.getPackageDeclaration()
-                .map(pd -> pd.getNameAsString())
-                .orElse("com.example");
+                .map(NodeWithName::getNameAsString)
+                .orElse("");
     }
 
     /**
