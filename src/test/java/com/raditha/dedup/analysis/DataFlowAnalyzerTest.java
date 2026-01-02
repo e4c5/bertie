@@ -34,6 +34,7 @@ class DataFlowAnalyzerTest {
         Settings.loadConfigMap(configFile);
 
         // Reset and parse test sources
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.reset();
         AbstractCompiler.preProcess();
 

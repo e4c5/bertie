@@ -15,6 +15,12 @@ import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
+import sa.com.cloudsolutions.antikythera.depsolver.Graph;
+import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
+import sa.com.cloudsolutions.antikythera.depsolver.Resolver;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.parser.Callable;
+import sa.com.cloudsolutions.antikythera.parser.MCEWrapper;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -91,9 +97,8 @@ public class ExtractUtilityClassRefactorer {
         // Map CUs to the method that should be removed (Primary + Duplicates)
         Map<CompilationUnit, MethodDeclaration> methodsToRemove = new IdentityHashMap<>();
         methodsToRemove.put(cu, methodToExtract);
-        cluster.duplicates().forEach(pair -> {
-            methodsToRemove.put(pair.seq2().compilationUnit(), pair.seq2().containingMethod());
-        });
+        cluster.duplicates()
+                .forEach(pair -> methodsToRemove.put(pair.seq2().compilationUnit(), pair.seq2().containingMethod()));
 
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract, utilityClassName, packageName);
@@ -189,14 +194,28 @@ public class ExtractUtilityClassRefactorer {
         String utilityRunTimePackage = originalPackage + ".util"; // Assumed location
         cu.addImport(utilityRunTimePackage + "." + utilityClassName);
 
+        // Find the primary type declaration to use as context for resolution
+        ClassOrInterfaceDeclaration typeDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElse(null);
+        if (typeDecl == null) {
+            return;
+        }
+        GraphNode contextNode = Graph.createGraphNode(typeDecl);
+
         // Update calls: method(...) -> UtilityClass.method(...)
         cu.findAll(MethodCallExpr.class).forEach(call -> {
             if (call.getNameAsString().equals(methodName) && call.getScope().isEmpty()) {
-                // Check arguments count?
-                // For a robust refactor, we should ensure it matches the signature.
-                // originalMethod.getParameters().size() == call.getArguments().size()
-                if (originalMethod.getParameters().size() == call.getArguments().size()) {
-                    call.setScope(new NameExpr(utilityClassName));
+                MCEWrapper wrapper = Resolver.resolveArgumentTypes(contextNode, call);
+                Callable callable = AbstractCompiler.findCallableDeclaration(wrapper, typeDecl).orElse(null);
+
+                if (callable != null && callable.isMethodDeclaration()) {
+                    MethodDeclaration resolvedMethod = callable.asMethodDeclaration();
+                    // Check if the resolved method is indeed the one we are extracting (or a
+                    // signature match)
+                    // We compare signatures since 'originalMethod' might be from a different file
+                    // (duplicate)
+                    if (resolvedMethod.getSignature().equals(originalMethod.getSignature())) {
+                        call.setScope(new NameExpr(utilityClassName));
+                    }
                 }
             }
         });
