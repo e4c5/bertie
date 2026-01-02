@@ -160,7 +160,7 @@ class VariationTrackerTest {
 
         @Test
         void testLiteralsAreNormalized() {
-                // Literals with SAME type but different values normalize identically
+                // UPDATED: After fix, literals with different values create variations
                 List<Token> tokens1 = List.of(
                                 new Token(TokenType.STRING_LIT, "STRING_LIT", "\"PENDING\""));
 
@@ -169,9 +169,9 @@ class VariationTrackerTest {
 
                 VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
 
-                // Both normalize to STRING_LIT → no variation detected
-                assertEquals(0, analysis.getVariationCount(),
-                                "Normalized string literals should match semantically");
+                // Different values → variation IS detected after semanticallyMatches() fix
+                assertEquals(1, analysis.getVariationCount(),
+                                "Different string literals should create a variation");
         }
 
         @Test

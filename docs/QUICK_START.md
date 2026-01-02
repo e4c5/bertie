@@ -1,5 +1,9 @@
 # Duplication Detector - Quick Start Guide
 
+> ⚠️ **Important**: Refactoring features are in beta. See [Known Issues](#known-issues) below.
+> 
+> **Safe to use**: Duplicate detection (`analyze` command) and dry-run mode.
+
 ## Overview
 
 The Duplication Detector automatically finds and refactors duplicate code in Java projects. It uses advanced similarity algorithms combined with intelligent refactoring strategies to help you eliminate code duplication.
@@ -251,6 +255,34 @@ If verification fails, changes are automatically rolled back.
 ## Configuration Reference
 
 See [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options.
+
+---
+
+## Known Issues
+
+⚠️ **Refactoring has known bugs** - See [P0_GAP_FIXES_README.md](P0_GAP_FIXES_README.md) for details.
+
+**Current Status**: 166/180 tests passing (92%)
+
+**Safe to use**:
+- ✅ `analyze` command - Duplicate detection is fully functional
+- ✅ `--mode dry-run` - Preview refactorings without making changes
+- ✅ `--export` - Metrics export works correctly
+
+**Use with caution**:
+- ⚠️ `--mode interactive` - Review changes carefully before applying
+- ⚠️ Simple extractions usually work, complex ones may have issues
+
+**Not recommended**:
+- ❌ `--mode batch` - Auto-apply disabled until P0 bugs are fixed
+- ❌ Production CI/CD - Manual review required
+
+**Known bugs**:
+- Argument extraction may use wrong values in some cases
+- Return value detection can select wrong variable
+- Type inference incomplete for complex expressions
+
+See [FUNCTIONAL_EQUIVALENCE_GAPS.md](FUNCTIONAL_EQUIVALENCE_GAPS.md) for detailed gap analysis.
 
 ---
 

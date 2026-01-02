@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Extracts duplicate code to a private helper method.
@@ -119,6 +120,9 @@ public class ExtractMethodRefactorer {
         for (Statement stmt : sequence.statements()) {
             Statement clonedStmt = stmt.clone();
 
+            // CRITICAL: Replace varying literals with parameter names
+            clonedStmt = substituteParameters(clonedStmt, sequence, recommendation);
+
             // If this is a return statement AND we have a specific variable to return
             // AND the return statement is complex (e.g. return user.getName())
             // WE MUST REPLACE IT with `return user;`
@@ -182,10 +186,43 @@ public class ExtractMethodRefactorer {
         NodeList<Expression> arguments = new NodeList<>();
         for (ParameterSpec param : recommendation.suggestedParameters()) {
             String actualValue = extractActualValue(sequence, param);
+            String valToUse = null;
+
             if (actualValue != null) {
-                arguments.add(new NameExpr(actualValue));
+                valToUse = actualValue;
             } else if (!param.exampleValues().isEmpty()) {
-                arguments.add(new NameExpr(param.exampleValues().get(0)));
+                valToUse = param.exampleValues().get(0);
+            }
+
+            if (valToUse != null) {
+                // If parameter is Class<?>, ensure we pass User.class, not just User
+                if (("Class<?>".equals(param.type()) || "Class".equals(param.type()))
+                        && !valToUse.endsWith(".class")) {
+                    // Create Class Expression: User.class
+                    arguments.add(new ClassExpr(new ClassOrInterfaceType(null, valToUse)));
+                } else {
+                    // Default: variable name or literal
+                    try {
+                        // Try to parse partial expression (like "5000" or "true")
+                        // But NameExpr is safer for variables to avoid parsing errors on reserved
+                        // words?
+                        // "User" is fine as NameExpr if it was a variable.
+                        // For literals, we should ideally use proper LiteralExpr.
+                        // But extractActualValue returns STRING.
+                        // Let's stick to NameExpr for variables, but if it looks like a number...
+                        if (valToUse.matches("-?\\d+(\\.\\d+)?")) {
+                            arguments.add(new IntegerLiteralExpr(valToUse));
+                        } else if ("true".equals(valToUse) || "false".equals(valToUse)) {
+                            arguments.add(new BooleanLiteralExpr(Boolean.parseBoolean(valToUse)));
+                        } else if (valToUse.startsWith("\"")) { // String lit
+                            arguments.add(new StringLiteralExpr(valToUse.replace("\"", "")));
+                        } else {
+                            arguments.add(new NameExpr(valToUse));
+                        }
+                    } catch (Exception e) {
+                        arguments.add(new NameExpr(valToUse));
+                    }
+                }
             }
         }
 
@@ -227,23 +264,77 @@ public class ExtractMethodRefactorer {
                 // Returns a value
                 String varName = findReturnVariable(sequence, recommendation.suggestedReturnType());
 
+                DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+                Set<String> defined = dfa.findDefinedVariables(sequence);
+
+                // FALLBACK 1: Use primary return variable if defined in this sequence
+                if (varName == null && recommendation.primaryReturnVariable() != null) {
+                    if (defined.contains(recommendation.primaryReturnVariable())) {
+                        varName = recommendation.primaryReturnVariable();
+                    }
+                }
+
+                // FALLBACK 2: If still null, look for ANY defined variable matching the return
+                // type
+                // This handles parameter renaming (e.g. Primary returns 'user', Duplicate
+                // returns 'customer')
+                if (varName == null) {
+                    List<String> typedCandidates = new ArrayList<>();
+                    // Iterate statements to find variable declarations of matching type
+                    for (Statement stmt : sequence.statements()) {
+                        stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
+                            vde.getVariables().forEach(v -> {
+                                if (v.getType().asString().equals(recommendation.suggestedReturnType())) {
+                                    typedCandidates.add(v.getNameAsString());
+                                }
+                            });
+                        });
+                    }
+                    if (typedCandidates.size() == 1) {
+                        varName = typedCandidates.get(0);
+                    }
+                }
+
+                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a return statement
+                // If so, and the extracted method returns a value, just return the method call directly
+                boolean nextIsReturn = startIdx < block.getStatements().size() &&
+                        block.getStatements().get(startIdx).isReturnStmt();
+
                 // If we found a return variable, we assign it
                 if (varName != null) {
-                    VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                            new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
-                            varName);
-                    varDecl.getVariable(0).setInitializer(methodCall);
-                    block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+                    // CRITICAL FIX: If the next statement is a return and the extracted method
+                    // already has a return value, just return the method call directly
+                    // ALSO: If after removal the block becomes empty AND the containing method returns a value,
+                    // we should return the method call result
+                    boolean shouldReturnDirectly = (nextIsReturn && originalReturnValues != null) ||
+                            (block.getStatements().isEmpty() && 
+                             !containingMethod.getType().asString().equals("void") &&
+                             originalReturnValues != null);
+                    
+                    if (shouldReturnDirectly) {
+                        // Remove the orphaned return statement if it exists
+                        if (nextIsReturn) {
+                            block.getStatements().remove(startIdx);
+                        }
+                        // Return the method call directly
+                        block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+                    } else{
+                        VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
+                                new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
+                                varName);
+                        varDecl.getVariable(0).setInitializer(methodCall);
+                        block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
 
-                    // IF the original code had a return, we must RECONSTRUCT it
-                    if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                        // We need to assume the original return expression used 'varName'
-                        // and we should now return that SAME expression
-                        // BUT 'varName' is now the result of the method call.
-                        // So effectively we just copy the original return statement!
-                        // Since 'varName' is now defined in the scope (we just added it),
-                        // `return varName.getName()` will work validly.
-                        block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+                        // IF the original code had a return, we must RECONSTRUCT it
+                        if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                            // We need to assume the original return expression used 'varName'
+                            // and we should now return that SAME expression
+                            // BUT 'varName' is now the result of the method call.
+                            // So effectively we just copy the original return statement!
+                            // Since 'varName' is now defined in the scope (we just added it),
+                            // `return varName.getName()` will work validly.
+                            block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+                        }
                     }
                 } else {
                     // No variable found (maybe direct return?), just add call
@@ -341,12 +432,19 @@ public class ExtractMethodRefactorer {
             return true;
         }
 
+        // For long literals
+        if (expr.isLongLiteralExpr() && ("long".equals(param.type()) || "Long".equals(param.type()))) {
+            return true;
+        }
+
         // For boolean literals
         if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || "Boolean".equals(param.type()))) {
             return true;
         }
 
         // For variable names, check if it matches one of the example patterns
+        // REVERTED: Conservative approach - only accept known example values
+        // This avoids TypeInferenceException for out-of-scope variables
         if (expr.isNameExpr() && !param.exampleValues().isEmpty()) {
             // If any example value matches this name, it's likely the parameter
             for (String example : param.exampleValues()) {
@@ -354,6 +452,77 @@ public class ExtractMethodRefactorer {
                     return true;
                 }
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * Substitute varying literals/expressions with parameter names in the extracted method body.
+     * This ensures that the extracted method uses parameters instead of hardcoded values.
+     */
+    private Statement substituteParameters(Statement stmt, StatementSequence sequence,
+            RefactoringRecommendation recommendation) {
+        // For each parameter, find and replace its example values with the parameter name
+        for (ParameterSpec param : recommendation.suggestedParameters()) {
+            if (param.exampleValues().isEmpty()) {
+                continue;
+            }
+
+            // Get the actual value used in the primary sequence
+            String primaryValue = extractActualValue(sequence, param);
+            if (primaryValue == null) {
+                continue;
+            }
+
+            // Replace all occurrences of this value with the parameter name
+            stmt.findAll(Expression.class).forEach(expr -> {
+                if (shouldReplaceExpression(expr, primaryValue, param)) {
+                    // Replace with parameter name
+                    if (expr.getParentNode().isPresent()) {
+                        expr.replace(new NameExpr(param.name()));
+                    }
+                }
+            });
+        }
+
+        return stmt;
+    }
+
+    /**
+     * Check if an expression should be replaced with a parameter.
+     */
+    private boolean shouldReplaceExpression(Expression expr, String primaryValue, ParameterSpec param) {
+        String exprStr = expr.toString();
+
+        // String literals: compare the actual string value (without quotes)
+        if (expr.isStringLiteralExpr()) {
+            String literalValue = expr.asStringLiteralExpr().asString();
+            String primaryNoQuotes = primaryValue.replace("\"", "");
+            return literalValue.equals(primaryNoQuotes);
+        }
+
+        // Integer literals
+        if (expr.isIntegerLiteralExpr() && primaryValue.matches("-?\\d+")) {
+            return expr.toString().equals(primaryValue);
+        }
+
+        // Long literals
+        if (expr.isLongLiteralExpr() && primaryValue.matches("-?\\d+L?")) {
+            String exprValue = expr.toString().replace("L", "").replace("l", "");
+            String primaryNoL = primaryValue.replace("L", "").replace("l", "");
+            return exprValue.equals(primaryNoL);
+        }
+
+        // Boolean literals
+        if (expr.isBooleanLiteralExpr()) {
+            return expr.toString().equals(primaryValue);
+        }
+
+        // Variable names - only replace if it exactly matches the primary value
+        // and is in the list of example values (to avoid false positives)
+        if (expr.isNameExpr() && exprStr.equals(primaryValue)) {
+            return param.exampleValues().contains(primaryValue);
         }
 
         return false;

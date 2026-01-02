@@ -72,7 +72,7 @@ class TokenNormalizerTest {
 
     @Test
     void testLiteralNormalization() {
-        // Different string literals should normalize to same type
+        // Different string literals should normalize to same type BUT different values
         Statement stmt1 = parseStatement("status = \"PENDING\";");
         Statement stmt2 = parseStatement("status = \"APPROVED\";");
 
@@ -86,8 +86,9 @@ class TokenNormalizerTest {
         assertNotNull(lit2);
         assertEquals("STRING_LIT", lit1.normalizedValue());
         assertEquals("STRING_LIT", lit2.normalizedValue());
-        assertTrue(lit1.semanticallyMatches(lit2),
-                "String literals should match semantically");
+        // UPDATED: After fix, different values should NOT match
+        assertFalse(lit1.semanticallyMatches(lit2),
+                "String literals with different values should NOT match");
     }
 
     @Test

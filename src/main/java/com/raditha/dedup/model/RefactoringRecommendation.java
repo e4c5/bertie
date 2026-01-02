@@ -21,7 +21,24 @@ public record RefactoringRecommendation(
         String suggestedReturnType,
         String targetLocation,
         double confidenceScore,
-        int estimatedLOCReduction) {
+        int estimatedLOCReduction,
+        String primaryReturnVariable) {
+
+    /**
+     * Compatibility constructor for existing codes.
+     */
+    public RefactoringRecommendation(
+            RefactoringStrategy strategy,
+            String suggestedMethodName,
+            List<ParameterSpec> suggestedParameters,
+            String suggestedReturnType,
+            String targetLocation,
+            double confidenceScore,
+            int estimatedLOCReduction) {
+        this(strategy, suggestedMethodName, suggestedParameters, suggestedReturnType, targetLocation, confidenceScore,
+                estimatedLOCReduction, null);
+    }
+
     /**
      * Check if this recommendation is high confidence (>= 0.90).
      */

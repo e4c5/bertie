@@ -6,8 +6,24 @@
 
 [![Java 21](https://img.shields.io/badge/Java-21-orange)](https://openjdk.org/projects/jdk/21/)
 [![Maven](https://img.shields.io/badge/Maven-3.6+-blue)](https://maven.apache.org/)
+[![Tests](https://img.shields.io/badge/Tests-166%2F180%20passing-yellow)](https://github.com/)
+
+**Status**: Detection complete ✅ | Refactoring in beta ⚠️
 
 </div>
+
+---
+
+## ⚠️ Important Notice
+
+**Duplicate Detection**: Fully functional and production-ready  
+**Refactoring**: Beta quality with known bugs (see [Known Issues](#known-issues))
+
+**Recommended Use**:
+- ✅ Use `analyze` command for duplicate detection
+- ✅ Use `--mode dry-run` to preview refactorings
+- ⚠️ Use `--mode interactive` with manual review
+- ❌ Avoid `--mode batch` until P0 bugs are fixed
 
 ---
 
@@ -209,6 +225,37 @@ bertie/
 
 ---
 
+## Known Issues
+
+⚠️ **Refactoring features have known bugs** - Test status: 166/180 passing (92%)
+
+### Current Limitations
+
+**Safe Features**:
+- ✅ Duplicate detection (`analyze` command)
+- ✅ Dry-run preview (`--mode dry-run`)
+- ✅ Metrics export (`--export csv/json`)
+
+**Use with Caution**:
+- ⚠️ Interactive refactoring - Manual review required
+- ⚠️ Simple extractions usually work
+- ⚠️ Complex refactorings may have edge cases
+
+**Not Recommended**:
+- ❌ Batch mode - Auto-apply disabled
+- ❌ Production CI/CD without review
+
+### Known Bugs
+
+1. **Argument Extraction** - May use wrong values in some cases
+2. **Return Value Detection** - Can select incorrect variable to return
+3. **Type Inference** - Incomplete for complex expressions
+4. **Literal Normalization** - String literal matching issues
+
+**For Developers**: See [FUNCTIONAL_EQUIVALENCE_GAPS.md](docs/FUNCTIONAL_EQUIVALENCE_GAPS.md) for detailed gap analysis and [P0_GAP_FIXES_README.md](docs/P0_GAP_FIXES_README.md) for fix status.
+
+---
+
 ## Development
 
 ### Build
@@ -220,7 +267,11 @@ mvn clean compile
 ### Run Tests
 
 ```bash
+# Run all tests (14 failures expected)
 mvn test
+
+# Run only passing tests
+mvn test -Dtest="!ReturnValueIntegrationTest,!VariationTrackerTest,!TokenNormalizerTest"
 ```
 
 ### Package
@@ -233,10 +284,16 @@ mvn package
 
 ## Contributing
 
-Contributions are welcome! Please ensure:
-- All tests pass (`mvn test`)
+Contributions are welcome! Areas needing help:
+- **P0 Gap Fixes** - See [FUNCTIONAL_EQUIVALENCE_GAPS.md](docs/FUNCTIONAL_EQUIVALENCE_GAPS.md)
+- **Test Coverage** - Fix failing tests
+- **Documentation** - Improve user guides
+
+Please ensure:
+- All new tests pass (`mvn test`)
 - Code follows existing style
 - Documentation is updated
+
 
 ---
 

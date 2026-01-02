@@ -1,7 +1,7 @@
 package com.raditha.dedup.analysis;
 
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.stmt.*;
 import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
@@ -13,8 +13,6 @@ import com.raditha.dedup.model.Token;
 import com.raditha.dedup.config.SimilarityWeights;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.model.TypeCompatibility;
-import com.raditha.dedup.analysis.VariationTracker;
-import com.raditha.dedup.analysis.TypeAnalyzer;
 
 import java.util.*;
 
@@ -78,47 +76,140 @@ public class BoundaryRefiner {
     public List<SimilarityPair> refineBoundaries(List<SimilarityPair> pairs) {
         List<SimilarityPair> refined = new ArrayList<>();
         int totalTrimmed = 0;
+        int totalExtended = 0;
 
         for (SimilarityPair pair : pairs) {
-            // Try to trim both sequences
-            StatementSequence trimmed1 = trimUsageStatements(pair.seq1());
-            StatementSequence trimmed2 = trimUsageStatements(pair.seq2());
+            // 1. TRIM END: Remove usage-only statements
+            StatementSequence processed1 = trimUsageStatements(pair.seq1());
+            StatementSequence processed2 = trimUsageStatements(pair.seq2());
 
-            // Check if we actually trimmed anything
-            boolean wasTrimmed = trimmed1.statements().size() < pair.seq1().statements().size() ||
-                    trimmed2.statements().size() < pair.seq2().statements().size();
+            boolean wasTrimmed = processed1.statements().size() < pair.seq1().statements().size() ||
+                    processed2.statements().size() < pair.seq2().statements().size();
 
-            // Skip if trimmed below minimum
-            if (trimmed1.statements().size() < minStatements ||
-                    trimmed2.statements().size() < minStatements) {
-                // Add original pair (trimmed too much)
+            // 2. EXTEND START: Include missing variable declarations
+            // This fixes "cannot find symbol" errors when duplicates use but don't include
+            // the definition
+            StatementSequence extended1 = extendStartBoundary(processed1);
+            StatementSequence extended2 = extendStartBoundary(processed2);
+
+            boolean wasExtended = extended1.statements().size() > processed1.statements().size() ||
+                    extended2.statements().size() > processed2.statements().size();
+
+            // Skip if trimmed below minimum (check ONLY if we trimmed, extension is always
+            // safe)
+            if (wasTrimmed && (extended1.statements().size() < minStatements ||
+                    extended2.statements().size() < minStatements)) {
+                // Even with extension, it's too small after trimming? Original might be better.
                 refined.add(pair);
                 continue;
             }
 
-            // If we trimmed, recalculate similarity
-            if (wasTrimmed) {
-                SimilarityResult newSimilarity = recalculateSimilarity(trimmed1, trimmed2);
+            // If changed, recalculate similarity
+            if (wasTrimmed || wasExtended) {
+                SimilarityResult newSimilarity = recalculateSimilarity(extended1, extended2);
 
-                // Keep trimmed version if still above threshold
+                // Keep processed version if still above threshold
                 if (newSimilarity.overallScore() >= threshold) {
-                    refined.add(new SimilarityPair(trimmed1, trimmed2, newSimilarity));
-                    totalTrimmed++;
+                    refined.add(new SimilarityPair(extended1, extended2, newSimilarity));
+                    if (wasTrimmed)
+                        totalTrimmed++;
+                    if (wasExtended)
+                        totalExtended++;
                 } else {
-                    // Similarity too low after trimming - keep original
+                    // Similarity too low - keep original
                     refined.add(pair);
                 }
             } else {
-                // No trimming - keep original
+                // No change - keep original
                 refined.add(pair);
             }
         }
 
-        if (totalTrimmed > 0) {
-            System.out.printf("Boundary refinement: %d pairs trimmed%n", totalTrimmed);
+        if (totalTrimmed > 0 || totalExtended > 0) {
+            System.out.printf("Boundary refinement: %d trimmed, %d extended%n", totalTrimmed, totalExtended);
         }
 
         return refined;
+    }
+
+    /**
+     * Extend start boundary to include variable declarations.
+     * If a variable is used in the sequence but not defined, and its declaration
+     * immediately precedes the sequence, include it.
+     */
+    private StatementSequence extendStartBoundary(StatementSequence sequence) {
+        // Find variables used but not defined (captured)
+        Set<String> defined = dataFlowAnalyzer.findDefinedVariables(sequence);
+        Set<String> used = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
+        Set<String> captured = new HashSet<>(used);
+        captured.removeAll(defined);
+
+        if (captured.isEmpty()) {
+            return sequence;
+        }
+
+        // Get the parent block to access preceding statements
+        if (sequence.containingMethod() == null || !sequence.containingMethod().getBody().isPresent()) {
+            return sequence;
+        }
+
+        BlockStmt block = sequence.containingMethod().getBody().get();
+        NodeList<Statement> allStmts = block.getStatements();
+
+        // Find index of first statements
+        int firstIdx = -1;
+        int firstLine = sequence.statements().get(0).getRange().map(r -> r.begin.line).orElse(-1);
+
+        for (int i = 0; i < allStmts.size(); i++) {
+            if (allStmts.get(i).getRange().map(r -> r.begin.line).orElse(-1) == firstLine) {
+                firstIdx = i;
+                break;
+            }
+        }
+
+        if (firstIdx <= 0) {
+            return sequence; // Cannot extend backwards
+        }
+
+        List<Statement> currentStmts = new ArrayList<>(sequence.statements());
+        boolean extended = false;
+
+        // Look backwards from firstIdx - 1
+        int currentIdx = firstIdx - 1;
+        while (currentIdx >= 0) {
+            Statement stmt = allStmts.get(currentIdx);
+
+            // Check if this statement defines one of our captured variables
+            boolean relevantDeclaration = false;
+            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+                VariableDeclarationExpr vde = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
+                for (var var : vde.getVariables()) {
+                    if (captured.contains(var.getNameAsString())) {
+                        relevantDeclaration = true;
+                        // It is now defined, remove from captured set to stop looking for it?
+                        // Ideally yes, but we might want to keep going for others.
+                        break;
+                    }
+                }
+            }
+
+            if (relevantDeclaration) {
+                // Prepend statement
+                currentStmts.add(0, stmt);
+                extended = true;
+                currentIdx--;
+            } else {
+                // Found a gap (statement that is NOT a relevant declaration)
+                // Stop extending to ensure contiguous block
+                break;
+            }
+        }
+
+        if (extended) {
+            return createTrimmedSequence(sequence, currentStmts); // Re-use creation logic
+        }
+
+        return sequence;
     }
 
     /**

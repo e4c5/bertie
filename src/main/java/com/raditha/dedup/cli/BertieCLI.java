@@ -76,10 +76,10 @@ public class BertieCLI {
                 config.minLines,
                 config.threshold,
                 config.preset);
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig);
-
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
         String targetClass = DuplicationDetectorSettings.getTargetClass();
 
         List<DuplicationReport> reports = new ArrayList<>();
@@ -87,6 +87,12 @@ public class BertieCLI {
         // Single iteration - filter and analyze
         for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
+
+            // Skip test classes - they use test frameworks (Mockito, etc.) that complicate
+            // type inference
+            if (isTestClass(className)) {
+                continue;
+            }
 
             // Apply filters inline
             if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
@@ -96,9 +102,8 @@ public class BertieCLI {
                 continue;
             }
 
-            // Determine if this is a test class and use the correct source directory
-            String sourceDir = isTestClass(className) ? "src/test/java" : "src/main/java";
-            Path sourceFile = Paths.get(Settings.getBasePath(), sourceDir,
+            // Production code only - use src/main/java
+            Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
                     AbstractCompiler.classToPath(className));
             DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
             reports.add(report);

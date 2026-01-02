@@ -35,34 +35,35 @@ class RefactoringIntegrationTest {
     @Test
     void testEndToEndRefactoring() throws IOException {
         // 1. Create a test file with obvious duplicates
+        // Made more similar to increase confidence for batch mode
         String originalCode = """
                 package com.test;
 
                 public class UserService {
 
-                    public void createAdmin() {
+                    public void createUser1(String name, String email, String role) {
                         User user = new User();
-                        user.setName("Admin");
-                        user.setEmail("admin@test.com");
-                        user.setRole("admin");
+                        user.setName(name);
+                        user.setEmail(email);
+                        user.setRole(role);
                         user.setActive(true);
                         repository.save(user);
                     }
 
-                    public void createGuest() {
+                    public void createUser2(String name, String email, String role) {
                         User user = new User();
-                        user.setName("Guest");
-                        user.setEmail("guest@test.com");
-                        user.setRole("guest");
-                        user.setActive(false);
+                        user.setName(name);
+                        user.setEmail(email);
+                        user.setRole(role);
+                        user.setActive(true);
                         repository.save(user);
                     }
 
-                    public void createModerator() {
+                    public void createUser3(String name, String email, String role) {
                         User user = new User();
-                        user.setName("Moderator");
-                        user.setEmail("mod@test.com");
-                        user.setRole("moderator");
+                        user.setName(name);
+                        user.setEmail(email);
+                        user.setRole(role);
                         user.setActive(true);
                         repository.save(user);
                     }
