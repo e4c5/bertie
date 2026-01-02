@@ -1,6 +1,5 @@
 package com.raditha.dedup.refactoring;
 
-import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.model.*;
 import com.raditha.dedup.analyzer.DuplicationReport;
 
@@ -199,12 +198,8 @@ public class RefactoringEngine {
             }
             case EXTRACT_TO_UTILITY_CLASS -> {
                 ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
-                ExtractUtilityClassRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
-                yield new ExtractMethodRefactorer.RefactoringResult(
-                        result.sourceFile(),
-                        result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to utility class: " + result.utilityClassName());
+                ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+                yield result;
             }
             default -> throw new UnsupportedOperationException(
                     "Refactoring strategy not yet implemented: " + recommendation.strategy());
