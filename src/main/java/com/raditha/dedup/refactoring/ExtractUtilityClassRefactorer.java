@@ -186,6 +186,15 @@ public class ExtractUtilityClassRefactorer {
         return method.toString().contains(simpleName);
     }
 
+    /**
+     * Check if a method call is either unqualified (e.g., methodName(...)) or 
+     * qualified with 'this' (e.g., this.methodName(...)).
+     */
+    private boolean isUnqualifiedOrThisScoped(MethodCallExpr call) {
+        return call.getScope().isEmpty() || 
+               call.getScope().map(s -> s instanceof ThisExpr).orElse(false);
+    }
+
     private void updateCallSitesAndImports(CompilationUnit cu, MethodDeclaration originalMethod,
             String utilityClassName, String originalPackage) {
         String methodName = originalMethod.getNameAsString();
@@ -204,8 +213,7 @@ public class ExtractUtilityClassRefactorer {
         // Update calls: method(...) -> UtilityClass.method(...)
         // Also handles this.method(...) -> UtilityClass.method(...)
         cu.findAll(MethodCallExpr.class).forEach(call -> {
-            if (call.getNameAsString().equals(methodName) && 
-                (call.getScope().isEmpty() || call.getScope().map(s -> s instanceof ThisExpr).orElse(false))) {
+            if (call.getNameAsString().equals(methodName) && isUnqualifiedOrThisScoped(call)) {
                 MCEWrapper wrapper = Resolver.resolveArgumentTypes(contextNode, call);
                 Callable callable = AbstractCompiler.findCallableDeclaration(wrapper, typeDecl).orElse(null);
 
