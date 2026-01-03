@@ -249,7 +249,8 @@ All refactorings follow: validate → backup → apply → verify → commit or 
 
 **Sliding Window**: StatementExtractor uses sliding window to generate all sequences of length >= minLines. Each window becomes a StatementSequence with full AST context.
 
-**Type Resolution**: Uses JavaParser's type resolution when available, but gracefully degrades if types are unresolved. Type analysis is a best-effort optimization, not a requirement.
+**Type Resolution**: Uses JavaParser's type resolution when antikythera does not have
+the required functionality.
 
 **Cluster Primary Selection**: The "primary" sequence in a cluster is the one with the lowest line number (appears first in file). All duplicates are grouped by their shared primary.
 
@@ -291,7 +292,7 @@ All refactorings follow: validate → backup → apply → verify → commit or 
 ### Common Pitfalls
 - **Don't re-normalize**: Tokens should be computed once and cached
 - **Check Optional&lt;Range&gt;**: AST ranges can be absent for synthetic nodes
-- **Handle unresolved types**: Type resolution can fail, code must degrade gracefully
+- **Handle unresolved types**: Type resolution can fail, then exit early and try a better approach
 - **Test with real code**: Simple synthetic tests miss edge cases - use real Java files
 - **Backup before refactoring**: Always create backups, never modify files directly without safety net
 
@@ -324,6 +325,9 @@ All refactorings follow: validate → backup → apply → verify → commit or 
    7. validate that the tests in the test-bed pass
 
  - if any of the above steps fail, then the refactoring is not successful and should be retried.
+
+## Exceptions
+always fail fast.
 
 ## Metrics and Observability
 

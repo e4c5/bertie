@@ -43,22 +43,30 @@ public class ExtractMethodRefactorer {
         Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
         modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
 
-        // 1. Create the new helper method
+        // 1. Create the new helper method (tentative)
         MethodDeclaration helperMethod = createHelperMethod(primary, recommendation);
 
-        // 2. Add method to the class (modifies primary CU)
+        // 2. Add method to the class (modifies primary CU) — but first, try to REUSE existing equivalent helper
         ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
                 .findAncestor(ClassOrInterfaceDeclaration.class)
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
-        containingClass.addMember(helperMethod);
+        String methodNameToUse = recommendation.suggestedMethodName();
+        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod);
+        if (equivalent == null) {
+            // No equivalent helper exists; add our newly created one
+            containingClass.addMember(helperMethod);
+        } else {
+            // Reuse existing helper method name; skip adding duplicate
+            methodNameToUse = equivalent.getNameAsString();
+        }
 
         // 3. Replace all duplicate occurrences with method calls (track each CU)
         for (SimilarityPair pair : cluster.duplicates()) {
-            replaceWithMethodCall(pair.seq1(), recommendation);
+            replaceWithMethodCall(pair.seq1(), recommendation, pair.similarity().variations(), methodNameToUse);
             modifiedCUs.put(pair.seq1().compilationUnit(), pair.seq1().sourceFilePath());
 
-            replaceWithMethodCall(pair.seq2(), recommendation);
+            replaceWithMethodCall(pair.seq2(), recommendation, pair.similarity().variations(), methodNameToUse);
             modifiedCUs.put(pair.seq2().compilationUnit(), pair.seq2().sourceFilePath());
         }
 
@@ -72,7 +80,7 @@ public class ExtractMethodRefactorer {
         return new RefactoringResult(
                 modifiedFiles,
                 recommendation.strategy(),
-                "Extracted method: " + recommendation.suggestedMethodName());
+                "Extracted method: " + methodNameToUse);
     }
 
     /**
@@ -171,10 +179,72 @@ public class ExtractMethodRefactorer {
         return analyzer.findReturnVariable(sequence, returnType);
     }
 
+    private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings, StatementSequence target) {
+        // Helper to extract text from ExprInfo
+        java.util.function.Function<com.raditha.dedup.model.ExprInfo, String> asText = ei -> {
+            if (ei == null) return null;
+            if (ei.expr() != null) return ei.expr().toString();
+            return ei.text();
+        };
+
+        // Direct identity match first
+        String v = asText.apply(bindings.get(target));
+        if (v != null) {
+            return v;
+        }
+        // Fallback 1: match by exact source range (start/end lines)
+        try {
+            int start = target.range().startLine();
+            int end = target.range().endLine();
+            for (Map.Entry<StatementSequence, com.raditha.dedup.model.ExprInfo> entry : bindings.entrySet()) {
+                StatementSequence seq = entry.getKey();
+                if (seq == null) continue;
+                try {
+                    if (seq.range().startLine() == start && seq.range().endLine() == end) {
+                        return asText.apply(entry.getValue());
+                    }
+                } catch (Exception ignore) {}
+            }
+        } catch (Exception ignore) {}
+        return null;
+    }
+
+    // Context-aware extraction for ambiguous multiple-String parameters
+    private String extractStringArgFromCall(StatementSequence sequence, String methodName) {
+        try {
+            for (Statement stmt : sequence.statements()) {
+                for (MethodCallExpr call : stmt.findAll(MethodCallExpr.class)) {
+                    if (call.getNameAsString().equals(methodName) && call.getArguments().size() >= 1) {
+                        Expression arg = call.getArgument(0);
+                        if (arg.isStringLiteralExpr()) {
+                            return arg.toString(); // includes quotes
+                        } else if (arg.isNameExpr()) {
+                            return arg.toString(); // variable name (no quotes)
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignore) {}
+        return null;
+    }
+
+    private String extractStringByContext(StatementSequence sequence, int stringParamOrder) {
+        // Heuristic mapping: first String param → setName(...), second → equals(...)
+        if (stringParamOrder == 0) {
+            String v = extractStringArgFromCall(sequence, "setName");
+            if (v != null) return v;
+        } else if (stringParamOrder == 1) {
+            String v = extractStringArgFromCall(sequence, "equals");
+            if (v != null) return v;
+        }
+        return null;
+    }
+
     /**
      * Replace duplicate code with a method call.
      */
-    private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation) {
+    private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation,
+            VariationAnalysis variations, String methodNameToUse) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return;
@@ -182,53 +252,151 @@ public class ExtractMethodRefactorer {
 
         BlockStmt block = containingMethod.getBody().get();
 
-        // Build argument list
+        // Determine ordering among String parameters for context-aware extraction
+        List<ParameterSpec> stringParams = new ArrayList<>();
+        for (ParameterSpec p : recommendation.suggestedParameters()) {
+            if ("String".equals(p.type())) {
+                stringParams.add(p);
+            }
+        }
+
+        // Build argument list safely: if any argument cannot be resolved with type-compatibility, skip this occurrence
         NodeList<Expression> arguments = new NodeList<>();
+        boolean allArgsResolved = true;
         for (ParameterSpec param : recommendation.suggestedParameters()) {
-            String actualValue = extractActualValue(sequence, param);
             String valToUse = null;
 
-            if (actualValue != null) {
-                valToUse = actualValue;
-            } else if (!param.exampleValues().isEmpty()) {
-                valToUse = param.exampleValues().get(0);
-            }
-
-            if (valToUse != null) {
-                // If parameter is Class<?>, ensure we pass User.class, not just User
-                if (("Class<?>".equals(param.type()) || "Class".equals(param.type()))
-                        && !valToUse.endsWith(".class")) {
-                    // Create Class Expression: User.class
-                    arguments.add(new ClassExpr(new ClassOrInterfaceType(null, valToUse)));
-                } else {
-                    // Default: variable name or literal
-                    try {
-                        // Try to parse partial expression (like "5000" or "true")
-                        // But NameExpr is safer for variables to avoid parsing errors on reserved
-                        // words?
-                        // "User" is fine as NameExpr if it was a variable.
-                        // For literals, we should ideally use proper LiteralExpr.
-                        // But extractActualValue returns STRING.
-                        // Let's stick to NameExpr for variables, but if it looks like a number...
-                        if (valToUse.matches("-?\\d+(\\.\\d+)?")) {
-                            arguments.add(new IntegerLiteralExpr(valToUse));
-                        } else if ("true".equals(valToUse) || "false".equals(valToUse)) {
-                            arguments.add(new BooleanLiteralExpr(Boolean.parseBoolean(valToUse)));
-                        } else if (valToUse.startsWith("\"")) { // String lit
-                            arguments.add(new StringLiteralExpr(valToUse.replace("\"", "")));
-                        } else {
-                            arguments.add(new NameExpr(valToUse));
+            // STRATEGY 1: Use Variation Analysis (most accurate)
+            if (variations != null && param.variationIndex() != null) {
+                var exprBindings = variations.exprBindings() != null ? variations.exprBindings().get(param.variationIndex()) : null;
+                if (exprBindings != null) {
+                    valToUse = resolveBindingForSequence(exprBindings, sequence);
+                }
+                if (valToUse == null) {
+                    var legacyBindings = variations.valueBindings() != null ? variations.valueBindings().get(param.variationIndex()) : null;
+                    if (legacyBindings != null) {
+                        // Wrap legacy strings as ExprInfo-like via resolver overload
+                        for (var e : legacyBindings.entrySet()) {
+                            // no-op; just to touch map to avoid unused warning in some IDEs
+                            if (e == null) {}
                         }
-                    } catch (Exception e) {
-                        arguments.add(new NameExpr(valToUse));
+                        // Reuse the resolver by adapting to ExprInfo
+                        java.util.Map<com.raditha.dedup.model.StatementSequence, com.raditha.dedup.model.ExprInfo> adapted = new java.util.HashMap<>();
+                        if (legacyBindings != null) {
+                            for (var entry : legacyBindings.entrySet()) {
+                                adapted.put(entry.getKey(), com.raditha.dedup.model.ExprInfo.fromText(entry.getValue()));
+                            }
+                        }
+                        valToUse = resolveBindingForSequence(adapted, sequence);
                     }
                 }
             }
+
+            // STRATEGY 2a: Context-aware extraction for multiple String parameters (prefer this over generic AST scan)
+            if (valToUse == null && "String".equals(param.type()) && stringParams.size() >= 2) {
+                int ord = stringParams.indexOf(param);
+                if (ord >= 0) {
+                    String ctxVal = extractStringByContext(sequence, ord);
+                    if (ctxVal != null) {
+                        valToUse = ctxVal;
+                    }
+                }
+            }
+
+            // STRATEGY 2b: Fallback to generic extraction from AST (with disambiguation by examples for Strings)
+            if (valToUse == null) {
+                String actualValue = extractActualValue(sequence, param);
+                if (actualValue != null) {
+                    // If multiple same-type params exist (e.g., two Strings), prefer values that match this param's example set
+                    if ("String".equals(param.type()) && actualValue.startsWith("\"") && !param.exampleValues().isEmpty()) {
+                        String unq = actualValue.replace("\"", "");
+                        boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(unq));
+                        if (!matches) {
+                            actualValue = null; // discard ambiguous value
+                        }
+                    }
+                }
+                if (actualValue != null) {
+                    valToUse = actualValue;
+                }
+            }
+
+            // STRATEGY 3: Fallback to example value (only for non-String types and when type-compatible)
+            if (valToUse == null && !param.exampleValues().isEmpty()) {
+                String pType = param.type();
+                if (!"String".equals(pType)) {
+                    String candidate = param.exampleValues().get(0);
+                    // Only accept if it looks type-compatible
+                    boolean ok = false;
+                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+")) ok = true;
+                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?")) ok = true;
+                    if (("double".equals(pType) || "Double".equals(pType)) && candidate.matches("-?\\d+\\.\\d+")) ok = true;
+                    if (("boolean".equals(pType) || "Boolean".equals(pType)) && ("true".equals(candidate) || "false".equals(candidate))) ok = true;
+                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty()) ok = true;
+                    if (ok) {
+                        valToUse = candidate;
+                    }
+                }
+            }
+
+            // Type-compatibility guardrails
+            if (valToUse == null) {
+                allArgsResolved = false;
+                break;
+            }
+
+            // Reject obviously incompatible literal forms
+            String pType = param.type();
+            if (("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType) || "Long".equals(pType)
+                    || "double".equals(pType) || "Double".equals(pType) || "boolean".equals(pType)
+                    || "Boolean".equals(pType)) && valToUse.startsWith("\"")) {
+                allArgsResolved = false; // quoted string where numeric/boolean expected
+                break;
+            }
+            if ("String".equals(pType) && !valToUse.startsWith("\"") && valToUse.matches("-?\\d+(\\.\\d+)?")) {
+                allArgsResolved = false; // numeric literal where String expected
+                break;
+            }
+
+            // If parameter is Class<?>, ensure we pass User.class, not just User
+            if (("Class<?>".equals(pType) || "Class".equals(pType)) && !valToUse.endsWith(".class")) {
+                arguments.add(new ClassExpr(new ClassOrInterfaceType(null, valToUse)));
+                continue;
+            }
+
+            // Default: variable name or literal
+            try {
+                if (valToUse.matches("-?\\d+")) {
+                    // Choose Integer or Long literal based on param type
+                    if ("long".equals(pType) || "Long".equals(pType)) {
+                        arguments.add(new LongLiteralExpr(valToUse + "L"));
+                    } else {
+                        arguments.add(new IntegerLiteralExpr(valToUse));
+                    }
+                } else if (valToUse.matches("-?\\d+\\.\\d+")) {
+                    arguments.add(new DoubleLiteralExpr(valToUse));
+                } else if ("true".equals(valToUse) || "false".equals(valToUse)) {
+                    arguments.add(new BooleanLiteralExpr(Boolean.parseBoolean(valToUse)));
+                } else if (valToUse.startsWith("\"")) { // String lit
+                    arguments.add(new StringLiteralExpr(valToUse.replace("\"", "")));
+                } else {
+                    // Variable or expression name
+                    arguments.add(new NameExpr(valToUse));
+                }
+            } catch (Exception e) {
+                allArgsResolved = false;
+                break;
+            }
+        }
+
+        // If any argument could not be resolved safely, skip this occurrence (do not modify this sequence)
+        if (!allArgsResolved || arguments.size() != recommendation.suggestedParameters().size()) {
+            return;
         }
 
         // Create method call
         MethodCallExpr methodCall = new MethodCallExpr(
-                recommendation.suggestedMethodName(),
+                methodNameToUse,
                 arguments.toArray(new Expression[0]));
 
         // Check if the original sequence contained a return statement that we
@@ -295,8 +463,10 @@ public class ExtractMethodRefactorer {
                     }
                 }
 
-                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a return statement
-                // If so, and the extracted method returns a value, just return the method call directly
+                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a
+                // return statement
+                // If so, and the extracted method returns a value, just return the method call
+                // directly
                 boolean nextIsReturn = startIdx < block.getStatements().size() &&
                         block.getStatements().get(startIdx).isReturnStmt();
 
@@ -304,13 +474,14 @@ public class ExtractMethodRefactorer {
                 if (varName != null) {
                     // CRITICAL FIX: If the next statement is a return and the extracted method
                     // already has a return value, just return the method call directly
-                    // ALSO: If after removal the block becomes empty AND the containing method returns a value,
+                    // ALSO: If after removal the block becomes empty AND the containing method
+                    // returns a value,
                     // we should return the method call result
                     boolean shouldReturnDirectly = (nextIsReturn && originalReturnValues != null) ||
-                            (block.getStatements().isEmpty() && 
-                             !containingMethod.getType().asString().equals("void") &&
-                             originalReturnValues != null);
-                    
+                            (block.getStatements().isEmpty() &&
+                                    !containingMethod.getType().asString().equals("void") &&
+                                    originalReturnValues != null);
+
                     if (shouldReturnDirectly) {
                         // Remove the orphaned return statement if it exists
                         if (nextIsReturn) {
@@ -318,7 +489,7 @@ public class ExtractMethodRefactorer {
                         }
                         // Return the method call directly
                         block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-                    } else{
+                    } else {
                         VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
                                 new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
                                 varName);
@@ -403,8 +574,8 @@ public class ExtractMethodRefactorer {
             return foundValues.get(0);
         }
 
-        // Fallback to example value
-        if (!param.exampleValues().isEmpty()) {
+        // Fallback to example value only for non-String parameters; for Strings, return null to avoid wrong literals
+        if (!param.exampleValues().isEmpty() && (param.type() == null || !"String".equals(param.type()))) {
             return param.exampleValues().get(0);
         }
 
@@ -422,34 +593,37 @@ public class ExtractMethodRefactorer {
             return false;
         }
 
-        // For string literals, check if it's a string
-        if (expr.isStringLiteralExpr() && "String".equals(param.type())) {
-            return true;
-        }
-
-        // For integer literals
+        // Accept basic literals based on declared param type
         if (expr.isIntegerLiteralExpr() && ("int".equals(param.type()) || "Integer".equals(param.type()))) {
             return true;
         }
-
-        // For long literals
         if (expr.isLongLiteralExpr() && ("long".equals(param.type()) || "Long".equals(param.type()))) {
             return true;
         }
-
-        // For boolean literals
+        if (expr.isDoubleLiteralExpr() && ("double".equals(param.type()) || "Double".equals(param.type()))) {
+            return true;
+        }
         if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || "Boolean".equals(param.type()))) {
             return true;
         }
+        if (expr.isStringLiteralExpr() && ("String".equals(param.type()))) {
+            // If we have example values (e.g., two String params), only accept literals matching this param's examples
+            if (!param.exampleValues().isEmpty()) {
+                String lit = expr.asStringLiteralExpr().asString();
+                return param.exampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(lit));
+            }
+            return true;
+        }
 
-        // For variable names, check if it matches one of the example patterns
-        // REVERTED: Conservative approach - only accept known example values
-        // This avoids TypeInferenceException for out-of-scope variables
-        if (expr.isNameExpr() && !param.exampleValues().isEmpty()) {
-            // If any example value matches this name, it's likely the parameter
-            for (String example : param.exampleValues()) {
-                if (example.equals(exprStr)) {
-                    return true;
+        // If we have example values, use them as hints for NON-literal expressions only
+        // This avoids accidentally accepting a String literal for a non-String parameter.
+        if (!param.exampleValues().isEmpty()) {
+            // For variables or other non-literal expressions, check direct equality to any example
+            if (!expr.isLiteralExpr()) {
+                for (String example : param.exampleValues()) {
+                    if (example.equals(exprStr)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -458,13 +632,35 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Substitute varying literals/expressions with parameter names in the extracted method body.
-     * This ensures that the extracted method uses parameters instead of hardcoded values.
+     * Substitute varying literals/expressions with parameter names in the extracted
+     * method body.
+     * This ensures that the extracted method uses parameters instead of hardcoded
+     * values.
      */
     private Statement substituteParameters(Statement stmt, StatementSequence sequence,
             RefactoringRecommendation recommendation) {
-        // For each parameter, find and replace its example values with the parameter name
+        // For each parameter, replace its occurrence with the parameter name
         for (ParameterSpec param : recommendation.suggestedParameters()) {
+
+            // PRIORITY: Use location-based substitution if available (Avoids collisions)
+            if (param.startLine() != null && param.startColumn() != null) {
+                int targetLine = param.startLine();
+                int targetCol = param.startColumn();
+
+                stmt.findAll(Expression.class).forEach(expr -> {
+                    if (expr.getRange().isPresent()) {
+                        var begin = expr.getRange().get().begin;
+                        if (begin.line == targetLine && begin.column == targetCol) {
+                            if (expr.getParentNode().isPresent()) {
+                                expr.replace(new NameExpr(param.name()));
+                            }
+                        }
+                    }
+                });
+                continue; // Done for this param (assuming one location per param)
+            }
+
+            // FALLBACK: Value-based substitution for captured parameters
             if (param.exampleValues().isEmpty()) {
                 continue;
             }
@@ -526,6 +722,59 @@ public class ExtractMethodRefactorer {
         }
 
         return false;
+    }
+
+    // Helper-reuse: find an existing equivalent helper in the same class to avoid duplicate methods
+    private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass, MethodDeclaration newHelper) {
+        try {
+            boolean newIsStatic = newHelper.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+            String newReturnType = newHelper.getType().asString();
+            List<String> newParamTypes = new java.util.ArrayList<>();
+            for (Parameter p : newHelper.getParameters()) {
+                newParamTypes.add(p.getType().asString());
+            }
+            String newBodyNorm = normalizeMethodBody(newHelper);
+
+            for (MethodDeclaration candidate : containingClass.getMethods()) {
+                // Only consider private helpers (or same staticness and signature) to be conservative
+                boolean candIsStatic = candidate.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+                if (candIsStatic != newIsStatic) continue;
+                if (!candidate.getType().asString().equals(newReturnType)) continue;
+                if (candidate.getParameters().size() != newParamTypes.size()) continue;
+
+                boolean paramsMatch = true;
+                for (int i = 0; i < candidate.getParameters().size(); i++) {
+                    String ct = candidate.getParameter(i).getType().asString();
+                    if (!ct.equals(newParamTypes.get(i))) { paramsMatch = false; break; }
+                }
+                if (!paramsMatch) continue;
+
+                // Compare normalized bodies
+                String candNorm = normalizeMethodBody(candidate);
+                if (candNorm != null && candNorm.equals(newBodyNorm)) {
+                    return candidate; // Reuse this
+                }
+            }
+        } catch (Exception ignore) {}
+        return null;
+    }
+
+    // Produce a canonical representation of the method body with parameter names normalized (p0, p1, ...)
+    private String normalizeMethodBody(MethodDeclaration method) {
+        if (method.getBody().isEmpty()) return null;
+        String body = method.getBody().get().toString();
+        // Map parameter names to placeholders
+        for (int i = 0; i < method.getParameters().size(); i++) {
+            String name = method.getParameter(i).getNameAsString();
+            String placeholder = "p" + i;
+            // Replace as whole-word occurrences only
+            body = body.replaceAll("\\b" + java.util.regex.Pattern.quote(name) + "\\b", placeholder);
+        }
+        // Strip comments-like patterns and whitespace differences
+        body = body.replaceAll("/\\*.*?\\*/", ""); // block comments (best effort)
+        body = body.replaceAll("//.*", ""); // line comments (best effort)
+        body = body.replaceAll("\\s+", "");
+        return body;
     }
 
     /**

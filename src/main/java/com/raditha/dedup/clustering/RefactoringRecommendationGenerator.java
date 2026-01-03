@@ -207,7 +207,8 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Fallback: Check for explicit return statements IN the duplicate sequence
-        // But DO NOT use this if we found a return variable - that would give us the wrong type
+        // But DO NOT use this if we found a return variable - that would give us the
+        // wrong type
         String explicitType = analyzeReturnStatementType(sequence);
         System.out.println("DEBUG analyzeReturnTypeForSequence: Fallback to explicit type: " + explicitType);
         return explicitType;
@@ -527,34 +528,99 @@ public class RefactoringRecommendationGenerator {
 
         List<ParameterSpec> capturedParams = new java.util.ArrayList<>();
 
+        // Find CU for type checks
+        CompilationUnit cu = null;
+        if (!sequence.statements().isEmpty()) {
+            cu = sequence.statements().get(0).findCompilationUnit().orElse(null);
+        }
+
+        // AST: collect fields from the containing class
+        boolean containingMethodIsStatic = false;
+        java.util.Map<String, FieldInfo> classFields = new java.util.HashMap<>();
+        try {
+            var methodOpt = sequence.containingMethod();
+            if (methodOpt != null) {
+                containingMethodIsStatic = methodOpt.isStatic();
+                var classDeclOpt = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+                if (classDeclOpt.isPresent()) {
+                    var classDecl = classDeclOpt.get();
+                    classDecl.getFields().forEach(fd -> {
+                        boolean isStatic = fd.getModifiers().stream().anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                        fd.getVariables().forEach(v -> {
+                            classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic));
+                        });
+                    });
+                }
+            }
+        } catch (Exception ignore) {}
+
         for (String varName : capturedVars) {
-            // Skip fields (this.field) - usually accessible in helper unless static context
-            // mismatch
-            // For now, assume fields are accessible (TODO: check static context)
-            if (varName.equals("this") || varName.equals("super"))
-                continue;
+            // Skip pseudo-variables and duplicates
+            if (varName == null || varName.isEmpty()) continue;
+            if (varName.equals("this") || varName.equals("super")) continue;
+            if (existingParamNames.contains(varName)) continue;
 
-            // Skip if already a parameter
-            if (existingParamNames.contains(varName))
+            // Heuristic: Skip names that look like type/class names (e.g., System)
+            if (Character.isUpperCase(varName.charAt(0))) {
                 continue;
+            }
+            // Explicitly skip well-known java.lang types referenced statically
+            if ("System".equals(varName) || "Math".equals(varName) || "Integer".equals(varName)) {
+                continue;
+            }
+            // If the name resolves to a type in context, skip (likely static access)
+            if (cu != null) {
+                try {
+                    if (AbstractCompiler.findType(cu, varName) != null) {
+                        continue;
+                    }
+                } catch (Exception ignore) {}
+            }
 
-            // Determine type
+            // NEW: Field-aware captured parameter handling
+            FieldInfo fi = classFields.get(varName);
+            if (fi != null) {
+                // If it is a class field, decide based on helper accessibility
+                // Helper mirrors containing method staticness
+                // - If containing method is non-static → helper non-static → instance fields are accessible → SKIP param
+                // - If containing method is static:
+                //     • static field → accessible → SKIP param
+                //     • non-static field → NOT accessible → KEEP as parameter with field type
+                if (!containingMethodIsStatic) {
+                    // accessible instance field
+                    continue; // skip adding as parameter
+                } else {
+                    if (fi.isStatic) {
+                        continue; // static field accessible from static helper
+                    } else {
+                        // non-static field needed for static helper; will pass as parameter
+                        String type = fi.type != null ? fi.type : "Object";
+                        capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
+                        continue;
+                    }
+                }
+            }
+
+            // Determine type of true captured variable (non-field or unresolved field)
             String type = findTypeInContext(sequence, varName);
-            if ("void".equals(type) || "Object".equals(type)) {
-                // Try to resolve if it's a field
-                // If it's a field, we might not need to pass it
-                // But if it's a local variable/parameter, we MUST pass it
-                // Simple heuristic: if type found in context (params/locals), pass it.
-                // If not found, maybe field?
+            if ("void".equals(type)) {
+                continue;
             }
 
-            // If we found a specific type, add it as parameter
-            if (!"void".equals(type)) {
-                capturedParams.add(new ParameterSpec(varName, type, List.of(varName)));
-            }
+            capturedParams.add(new ParameterSpec(varName, type != null ? type : "Object", List.of(varName), null, null, null));
         }
 
         return capturedParams;
+    }
+
+    // Lightweight holder for field metadata
+    private static final class FieldInfo {
+        final String type;
+        final boolean isStatic;
+        FieldInfo(String type, boolean isStatic) {
+            this.type = type;
+            this.isStatic = isStatic;
+        }
     }
 
     private String findTypeInContext(StatementSequence sequence, String varName) {

@@ -19,8 +19,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Main orchestrator for duplicate detection.
@@ -28,9 +26,6 @@ import org.slf4j.LoggerFactory;
  * aggregation.
  */
 public class DuplicationAnalyzer {
-
-    private static final Logger logger = LoggerFactory.getLogger(DuplicationAnalyzer.class);
-
     private final DuplicationConfig config;
     private final StatementExtractor extractor;
     private final PreFilterChain preFilter;
@@ -184,9 +179,6 @@ public class DuplicationAnalyzer {
             }
         }
 
-        System.out.printf("Pre-filtering: %d/%d comparisons filtered (%.1f%%)%n",
-                filteredOut, totalComparisons, 100.0 * filteredOut / totalComparisons);
-
         return candidates;
     }
 
@@ -199,7 +191,9 @@ public class DuplicationAnalyzer {
         List<Token> tokens2 = norm2.tokens();
 
         // Track variations
-        VariationAnalysis variations = variationTracker.trackVariations(tokens1, tokens2);
+        VariationAnalysis variations = variationTracker.trackVariations(
+                tokens1, norm1.sequence(),
+                tokens2, norm2.sequence());
 
         // Analyze type compatibility (Phase 7 implementation)
         TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(variations);
@@ -270,10 +264,6 @@ public class DuplicationAnalyzer {
                 filtered.add(current);
             }
         }
-
-        System.out.printf("Overlap removal: %d duplicates removed (kept %d largest)%n",
-                pairs.size() - filtered.size(), filtered.size());
-
         return filtered;
     }
 

@@ -52,7 +52,7 @@ class ScopeAnalyzerTest {
         List<ScopeAnalyzer.VariableInfo> variables = analyzer.getAvailableVariables(sequence);
         
         // Should find 3 parameters
-        long paramCount = variables.stream().filter(v -> v.isParameter()).count();
+        long paramCount = variables.stream().filter(ScopeAnalyzer.VariableInfo::isParameter).count();
         assertEquals(3, paramCount);
         
         // Check specific parameters
@@ -90,7 +90,7 @@ class ScopeAnalyzerTest {
         List<ScopeAnalyzer.VariableInfo> variables = analyzer.getAvailableVariables(sequence);
 
         // Should find 3 fields
-        long fieldCount = variables.stream().filter(v -> v.isField()).count();
+        long fieldCount = variables.stream().filter(ScopeAnalyzer.VariableInfo::isField).count();
         assertEquals(3, fieldCount);
 
         // Check specific fields
@@ -132,7 +132,7 @@ class ScopeAnalyzerTest {
         List<ScopeAnalyzer.VariableInfo> variables = analyzer.getAvailableVariables(sequence);
 
         // Should find 2 local variables
-        long localCount = variables.stream().filter(v -> v.isLocal()).count();
+        long localCount = variables.stream().filter(ScopeAnalyzer.VariableInfo::isLocal).count();
         assertTrue(localCount >= 2, "Should find at least 2 local variables, found: " + localCount);
 
         // Check specific locals

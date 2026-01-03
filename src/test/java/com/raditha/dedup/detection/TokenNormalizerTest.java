@@ -62,8 +62,8 @@ class TokenNormalizerTest {
         assertFalse(vars2.isEmpty());
 
         // VAR tokens should match semantically
-        Token var1 = vars1.get(0);
-        Token var2 = vars2.get(0);
+        Token var1 = vars1.getFirst();
+        Token var2 = vars2.getFirst();
         assertEquals("VAR", var1.normalizedValue());
         assertEquals("VAR", var2.normalizedValue());
         assertTrue(var1.semanticallyMatches(var2),
@@ -171,23 +171,23 @@ class TokenNormalizerTest {
     @Test
     void testRealWorldDuplicatePattern() {
         // Parse each statement individually, not as a block
-        Statement stmt1_1 = parseStatement("Admission admission = new Admission();");
-        Statement stmt1_2 = parseStatement("admission.setPatientId(\"P123\");");
-        Statement stmt1_3 = parseStatement("admission.setHospitalId(\"H456\");");
-        Statement stmt1_4 = parseStatement("admission.setStatus(\"PENDING\");");
+        List<Token> tokens1 = normalizer.normalizeStatements(List.of(
+                parseStatement("Admission admission = new Admission();"),
+                parseStatement("admission.setPatientId(\"P123\");"),
+                parseStatement("admission.setHospitalId(\"H456\");"),
+                parseStatement("admission.setStatus(\"PENDING\");")
+        ));
 
-        Statement stmt2_1 = parseStatement("Admission admission = new Admission();");
-        Statement stmt2_2 = parseStatement("admission.setPatientId(\"P999\");");
-        Statement stmt2_3 = parseStatement("admission.setHospitalId(\"H888\");");
-        Statement stmt2_4 = parseStatement("admission.setStatus(\"APPROVED\");");
+        List<Token> tokens2 = normalizer.normalizeStatements(List.of(
+                parseStatement("Admission admission = new Admission();"),
+                parseStatement("admission.setPatientId(\"P999\");"),
+                parseStatement("admission.setHospitalId(\"H888\");"),
+                parseStatement("admission.setStatus(\"APPROVED\");")
+        ));
 
-        // Normalize all statements
-        List<Token> tokens1 = normalizer.normalizeStatements(List.of(stmt1_1, stmt1_2, stmt1_3, stmt1_4));
-        List<Token> tokens2 = normalizer.normalizeStatements(List.of(stmt2_1, stmt2_2, stmt2_3, stmt2_4));
-
-        // Should have similar structure
-        assertTrue(tokens1.size() > 0);
-        assertTrue(tokens2.size() > 0);
+        // Should have similar structure  
+        assertFalse(tokens1.isEmpty());
+        assertFalse(tokens2.isEmpty());
 
         // Should have same method calls (setPatientId, setHospitalId, setStatus)
         List<Token> methods1 = findAllTokensByType(tokens1, TokenType.METHOD_CALL);

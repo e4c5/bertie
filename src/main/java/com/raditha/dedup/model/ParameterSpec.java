@@ -12,12 +12,15 @@ import java.util.List;
 public record ParameterSpec(
         String name,
         String type,
-        List<String> exampleValues) {
+        List<String> exampleValues,
+        Integer variationIndex,
+        Integer startLine,
+        Integer startColumn) {
     /**
      * Create a parameter spec without example values.
      */
     public ParameterSpec(String name, String type) {
-        this(name, type, List.of());
+        this(name, type, List.of(), null, null, null);
     }
 
     /**
