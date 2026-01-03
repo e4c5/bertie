@@ -187,13 +187,15 @@ public class ExtractMethodRefactorer {
      */
     private Type createParameterType(String typeName) {
         try {
-            // Try to get the Class from the type name and convert to JavaParser Type
+            // Use antikythera's Reflect class for type resolution
+            // getComponentClass handles primitives, wrappers, and basic types
+            // getComponentType converts Class to JavaParser Type (PrimitiveType or ClassOrInterfaceType)
             Class<?> clazz = Reflect.getComponentClass(typeName);
             Type type = Reflect.getComponentType(clazz);
             // If getComponentType returns null (for non-primitive/basic types), use ClassOrInterfaceType
             return type != null ? type : new ClassOrInterfaceType(null, typeName);
         } catch (ClassNotFoundException e) {
-            // Fallback to ClassOrInterfaceType for unknown types
+            // Fallback to ClassOrInterfaceType for custom types not in antikythera's type map
             return new ClassOrInterfaceType(null, typeName);
         }
     }
