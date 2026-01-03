@@ -31,6 +31,9 @@ import java.util.Set;
  */
 public class RefactoringRecommendationGenerator {
 
+    public static final String STRING = "String";
+    public static final String DOUBLE = "double";
+    public static final String BOOLEAN = "boolean";
     private final TypeAnalyzer typeAnalyzer;
     private final ParameterExtractor parameterExtractor;
     private final MethodNameGenerator nameGenerator;
@@ -136,8 +139,8 @@ public class RefactoringRecommendationGenerator {
         // PRIORITY: Check for domain objects FIRST (User, Customer, etc.)
         // Domain objects take precedence over String!
         Optional<String> domainType = returnTypes.stream()
-                .filter(t -> !t.equals("int") && !t.equals("long") && !t.equals("double") &&
-                        !t.equals("boolean") && !t.equals("void") && !t.equals("String"))
+                .filter(t -> !t.equals("int") && !t.equals("long") && !t.equals(DOUBLE) &&
+                        !t.equals(BOOLEAN) && !t.equals("void") && !t.equals(STRING))
                 .findFirst();
 
         if (domainType.isPresent()) {
@@ -145,18 +148,18 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Only return String if no domain objects found
-        if (returnTypes.contains("String"))
-            return "String";
+        if (returnTypes.contains(STRING))
+            return STRING;
 
         // Primitive unification
         boolean hasInt = returnTypes.contains("int");
         boolean hasLong = returnTypes.contains("long");
-        boolean hasDouble = returnTypes.contains("double");
+        boolean hasDouble = returnTypes.contains(DOUBLE);
 
         // Heuristic: Check for time-related variables in duplicates if inference failed
         boolean hasObject = returnTypes.stream()
-                .anyMatch(t -> !t.equals("int") && !t.equals("long") && !t.equals("double") &&
-                        !t.equals("boolean") && !t.equals("void") && !t.equals("String"));
+                .anyMatch(t -> !t.equals("int") && !t.equals("long") && !t.equals(DOUBLE) &&
+                        !t.equals(BOOLEAN) && !t.equals("void") && !t.equals(STRING));
 
         if (!hasObject && !hasLong && !hasDouble) {
             boolean hasTimeVar = cluster.duplicates().stream()
@@ -168,7 +171,7 @@ public class RefactoringRecommendationGenerator {
         }
 
         if (hasDouble)
-            return "double";
+            return DOUBLE;
         if (hasLong)
             return "long";
         if (hasInt)
@@ -375,7 +378,7 @@ public class RefactoringRecommendationGenerator {
         if (methodName.startsWith("get")) {
             if (methodName.equals("getName") || methodName.equals("getEmail") ||
                     methodName.equals("getRole") || methodName.equals("getMessage")) {
-                return "String";
+                return STRING;
             }
             if (methodName.equals("getId") || methodName.equals("getAge") ||
                     methodName.equals("getCount") || methodName.equals("getSize")) {
@@ -383,18 +386,18 @@ public class RefactoringRecommendationGenerator {
             }
             if (methodName.equals("isActive") || methodName.equals("isValid") ||
                     methodName.equals("hasPermission")) {
-                return "boolean";
+                return BOOLEAN;
             }
         }
 
         // is* methods typically return boolean
         if (methodName.startsWith("is") || methodName.startsWith("has")) {
-            return "boolean";
+            return BOOLEAN;
         }
 
         // toString, format, etc.
         if (methodName.equals("toString") || methodName.equals("format")) {
-            return "String";
+            return STRING;
         }
 
         // size, length, count methods
@@ -415,14 +418,14 @@ public class RefactoringRecommendationGenerator {
         // Common field naming patterns
         if (fieldName.equals("name") || fieldName.equals("email") ||
                 fieldName.equals("role") || fieldName.equals("message")) {
-            return "String";
+            return STRING;
         }
         if (fieldName.equals("id") || fieldName.equals("age") ||
                 fieldName.equals("count")) {
             return "int";
         }
         if (fieldName.equals("active") || fieldName.equals("valid")) {
-            return "boolean";
+            return BOOLEAN;
         }
 
         throw new TypeInferenceException("Unable to infer type for field access: " + fieldAccess);
@@ -434,7 +437,7 @@ public class RefactoringRecommendationGenerator {
     private String inferTypeFromExpression(Expression expr) {
         // String literals
         if (expr.isStringLiteralExpr()) {
-            return "String";
+            return STRING;
         }
 
         // Integer literals
@@ -444,7 +447,7 @@ public class RefactoringRecommendationGenerator {
 
         // Boolean literals
         if (expr.isBooleanLiteralExpr()) {
-            return "boolean";
+            return BOOLEAN;
         }
 
         // Object creation
@@ -454,7 +457,7 @@ public class RefactoringRecommendationGenerator {
 
         // Binary expressions (concatenation)
         if (expr.isBinaryExpr()) {
-            return "String";
+            return STRING;
         }
 
         throw new TypeInferenceException("Unable to infer type for expression: " + expr);
@@ -684,7 +687,7 @@ public class RefactoringRecommendationGenerator {
         if (fqn == null)
             return null;
         // Don't simplify primitives
-        if (fqn.equals("int") || fqn.equals("boolean") || fqn.equals("double") || fqn.equals("void"))
+        if (fqn.equals("int") || fqn.equals(BOOLEAN) || fqn.equals(DOUBLE) || fqn.equals("void"))
             return fqn;
 
         int lastDot = fqn.lastIndexOf('.');

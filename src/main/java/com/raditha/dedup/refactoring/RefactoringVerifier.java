@@ -152,18 +152,14 @@ public class RefactoringVerifier {
      * Rollback all changes.
      */
     public void rollback() throws IOException {
-        System.out.println("Rolling back changes...");
-
         for (Map.Entry<Path, String> entry : backups.entrySet()) {
             Path file = entry.getKey();
             String originalContent = entry.getValue();
 
             Files.writeString(file, originalContent);
-            System.out.println("  Restored: " + file.getFileName());
         }
 
         backups.clear();
-        System.out.println("Rollback complete");
     }
 
     /**
