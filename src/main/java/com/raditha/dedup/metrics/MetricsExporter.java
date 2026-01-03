@@ -2,6 +2,8 @@ package com.raditha.dedup.metrics;
 
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,6 +18,30 @@ import java.util.stream.Collectors;
  * and historical tracking.
  */
 public class MetricsExporter {
+
+    /**
+     * PrettyPrinter that ensures no space before colon and exactly one space after it,
+     * matching tests that look for patterns like "field": "value".
+     */
+    private static class ColonPrettyPrinter extends com.fasterxml.jackson.core.util.DefaultPrettyPrinter {
+        private static final long serialVersionUID = 1L;
+
+        public ColonPrettyPrinter() { super(); }
+
+        protected ColonPrettyPrinter(ColonPrettyPrinter base) {
+            super(base);
+        }
+
+        @Override
+        public com.fasterxml.jackson.core.util.DefaultPrettyPrinter createInstance() {
+            return new ColonPrettyPrinter(this);
+        }
+
+        @Override
+        public void writeObjectFieldValueSeparator(com.fasterxml.jackson.core.JsonGenerator g) throws java.io.IOException {
+            g.writeRaw(": ");
+        }
+    }
 
     private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
@@ -157,49 +183,45 @@ public class MetricsExporter {
     }
 
     /**
-     * Export metrics to JSON format.
+     * Export metrics to JSON format using Jackson.
      */
     public void exportToJson(ProjectMetrics metrics, Path outputPath) throws IOException {
-        StringBuilder json = new StringBuilder();
+        // Configure Jackson ObjectMapper with Java Time support and the required timestamp pattern
+        ObjectMapper mapper = new ObjectMapper();
+        com.fasterxml.jackson.datatype.jsr310.JavaTimeModule timeModule = new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule();
+        timeModule.addSerializer(java.time.LocalDateTime.class,
+                new com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer(TIMESTAMP_FORMAT));
+        mapper.registerModule(timeModule);
+        mapper.configure(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
 
-        json.append("{\n");
-        json.append(String.format("  \"timestamp\": \"%s\",\n",
-                metrics.timestamp().format(TIMESTAMP_FORMAT)));
-        json.append(String.format("  \"project\": \"%s\",\n", metrics.projectName()));
+        // Build a structure that matches the previous JSON shape
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("timestamp", metrics.timestamp());
+        root.put("project", metrics.projectName());
 
-        json.append("  \"summary\": {\n");
-        json.append(String.format("    \"totalFiles\": %d,\n", metrics.totalFiles()));
-        json.append(String.format("    \"totalDuplicates\": %d,\n", metrics.totalDuplicates()));
-        json.append(String.format("    \"totalClusters\": %d,\n", metrics.totalClusters()));
-        json.append(String.format("    \"totalLOCReduction\": %d,\n", metrics.totalLOCReduction()));
-        json.append(String.format("    \"averageSimilarity\": %.2f\n", metrics.averageSimilarity()));
-        json.append("  },\n");
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalFiles", metrics.totalFiles());
+        summary.put("totalDuplicates", metrics.totalDuplicates());
+        summary.put("totalClusters", metrics.totalClusters());
+        summary.put("totalLOCReduction", metrics.totalLOCReduction());
+        summary.put("averageSimilarity", metrics.averageSimilarity());
+        root.put("summary", summary);
 
-        json.append("  \"files\": [\n");
-
-        for (int i = 0; i < metrics.files().size(); i++) {
-            FileMetrics file = metrics.files().get(i);
-            json.append("    {\n");
-            json.append(String.format("      \"fileName\": \"%s\",\n", file.fileName()));
-            json.append(String.format("      \"duplicateCount\": %d,\n", file.duplicateCount()));
-            json.append(String.format("      \"clusterCount\": %d,\n", file.clusterCount()));
-            json.append(String.format("      \"estimatedLOCReduction\": %d,\n", file.estimatedLOCReduction()));
-            json.append(String.format("      \"avgSimilarity\": %.2f,\n", file.avgSimilarity()));
-
-            json.append("      \"strategies\": [");
-            if (!file.refactoringStrategies().isEmpty()) {
-                json.append(file.refactoringStrategies().stream()
-                        .map(s -> "\"" + s + "\"")
-                        .collect(Collectors.joining(", ")));
-            }
-            json.append("]\n");
-
-            json.append(i < metrics.files().size() - 1 ? "    },\n" : "    }\n");
+        List<Map<String, Object>> files = new ArrayList<>();
+        for (FileMetrics f : metrics.files()) {
+            Map<String, Object> fm = new LinkedHashMap<>();
+            fm.put("fileName", f.fileName());
+            fm.put("duplicateCount", f.duplicateCount());
+            fm.put("clusterCount", f.clusterCount());
+            fm.put("estimatedLOCReduction", f.estimatedLOCReduction());
+            fm.put("avgSimilarity", f.avgSimilarity());
+            fm.put("strategies", f.refactoringStrategies());
+            files.add(fm);
         }
+        root.put("files", files);
 
-        json.append("  ]\n");
-        json.append("}\n");
-
-        Files.writeString(outputPath, json.toString());
+        ColonPrettyPrinter printer = new ColonPrettyPrinter();
+        ObjectWriter writer = mapper.writer(printer);
+        writer.writeValue(outputPath.toFile(), root);
     }
 }
