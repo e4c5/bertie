@@ -43,22 +43,30 @@ public class ExtractMethodRefactorer {
         Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
         modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
 
-        // 1. Create the new helper method
+        // 1. Create the new helper method (tentative)
         MethodDeclaration helperMethod = createHelperMethod(primary, recommendation);
 
-        // 2. Add method to the class (modifies primary CU)
+        // 2. Add method to the class (modifies primary CU) — but first, try to REUSE existing equivalent helper
         ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
                 .findAncestor(ClassOrInterfaceDeclaration.class)
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
-        containingClass.addMember(helperMethod);
+        String methodNameToUse = recommendation.suggestedMethodName();
+        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod);
+        if (equivalent == null) {
+            // No equivalent helper exists; add our newly created one
+            containingClass.addMember(helperMethod);
+        } else {
+            // Reuse existing helper method name; skip adding duplicate
+            methodNameToUse = equivalent.getNameAsString();
+        }
 
         // 3. Replace all duplicate occurrences with method calls (track each CU)
         for (SimilarityPair pair : cluster.duplicates()) {
-            replaceWithMethodCall(pair.seq1(), recommendation, pair.similarity().variations());
+            replaceWithMethodCall(pair.seq1(), recommendation, pair.similarity().variations(), methodNameToUse);
             modifiedCUs.put(pair.seq1().compilationUnit(), pair.seq1().sourceFilePath());
 
-            replaceWithMethodCall(pair.seq2(), recommendation, pair.similarity().variations());
+            replaceWithMethodCall(pair.seq2(), recommendation, pair.similarity().variations(), methodNameToUse);
             modifiedCUs.put(pair.seq2().compilationUnit(), pair.seq2().sourceFilePath());
         }
 
@@ -72,7 +80,7 @@ public class ExtractMethodRefactorer {
         return new RefactoringResult(
                 modifiedFiles,
                 recommendation.strategy(),
-                "Extracted method: " + recommendation.suggestedMethodName());
+                "Extracted method: " + methodNameToUse);
     }
 
     /**
@@ -236,7 +244,7 @@ public class ExtractMethodRefactorer {
      * Replace duplicate code with a method call.
      */
     private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation,
-            VariationAnalysis variations) {
+            VariationAnalysis variations, String methodNameToUse) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return;
@@ -388,7 +396,7 @@ public class ExtractMethodRefactorer {
 
         // Create method call
         MethodCallExpr methodCall = new MethodCallExpr(
-                recommendation.suggestedMethodName(),
+                methodNameToUse,
                 arguments.toArray(new Expression[0]));
 
         // Check if the original sequence contained a return statement that we
@@ -714,6 +722,59 @@ public class ExtractMethodRefactorer {
         }
 
         return false;
+    }
+
+    // Helper-reuse: find an existing equivalent helper in the same class to avoid duplicate methods
+    private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass, MethodDeclaration newHelper) {
+        try {
+            boolean newIsStatic = newHelper.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+            String newReturnType = newHelper.getType().asString();
+            List<String> newParamTypes = new java.util.ArrayList<>();
+            for (Parameter p : newHelper.getParameters()) {
+                newParamTypes.add(p.getType().asString());
+            }
+            String newBodyNorm = normalizeMethodBody(newHelper);
+
+            for (MethodDeclaration candidate : containingClass.getMethods()) {
+                // Only consider private helpers (or same staticness and signature) to be conservative
+                boolean candIsStatic = candidate.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+                if (candIsStatic != newIsStatic) continue;
+                if (!candidate.getType().asString().equals(newReturnType)) continue;
+                if (candidate.getParameters().size() != newParamTypes.size()) continue;
+
+                boolean paramsMatch = true;
+                for (int i = 0; i < candidate.getParameters().size(); i++) {
+                    String ct = candidate.getParameter(i).getType().asString();
+                    if (!ct.equals(newParamTypes.get(i))) { paramsMatch = false; break; }
+                }
+                if (!paramsMatch) continue;
+
+                // Compare normalized bodies
+                String candNorm = normalizeMethodBody(candidate);
+                if (candNorm != null && candNorm.equals(newBodyNorm)) {
+                    return candidate; // Reuse this
+                }
+            }
+        } catch (Exception ignore) {}
+        return null;
+    }
+
+    // Produce a canonical representation of the method body with parameter names normalized (p0, p1, ...)
+    private String normalizeMethodBody(MethodDeclaration method) {
+        if (method.getBody().isEmpty()) return null;
+        String body = method.getBody().get().toString();
+        // Map parameter names to placeholders
+        for (int i = 0; i < method.getParameters().size(); i++) {
+            String name = method.getParameter(i).getNameAsString();
+            String placeholder = "p" + i;
+            // Replace as whole-word occurrences only
+            body = body.replaceAll("\\b" + java.util.regex.Pattern.quote(name) + "\\b", placeholder);
+        }
+        // Strip comments-like patterns and whitespace differences
+        body = body.replaceAll("/\\*.*?\\*/", ""); // block comments (best effort)
+        body = body.replaceAll("//.*", ""); // line comments (best effort)
+        body = body.replaceAll("\\s+", "");
+        return body;
     }
 
     /**

@@ -534,6 +534,26 @@ public class RefactoringRecommendationGenerator {
             cu = sequence.statements().get(0).findCompilationUnit().orElse(null);
         }
 
+        // AST: collect fields from the containing class
+        boolean containingMethodIsStatic = false;
+        java.util.Map<String, FieldInfo> classFields = new java.util.HashMap<>();
+        try {
+            var methodOpt = sequence.containingMethod();
+            if (methodOpt != null) {
+                containingMethodIsStatic = methodOpt.isStatic();
+                var classDeclOpt = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+                if (classDeclOpt.isPresent()) {
+                    var classDecl = classDeclOpt.get();
+                    classDecl.getFields().forEach(fd -> {
+                        boolean isStatic = fd.getModifiers().stream().anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                        fd.getVariables().forEach(v -> {
+                            classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic));
+                        });
+                    });
+                }
+            }
+        } catch (Exception ignore) {}
+
         for (String varName : capturedVars) {
             // Skip pseudo-variables and duplicates
             if (varName == null || varName.isEmpty()) continue;
@@ -557,7 +577,31 @@ public class RefactoringRecommendationGenerator {
                 } catch (Exception ignore) {}
             }
 
-            // Determine type of true captured variable
+            // NEW: Field-aware captured parameter handling
+            FieldInfo fi = classFields.get(varName);
+            if (fi != null) {
+                // If it is a class field, decide based on helper accessibility
+                // Helper mirrors containing method staticness
+                // - If containing method is non-static → helper non-static → instance fields are accessible → SKIP param
+                // - If containing method is static:
+                //     • static field → accessible → SKIP param
+                //     • non-static field → NOT accessible → KEEP as parameter with field type
+                if (!containingMethodIsStatic) {
+                    // accessible instance field
+                    continue; // skip adding as parameter
+                } else {
+                    if (fi.isStatic) {
+                        continue; // static field accessible from static helper
+                    } else {
+                        // non-static field needed for static helper; will pass as parameter
+                        String type = fi.type != null ? fi.type : "Object";
+                        capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
+                        continue;
+                    }
+                }
+            }
+
+            // Determine type of true captured variable (non-field or unresolved field)
             String type = findTypeInContext(sequence, varName);
             if ("void".equals(type)) {
                 continue;
@@ -567,6 +611,16 @@ public class RefactoringRecommendationGenerator {
         }
 
         return capturedParams;
+    }
+
+    // Lightweight holder for field metadata
+    private static final class FieldInfo {
+        final String type;
+        final boolean isStatic;
+        FieldInfo(String type, boolean isStatic) {
+            this.type = type;
+            this.isStatic = isStatic;
+        }
     }
 
     private String findTypeInContext(StatementSequence sequence, String varName) {
