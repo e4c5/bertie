@@ -28,9 +28,6 @@ import org.slf4j.LoggerFactory;
  * aggregation.
  */
 public class DuplicationAnalyzer {
-
-    private static final Logger logger = LoggerFactory.getLogger(DuplicationAnalyzer.class);
-
     private final DuplicationConfig config;
     private final StatementExtractor extractor;
     private final PreFilterChain preFilter;
@@ -184,9 +181,6 @@ public class DuplicationAnalyzer {
             }
         }
 
-        System.out.printf("Pre-filtering: %d/%d comparisons filtered (%.1f%%)%n",
-                filteredOut, totalComparisons, 100.0 * filteredOut / totalComparisons);
-
         return candidates;
     }
 
@@ -270,10 +264,6 @@ public class DuplicationAnalyzer {
                 filtered.add(current);
             }
         }
-
-        System.out.printf("Overlap removal: %d duplicates removed (kept %d largest)%n",
-                pairs.size() - filtered.size(), filtered.size());
-
         return filtered;
     }
 

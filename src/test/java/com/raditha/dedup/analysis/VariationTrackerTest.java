@@ -62,10 +62,10 @@ class VariationTrackerTest {
                 assertEquals(1, analysis.getVariationCount());
                 assertEquals(1, analysis.getMethodCallVariations().size());
 
-                Variation var = analysis.getMethodCallVariations().get(0);
-                assertEquals(VariationType.METHOD_CALL, var.type());
-                assertEquals("setActive", var.value1());
-                assertEquals("setDeleted", var.value2());
+                Variation variable = analysis.getMethodCallVariations().get(0);
+                assertEquals(VariationType.METHOD_CALL, variable.type());
+                assertEquals("setActive", variable.value1());
+                assertEquals("setDeleted", variable.value2());
         }
 
         @Test
@@ -84,10 +84,10 @@ class VariationTrackerTest {
                 assertEquals(1, analysis.getVariationCount());
                 assertEquals(1, analysis.getTypeVariations().size());
 
-                Variation var = analysis.getTypeVariations().get(0);
-                assertEquals(VariationType.TYPE, var.type());
-                assertEquals("User", var.value1());
-                assertEquals("Customer", var.value2());
+                Variation variable = analysis.getTypeVariations().get(0);
+                assertEquals(VariationType.TYPE, variable.type());
+                assertEquals("User", variable.value1());
+                assertEquals("Customer", variable.value2());
         }
 
         @Test
