@@ -9,7 +9,9 @@ import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.PrimitiveType;
 import com.github.javaparser.ast.type.ReferenceType;
+import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.*;
 
@@ -104,9 +106,8 @@ public class ExtractMethodRefactorer {
 
         // Add parameters
         for (ParameterSpec param : recommendation.suggestedParameters()) {
-            method.addParameter(new Parameter(
-                    new ClassOrInterfaceType(null, param.type()),
-                    param.name()));
+            Type paramType = createParameterType(param.type());
+            method.addParameter(new Parameter(paramType, param.name()));
         }
 
         // Copy thrown exceptions from containing method
@@ -177,6 +178,25 @@ public class ExtractMethodRefactorer {
     private String findReturnVariable(StatementSequence sequence, String returnType) {
         DataFlowAnalyzer analyzer = new DataFlowAnalyzer();
         return analyzer.findReturnVariable(sequence, returnType);
+    }
+
+    /**
+     * Create the appropriate Type for a parameter based on the type name.
+     * Uses PrimitiveType for primitives and ClassOrInterfaceType for reference types.
+     */
+    private Type createParameterType(String typeName) {
+        // Check if it's a primitive type
+        return switch (typeName.toLowerCase()) {
+            case "int" -> PrimitiveType.intType();
+            case "long" -> PrimitiveType.longType();
+            case "double" -> PrimitiveType.doubleType();
+            case "float" -> PrimitiveType.floatType();
+            case "boolean" -> PrimitiveType.booleanType();
+            case "byte" -> PrimitiveType.byteType();
+            case "short" -> PrimitiveType.shortType();
+            case "char" -> PrimitiveType.charType();
+            default -> new ClassOrInterfaceType(null, typeName);
+        };
     }
 
     private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings, StatementSequence target) {

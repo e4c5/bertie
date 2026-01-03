@@ -97,8 +97,10 @@ public class ExtractUtilityClassRefactorer {
         // Map CUs to the method that should be removed (Primary + Duplicates)
         Map<CompilationUnit, MethodDeclaration> methodsToRemove = new IdentityHashMap<>();
         methodsToRemove.put(cu, methodToExtract);
-        cluster.duplicates()
-                .forEach(pair -> methodsToRemove.put(pair.seq2().compilationUnit(), pair.seq2().containingMethod()));
+        cluster.duplicates().forEach(pair -> {
+            methodsToRemove.put(pair.seq1().compilationUnit(), pair.seq1().containingMethod());
+            methodsToRemove.put(pair.seq2().compilationUnit(), pair.seq2().containingMethod());
+        });
 
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract, utilityClassName, packageName);
@@ -128,14 +130,50 @@ public class ExtractUtilityClassRefactorer {
             throw new IllegalArgumentException("Method uses 'this' and cannot be made static.");
         }
 
-        // Check for instance field access using a simplified heuristic.
-        // A robust check requires full symbol resolution which is not available here.
-        // We assume if 'this' is absent, it's likely a static candidate.
+        // Check for potential instance field access or instance method calls
+        // Get the containing class to check for field and method names
+        ClassOrInterfaceDeclaration containingClass = method.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
+        if (containingClass != null) {
+            // Collect instance field names
+            Set<String> instanceFieldNames = containingClass.getFields().stream()
+                    .filter(f -> !f.isStatic())
+                    .flatMap(f -> f.getVariables().stream())
+                    .map(v -> v.getNameAsString())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            // Collect instance method names (excluding the current method being validated)
+            Set<String> instanceMethodNames = containingClass.getMethods().stream()
+                    .filter(m -> !m.isStatic() && !m.equals(method))
+                    .map(MethodDeclaration::getNameAsString)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            // Check for unqualified name expressions that might reference instance fields
+            for (NameExpr nameExpr : method.findAll(NameExpr.class)) {
+                String name = nameExpr.getNameAsString();
+                if (instanceFieldNames.contains(name)) {
+                    throw new IllegalArgumentException(
+                            "Method references instance field '" + name + "' and cannot be made static.");
+                }
+            }
+
+            // Check for unqualified method calls that might be to instance methods
+            for (MethodCallExpr callExpr : method.findAll(MethodCallExpr.class)) {
+                if (callExpr.getScope().isEmpty()) {
+                    String calledMethod = callExpr.getNameAsString();
+                    if (instanceMethodNames.contains(calledMethod)) {
+                        throw new IllegalArgumentException(
+                                "Method calls instance method '" + calledMethod + "' and cannot be made static.");
+                    }
+                }
+            }
+        }
     }
 
     private CompilationUnit createUtilityClass(String className, String packageName, MethodDeclaration originalMethod) {
         CompilationUnit utilCu = new CompilationUnit();
-        utilCu.setPackageDeclaration(packageName + ".util");
+        // Handle empty package name correctly - use "util" as top-level package
+        String utilPackage = packageName.isEmpty() ? "util" : packageName + ".util";
+        utilCu.setPackageDeclaration(utilPackage);
 
         // Clone method and make static public
         MethodDeclaration newMethod = originalMethod.clone();
@@ -177,13 +215,16 @@ public class ExtractUtilityClassRefactorer {
         String importName = imp.getNameAsString();
         String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
 
-        // Check if simpleName appears in the method string
-        // This is a rough heuristic but effective enough for handling dependencies.
-        // Also check if it's a static import (*)
-        if (imp.isAsterisk())
-            return false; // Avoid pollution, risky to ignore but safer for now.
+        // Include asterisk imports to avoid missing required imports
+        // They will be optimized by IDE/tools later if not needed
+        if (imp.isAsterisk()) {
+            return true;
+        }
 
-        return method.toString().contains(simpleName);
+        // Check if simpleName appears in the method string
+        // This heuristic checks for literal presence in method source
+        String methodStr = method.toString();
+        return methodStr.contains(simpleName);
     }
 
     /**
@@ -199,8 +240,8 @@ public class ExtractUtilityClassRefactorer {
             String utilityClassName, String originalPackage) {
         String methodName = originalMethod.getNameAsString();
 
-        // Add import
-        String utilityRunTimePackage = originalPackage + ".util"; // Assumed location
+        // Add import - handle empty package name correctly
+        String utilityRunTimePackage = originalPackage.isEmpty() ? "util" : originalPackage + ".util";
         cu.addImport(utilityRunTimePackage + "." + utilityClassName);
 
         // Find the primary type declaration to use as context for resolution
