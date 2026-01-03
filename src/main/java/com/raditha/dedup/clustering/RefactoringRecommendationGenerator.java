@@ -227,11 +227,6 @@ public class RefactoringRecommendationGenerator {
                         return inferTypeFromMethodCall(returnExpr.asMethodCallExpr(), sequence);
                     }
 
-                    // If it's a field access (user.field), infer from field name
-                    if (returnExpr.isFieldAccessExpr()) {
-                        return inferTypeFromFieldAccess(returnExpr.asFieldAccessExpr());
-                    }
-
                     // If it's a simple variable name, get its type
                     if (returnExpr.isNameExpr()) {
                         String varName = returnExpr.asNameExpr().getNameAsString();
@@ -326,7 +321,7 @@ public class RefactoringRecommendationGenerator {
             // Ignore errors during manual lookup
         }
 
-        return inferTypeFromMethodCallHeuristic(methodCall);
+        return null;
     }
 
     /**
@@ -340,24 +335,23 @@ public class RefactoringRecommendationGenerator {
      * "User"
      */
     private String extractGenericTypeFromScope(StatementSequence sequence, String scopeName) {
-        try {
-            if (sequence.containingMethod() != null) {
-                var classDecl = sequence.containingMethod()
-                        .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-                if (classDecl.isPresent()) {
-                    // Find field declaration for the scope
-                    for (var field : classDecl.get().getFields()) {
-                        for (var v : field.getVariables()) {
-                            if (v.getNameAsString().equals(scopeName)) {
-                                // Check if field type has generic type arguments
-                                if (field.getElementType().isClassOrInterfaceType()) {
-                                    var classType = field.getElementType().asClassOrInterfaceType();
-                                    if (classType.getTypeArguments().isPresent()) {
-                                        var typeArgs = classType.getTypeArguments().get();
-                                        if (!typeArgs.isEmpty()) {
-                                            // Return first type argument (e.g., User from Repository<User>)
-                                            return typeArgs.get(0).asString();
-                                        }
+
+        if (sequence.containingMethod() != null) {
+            var classDecl = sequence.containingMethod()
+                    .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            if (classDecl.isPresent()) {
+                // Find field declaration for the scope
+                for (var field : classDecl.get().getFields()) {
+                    for (var v : field.getVariables()) {
+                        if (v.getNameAsString().equals(scopeName)) {
+                            // Check if field type has generic type arguments
+                            if (field.getElementType().isClassOrInterfaceType()) {
+                                var classType = field.getElementType().asClassOrInterfaceType();
+                                if (classType.getTypeArguments().isPresent()) {
+                                    var typeArgs = classType.getTypeArguments().get();
+                                    if (!typeArgs.isEmpty()) {
+                                        // Return first type argument (e.g., User from Repository<User>)
+                                        return typeArgs.get(0).asString();
                                     }
                                 }
                             }
@@ -365,71 +359,11 @@ public class RefactoringRecommendationGenerator {
                     }
                 }
             }
-        } catch (Exception e) {
-            // Ignore
         }
+
         return null;
     }
 
-    private String inferTypeFromMethodCallHeuristic(MethodCallExpr methodCall) {
-        String methodName = methodCall.getNameAsString();
-
-        // Common getter patterns
-        if (methodName.startsWith("get")) {
-            if (methodName.equals("getName") || methodName.equals("getEmail") ||
-                    methodName.equals("getRole") || methodName.equals("getMessage")) {
-                return STRING;
-            }
-            if (methodName.equals("getId") || methodName.equals("getAge") ||
-                    methodName.equals("getCount") || methodName.equals("getSize")) {
-                return "int";
-            }
-            if (methodName.equals("isActive") || methodName.equals("isValid") ||
-                    methodName.equals("hasPermission")) {
-                return BOOLEAN;
-            }
-        }
-
-        // is* methods typically return boolean
-        if (methodName.startsWith("is") || methodName.startsWith("has")) {
-            return BOOLEAN;
-        }
-
-        // toString, format, etc.
-        if (methodName.equals("toString") || methodName.equals("format")) {
-            return STRING;
-        }
-
-        // size, length, count methods
-        if (methodName.equals("size") || methodName.equals("length") ||
-                methodName.equals("count")) {
-            return "int";
-        }
-
-        throw new TypeInferenceException("Unable to infer return type for method call: " + methodCall);
-    }
-
-    /**
-     * Infer type from field access (user.field).
-     */
-    private String inferTypeFromFieldAccess(FieldAccessExpr fieldAccess) {
-        String fieldName = fieldAccess.getNameAsString();
-
-        // Common field naming patterns
-        if (fieldName.equals("name") || fieldName.equals("email") ||
-                fieldName.equals("role") || fieldName.equals("message")) {
-            return STRING;
-        }
-        if (fieldName.equals("id") || fieldName.equals("age") ||
-                fieldName.equals("count")) {
-            return "int";
-        }
-        if (fieldName.equals("active") || fieldName.equals("valid")) {
-            return BOOLEAN;
-        }
-
-        throw new TypeInferenceException("Unable to infer type for field access: " + fieldAccess);
-    }
 
     /**
      * Infer type from other expression types.
@@ -461,27 +395,6 @@ public class RefactoringRecommendationGenerator {
         }
 
         throw new TypeInferenceException("Unable to infer type for expression: " + expr);
-    }
-
-    /**
-     * Find variables used in return statements within the sequence.
-     * This handles cases where the return statement is part of the duplicate.
-     */
-    private Set<String> findVariablesInReturnStatements(StatementSequence sequence) {
-        Set<String> returned = new HashSet<>();
-
-        for (Statement stmt : sequence.statements()) {
-            if (stmt.isReturnStmt()) {
-                var returnStmt = stmt.asReturnStmt();
-                if (returnStmt.getExpression().isPresent()) {
-                    // Find all variable references in the return expression
-                    returnStmt.getExpression().get().findAll(NameExpr.class)
-                            .forEach(nameExpr -> returned.add(nameExpr.getNameAsString()));
-                }
-            }
-        }
-
-        return returned;
     }
 
     /**
@@ -715,22 +628,6 @@ public class RefactoringRecommendationGenerator {
             return RefactoringStrategy.EXTRACT_HELPER_METHOD;
         }
 
-        // ALL duplicates in test files - but still default to EXTRACT_HELPER_METHOD
-        // Only use specialized strategies for clear, specific cases
-
-        // Note: Parameterized tests and @BeforeEach are DISABLED by default
-        // They require very specific patterns and have higher risk of false positives
-
-        // Example: When to enable:
-        // if (hasExplicitTestSetupPattern(cluster)) {
-        // return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
-        // }
-
-        // Cross-class refactoring (when implemented)
-        if (isCrossClass(cluster)) {
-            return RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
-        }
-
         // Default to the most robust, general-purpose strategy
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
     }
@@ -777,20 +674,6 @@ public class RefactoringRecommendationGenerator {
             score *= 0.8;
 
         return score;
-    }
-
-    private boolean isSetupCode(StatementSequence sequence) {
-        String code = sequence.statements().toString().toLowerCase();
-        return code.contains("new ") || code.contains("set");
-    }
-
-    private boolean canParameterize(DuplicateCluster cluster) {
-        return cluster.duplicates().size() >= 3;
-    }
-
-    private boolean isCrossClass(DuplicateCluster cluster) {
-        // Check if duplicates span multiple classes
-        return false; // Simplified for now
     }
 
     private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, StatementSequence sequence) {
