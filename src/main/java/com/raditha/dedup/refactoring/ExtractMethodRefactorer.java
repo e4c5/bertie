@@ -14,6 +14,7 @@ import com.github.javaparser.ast.type.ReferenceType;
 import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.*;
+import sa.com.cloudsolutions.antikythera.evaluator.Reflect;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -182,21 +183,19 @@ public class ExtractMethodRefactorer {
 
     /**
      * Create the appropriate Type for a parameter based on the type name.
-     * Uses PrimitiveType for primitives and ClassOrInterfaceType for reference types.
+     * Uses antikythera's Reflect utility to handle primitives correctly.
      */
     private Type createParameterType(String typeName) {
-        // Check if it's a primitive type
-        return switch (typeName.toLowerCase()) {
-            case "int" -> PrimitiveType.intType();
-            case "long" -> PrimitiveType.longType();
-            case "double" -> PrimitiveType.doubleType();
-            case "float" -> PrimitiveType.floatType();
-            case "boolean" -> PrimitiveType.booleanType();
-            case "byte" -> PrimitiveType.byteType();
-            case "short" -> PrimitiveType.shortType();
-            case "char" -> PrimitiveType.charType();
-            default -> new ClassOrInterfaceType(null, typeName);
-        };
+        try {
+            // Try to get the Class from the type name and convert to JavaParser Type
+            Class<?> clazz = Reflect.getComponentClass(typeName);
+            Type type = Reflect.getComponentType(clazz);
+            // If getComponentType returns null (for non-primitive/basic types), use ClassOrInterfaceType
+            return type != null ? type : new ClassOrInterfaceType(null, typeName);
+        } catch (ClassNotFoundException e) {
+            // Fallback to ClassOrInterfaceType for unknown types
+            return new ClassOrInterfaceType(null, typeName);
+        }
     }
 
     private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings, StatementSequence target) {
