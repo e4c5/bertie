@@ -46,13 +46,14 @@ public class ExtractMethodRefactorer {
         // 1. Create the new helper method (tentative)
         MethodDeclaration helperMethod = createHelperMethod(primary, recommendation);
 
-        // 2. Add method to the class (modifies primary CU) — but first, try to REUSE existing equivalent helper
+        // 2. Add method to the class (modifies primary CU) — but first, try to REUSE
+        // existing equivalent helper
         ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
                 .findAncestor(ClassOrInterfaceDeclaration.class)
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
         String methodNameToUse = recommendation.suggestedMethodName();
-        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod);
+        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, primary.containingMethod());
         if (equivalent == null) {
             // No equivalent helper exists; add our newly created one
             containingClass.addMember(helperMethod);
@@ -179,11 +180,14 @@ public class ExtractMethodRefactorer {
         return analyzer.findReturnVariable(sequence, returnType);
     }
 
-    private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings, StatementSequence target) {
+    private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings,
+            StatementSequence target) {
         // Helper to extract text from ExprInfo
         java.util.function.Function<com.raditha.dedup.model.ExprInfo, String> asText = ei -> {
-            if (ei == null) return null;
-            if (ei.expr() != null) return ei.expr().toString();
+            if (ei == null)
+                return null;
+            if (ei.expr() != null)
+                return ei.expr().toString();
             return ei.text();
         };
 
@@ -198,14 +202,17 @@ public class ExtractMethodRefactorer {
             int end = target.range().endLine();
             for (Map.Entry<StatementSequence, com.raditha.dedup.model.ExprInfo> entry : bindings.entrySet()) {
                 StatementSequence seq = entry.getKey();
-                if (seq == null) continue;
+                if (seq == null)
+                    continue;
                 try {
                     if (seq.range().startLine() == start && seq.range().endLine() == end) {
                         return asText.apply(entry.getValue());
                     }
-                } catch (Exception ignore) {}
+                } catch (Exception ignore) {
+                }
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         return null;
     }
 
@@ -224,7 +231,8 @@ public class ExtractMethodRefactorer {
                     }
                 }
             }
-        } catch (Exception ignore) {}
+        } catch (Exception ignore) {
+        }
         return null;
     }
 
@@ -258,7 +266,8 @@ public class ExtractMethodRefactorer {
             }
         }
 
-        // Build argument list safely: if any argument cannot be resolved with type-compatibility, skip this occurrence
+        // Build argument list safely: if any argument cannot be resolved with
+        // type-compatibility, skip this occurrence
         NodeList<Expression> arguments = new NodeList<>();
         boolean allArgsResolved = true;
         for (ParameterSpec param : recommendation.suggestedParameters()) {
@@ -266,23 +275,29 @@ public class ExtractMethodRefactorer {
 
             // STRATEGY 1: Use Variation Analysis (most accurate)
             if (variations != null && param.variationIndex() != null) {
-                var exprBindings = variations.exprBindings() != null ? variations.exprBindings().get(param.variationIndex()) : null;
+                var exprBindings = variations.exprBindings() != null
+                        ? variations.exprBindings().get(param.variationIndex())
+                        : null;
                 if (exprBindings != null) {
                     valToUse = resolveBindingForSequence(exprBindings, sequence);
                 }
                 if (valToUse == null) {
-                    var legacyBindings = variations.valueBindings() != null ? variations.valueBindings().get(param.variationIndex()) : null;
+                    var legacyBindings = variations.valueBindings() != null
+                            ? variations.valueBindings().get(param.variationIndex())
+                            : null;
                     if (legacyBindings != null) {
                         // Wrap legacy strings as ExprInfo-like via resolver overload
                         for (var e : legacyBindings.entrySet()) {
                             // no-op; just to touch map to avoid unused warning in some IDEs
-                            if (e == null) {}
+                            if (e == null) {
+                            }
                         }
                         // Reuse the resolver by adapting to ExprInfo
                         java.util.Map<com.raditha.dedup.model.StatementSequence, com.raditha.dedup.model.ExprInfo> adapted = new java.util.HashMap<>();
                         if (legacyBindings != null) {
                             for (var entry : legacyBindings.entrySet()) {
-                                adapted.put(entry.getKey(), com.raditha.dedup.model.ExprInfo.fromText(entry.getValue()));
+                                adapted.put(entry.getKey(),
+                                        com.raditha.dedup.model.ExprInfo.fromText(entry.getValue()));
                             }
                         }
                         valToUse = resolveBindingForSequence(adapted, sequence);
@@ -290,7 +305,8 @@ public class ExtractMethodRefactorer {
                 }
             }
 
-            // STRATEGY 2a: Context-aware extraction for multiple String parameters (prefer this over generic AST scan)
+            // STRATEGY 2a: Context-aware extraction for multiple String parameters (prefer
+            // this over generic AST scan)
             if (valToUse == null && "String".equals(param.type()) && stringParams.size() >= 2) {
                 int ord = stringParams.indexOf(param);
                 if (ord >= 0) {
@@ -301,14 +317,18 @@ public class ExtractMethodRefactorer {
                 }
             }
 
-            // STRATEGY 2b: Fallback to generic extraction from AST (with disambiguation by examples for Strings)
+            // STRATEGY 2b: Fallback to generic extraction from AST (with disambiguation by
+            // examples for Strings)
             if (valToUse == null) {
                 String actualValue = extractActualValue(sequence, param);
                 if (actualValue != null) {
-                    // If multiple same-type params exist (e.g., two Strings), prefer values that match this param's example set
-                    if ("String".equals(param.type()) && actualValue.startsWith("\"") && !param.exampleValues().isEmpty()) {
+                    // If multiple same-type params exist (e.g., two Strings), prefer values that
+                    // match this param's example set
+                    if ("String".equals(param.type()) && actualValue.startsWith("\"")
+                            && !param.exampleValues().isEmpty()) {
                         String unq = actualValue.replace("\"", "");
-                        boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(unq));
+                        boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", ""))
+                                .anyMatch(s -> s.equals(unq));
                         if (!matches) {
                             actualValue = null; // discard ambiguous value
                         }
@@ -319,18 +339,25 @@ public class ExtractMethodRefactorer {
                 }
             }
 
-            // STRATEGY 3: Fallback to example value (only for non-String types and when type-compatible)
+            // STRATEGY 3: Fallback to example value (only for non-String types and when
+            // type-compatible)
             if (valToUse == null && !param.exampleValues().isEmpty()) {
                 String pType = param.type();
                 if (!"String".equals(pType)) {
                     String candidate = param.exampleValues().get(0);
                     // Only accept if it looks type-compatible
                     boolean ok = false;
-                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+")) ok = true;
-                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?")) ok = true;
-                    if (("double".equals(pType) || "Double".equals(pType)) && candidate.matches("-?\\d+\\.\\d+")) ok = true;
-                    if (("boolean".equals(pType) || "Boolean".equals(pType)) && ("true".equals(candidate) || "false".equals(candidate))) ok = true;
-                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty()) ok = true;
+                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+"))
+                        ok = true;
+                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?"))
+                        ok = true;
+                    if (("double".equals(pType) || "Double".equals(pType)) && candidate.matches("-?\\d+\\.\\d+"))
+                        ok = true;
+                    if (("boolean".equals(pType) || "Boolean".equals(pType))
+                            && ("true".equals(candidate) || "false".equals(candidate)))
+                        ok = true;
+                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty())
+                        ok = true;
                     if (ok) {
                         valToUse = candidate;
                     }
@@ -387,7 +414,8 @@ public class ExtractMethodRefactorer {
             }
         }
 
-        // If any argument could not be resolved safely, skip this occurrence (do not modify this sequence)
+        // If any argument could not be resolved safely, skip this occurrence (do not
+        // modify this sequence)
         if (!allArgsResolved || arguments.size() != recommendation.suggestedParameters().size()) {
             return;
         }
@@ -572,7 +600,8 @@ public class ExtractMethodRefactorer {
             return foundValues.get(0);
         }
 
-        // Fallback to example value only for non-String parameters; for Strings, return null to avoid wrong literals
+        // Fallback to example value only for non-String parameters; for Strings, return
+        // null to avoid wrong literals
         if (!param.exampleValues().isEmpty() && (param.type() == null || !"String".equals(param.type()))) {
             return param.exampleValues().get(0);
         }
@@ -605,7 +634,8 @@ public class ExtractMethodRefactorer {
             return true;
         }
         if (expr.isStringLiteralExpr() && ("String".equals(param.type()))) {
-            // If we have example values (e.g., two String params), only accept literals matching this param's examples
+            // If we have example values (e.g., two String params), only accept literals
+            // matching this param's examples
             if (!param.exampleValues().isEmpty()) {
                 String lit = expr.asStringLiteralExpr().asString();
                 return param.exampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(lit));
@@ -614,9 +644,11 @@ public class ExtractMethodRefactorer {
         }
 
         // If we have example values, use them as hints for NON-literal expressions only
-        // This avoids accidentally accepting a String literal for a non-String parameter.
+        // This avoids accidentally accepting a String literal for a non-String
+        // parameter.
         if (!param.exampleValues().isEmpty()) {
-            // For variables or other non-literal expressions, check direct equality to any example
+            // For variables or other non-literal expressions, check direct equality to any
+            // example
             if (!expr.isLiteralExpr()) {
                 for (String example : param.exampleValues()) {
                     if (example.equals(exprStr)) {
@@ -672,7 +704,7 @@ public class ExtractMethodRefactorer {
             // Replace all occurrences of this value with the parameter name
             stmt.findAll(Expression.class).forEach(expr -> {
                 if (shouldReplaceExpression(expr, primaryValue, param) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(param.name()));
+                    expr.replace(new NameExpr(param.name()));
                 }
             });
         }
@@ -719,9 +751,12 @@ public class ExtractMethodRefactorer {
         return false;
     }
 
-    // Helper-reuse: find an existing equivalent helper in the same class to avoid duplicate methods
-    private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass, MethodDeclaration newHelper) {
-        boolean newIsStatic = newHelper.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+    // Helper-reuse: find an existing equivalent helper in the same class to avoid
+    // duplicate methods
+    private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass,
+            MethodDeclaration newHelper, MethodDeclaration excludedMethod) {
+        boolean newIsStatic = newHelper.getModifiers().stream()
+                .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
         String newReturnType = newHelper.getType().asString();
         List<String> newParamTypes = new java.util.ArrayList<>();
         for (Parameter p : newHelper.getParameters()) {
@@ -730,18 +765,37 @@ public class ExtractMethodRefactorer {
         String newBodyNorm = normalizeMethodBody(newHelper);
 
         for (MethodDeclaration candidate : containingClass.getMethods()) {
-            // Only consider private helpers (or same staticness and signature) to be conservative
-            boolean candIsStatic = candidate.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-            if (candIsStatic != newIsStatic) continue;
-            if (!candidate.getType().asString().equals(newReturnType)) continue;
-            if (candidate.getParameters().size() != newParamTypes.size()) continue;
+            // CRITICAL FIX: Never reuse the method we are currently extracting from!
+            if (candidate == excludedMethod)
+                continue;
+
+            // CRITICAL FIX: Only reuse PRIVATE methods as helpers.
+            // Reuse of public methods leads to infinite recursion if we are refactoring
+            // that public method.
+            if (!candidate.getModifiers().contains(Modifier.privateModifier()))
+                continue;
+
+            // Only consider private helpers (or same staticness and signature) to be
+            // conservative
+            boolean candIsStatic = candidate.getModifiers().stream()
+                    .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+            if (candIsStatic != newIsStatic)
+                continue;
+            if (!candidate.getType().asString().equals(newReturnType))
+                continue;
+            if (candidate.getParameters().size() != newParamTypes.size())
+                continue;
 
             boolean paramsMatch = true;
             for (int i = 0; i < candidate.getParameters().size(); i++) {
                 String ct = candidate.getParameter(i).getType().asString();
-                if (!ct.equals(newParamTypes.get(i))) { paramsMatch = false; break; }
+                if (!ct.equals(newParamTypes.get(i))) {
+                    paramsMatch = false;
+                    break;
+                }
             }
-            if (!paramsMatch) continue;
+            if (!paramsMatch)
+                continue;
 
             // Compare normalized bodies
             String candNorm = normalizeMethodBody(candidate);
@@ -753,9 +807,11 @@ public class ExtractMethodRefactorer {
         return null;
     }
 
-    // Produce a canonical representation of the method body with parameter names normalized (p0, p1, ...)
+    // Produce a canonical representation of the method body with parameter names
+    // normalized (p0, p1, ...)
     private String normalizeMethodBody(MethodDeclaration method) {
-        if (method.getBody().isEmpty()) return null;
+        if (method.getBody().isEmpty())
+            return null;
         String body = method.getBody().get().toString();
         // Map parameter names to placeholders
         for (int i = 0; i < method.getParameters().size(); i++) {

@@ -166,8 +166,13 @@ public class RefactoringRecommendationGenerator {
             return "void";
         }
 
-        // PRIORITY: Check for domain objects FIRST (User, Customer, etc.)
-        // Domain objects take precedence over String!
+        // PRIORITY: Check for String explicitly
+        // If we have an explicit String return (e.g. getName()), we want String, not
+        // the object (User)
+        if (returnTypes.contains(STRING))
+            return STRING;
+
+        // PRIORITY: Check for domain objects (User, Customer, etc.)
         Optional<String> domainType = returnTypes.stream()
                 .filter(t -> !t.equals("int") && !t.equals("long") && !t.equals(DOUBLE) &&
                         !t.equals(BOOLEAN) && !t.equals("void") && !t.equals(STRING))
@@ -176,10 +181,6 @@ public class RefactoringRecommendationGenerator {
         if (domainType.isPresent()) {
             return domainType.get(); // Return User, Customer, Order, etc.
         }
-
-        // Only return String if no domain objects found
-        if (returnTypes.contains(STRING))
-            return STRING;
 
         // Primitive unification
         boolean hasInt = returnTypes.contains("int");
@@ -212,28 +213,34 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String analyzeReturnTypeForSequence(StatementSequence sequence) {
-        // CRITICAL FIX: Use findReturnVariable to find the variable, then get its type
-        // Don't try to determine type first (circular dependency!)
+        // CRITICAL FIX: Check for explicit return statements IN the duplicate sequence
+        // first
+        // If the sequence contains a return statement, we MUST respect its type
+        String explicitType = analyzeReturnStatementType(sequence);
+        System.out.println("DEBUG analyzeReturnTypeForSequence [" +
+                (sequence.range().toString()) + "]: explicitType=" + explicitType);
+
+        if (explicitType != null) {
+            return explicitType;
+        }
 
         // Find variable that should be returned (live-out or used in return statements)
         String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
         // filtering
 
+        System.out.println("DEBUG analyzeReturnTypeForSequence var=" + returnVarName);
+
         if (returnVarName != null) {
             // Get the actual type of that variable
             String varType = getVariableType(sequence, returnVarName);
+            System.out.println("DEBUG analyzeReturnTypeForSequence varType=" + varType);
             // Return the variable's type, NOT the return statement's expression type
             if (varType != null && !"void".equals(varType)) {
                 return varType;
             }
         }
 
-        // Fallback: Check for explicit return statements IN the duplicate sequence
-        // But DO NOT use this if we found a return variable - that would give us the
-        // wrong type
-        String explicitType = analyzeReturnStatementType(sequence);
-        System.out.println("DEBUG analyzeReturnTypeForSequence: Fallback to explicit type: " + explicitType);
-        return explicitType;
+        return null;
     }
 
     /**

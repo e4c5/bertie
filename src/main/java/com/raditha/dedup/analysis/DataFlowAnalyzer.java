@@ -165,12 +165,19 @@ public class DataFlowAnalyzer {
 
         List<String> candidates = findCandidates(sequence, liveOut);
 
+        // Filter candidates by type compatibility
+        if (returnType != null && !"void".equals(returnType)) {
+            candidates.removeIf(candidate -> !isTypeCompatible(sequence, candidate, returnType));
+        }
+
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {
             return candidates.getFirst();
         }
 
         // If multiple candidates, prefer the one with richest type (non-primitive)
+        // But only if we haven't already filtered by type! (If we filtered, they all
+        // match returnType anyway)
         if (candidates.size() > 1) {
             return findBestCandidate(sequence, candidates);
         }
@@ -251,5 +258,42 @@ public class DataFlowAnalyzer {
 
         // Otherwise, must have exactly one return variable
         return returnVar != null;
+    }
+
+    /**
+     * Check if a variable's type is compatible with the expected return type.
+     */
+    private boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isExpressionStmt()) {
+                var expr = stmt.asExpressionStmt().getExpression();
+                if (expr.isVariableDeclarationExpr()) {
+                    VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
+                    for (var variable : varDecl.getVariables()) {
+                        if (variable.getNameAsString().equals(varName)) {
+                            String varType = variable.getType().asString();
+                            // Simple string matching for now (robust enough for simple cases)
+                            // "User" matches "User"
+                            // "java.lang.String" matches "String"
+                            // "List<User>" matches "List"
+                            if (varType.equals(expectedType))
+                                return true;
+                            if (varType.endsWith("." + expectedType))
+                                return true; // FQN match
+                            if (expectedType.endsWith("." + varType))
+                                return true;
+                            if (expectedType.contains(".")) {
+                                // removing package from expected
+                                String simpleExpected = expectedType.substring(expectedType.lastIndexOf('.') + 1);
+                                if (varType.equals(simpleExpected))
+                                    return true;
+                            }
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return false; // Variable not found (shouldn't happen for candidates)
     }
 }
