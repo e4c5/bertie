@@ -7,8 +7,6 @@ import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
-import com.github.javaparser.ast.stmt.ReturnStmt;
-import com.github.javaparser.resolution.types.ResolvedType;
 import com.raditha.dedup.analysis.*;
 import com.raditha.dedup.model.*;
 import com.raditha.dedup.refactoring.MethodNameGenerator;
@@ -17,7 +15,6 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.Set;
 import java.util.Optional;
 
@@ -529,30 +526,27 @@ public class RefactoringRecommendationGenerator {
         List<ParameterSpec> capturedParams = new java.util.ArrayList<>();
 
         // Find CU for type checks
-        CompilationUnit cu = null;
-        if (!sequence.statements().isEmpty()) {
-            cu = sequence.statements().get(0).findCompilationUnit().orElse(null);
-        }
+        CompilationUnit cu =  sequence.statements().getFirst().findCompilationUnit().orElse(null);
 
         // AST: collect fields from the containing class
         boolean containingMethodIsStatic = false;
         java.util.Map<String, FieldInfo> classFields = new java.util.HashMap<>();
-        try {
-            var methodOpt = sequence.containingMethod();
-            if (methodOpt != null) {
-                containingMethodIsStatic = methodOpt.isStatic();
-                var classDeclOpt = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-                if (classDeclOpt.isPresent()) {
-                    var classDecl = classDeclOpt.get();
-                    classDecl.getFields().forEach(fd -> {
-                        boolean isStatic = fd.getModifiers().stream().anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
-                        fd.getVariables().forEach(v -> {
-                            classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic));
-                        });
-                    });
-                }
+
+        var methodOpt = sequence.containingMethod();
+        if (methodOpt != null) {
+            containingMethodIsStatic = methodOpt.isStatic();
+            var classDeclOpt = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            if (classDeclOpt.isPresent()) {
+                var classDecl = classDeclOpt.get();
+                classDecl.getFields().forEach(fd -> {
+                    boolean isStatic = fd.getModifiers().stream().anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                    fd.getVariables().forEach(v ->
+                        classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic))
+                    );
+                });
             }
-        } catch (Exception ignore) {}
+        }
+
 
         for (String varName : capturedVars) {
             // Skip pseudo-variables and duplicates
@@ -570,11 +564,9 @@ public class RefactoringRecommendationGenerator {
             }
             // If the name resolves to a type in context, skip (likely static access)
             if (cu != null) {
-                try {
-                    if (AbstractCompiler.findType(cu, varName) != null) {
-                        continue;
-                    }
-                } catch (Exception ignore) {}
+                if (AbstractCompiler.findType(cu, varName) != null) {
+                    continue;
+                }
             }
 
             // NEW: Field-aware captured parameter handling

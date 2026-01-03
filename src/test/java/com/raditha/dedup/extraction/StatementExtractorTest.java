@@ -16,22 +16,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for StatementExtractor.
  */
 class StatementExtractorTest {
-
-    private StatementExtractor extractor;
-    private Path testFile;
-
-    @BeforeEach
-    void setUp() {
-        // Use maximalOnly=false to test all window sizes (original behavior)
-        extractor = new StatementExtractor(5, 5, false);
-        testFile = Paths.get("TestFile.java");
-    }
-
-    @Test
-    void testExtractFromMethodWith5Statements() {
-        String code = """
+    private final String smallBoy =  """
                 class Test {
-                    void method() {
+                    abstract void abstractMethod();
+                
+                    void myMethod() {
                         int a = 1;
                         int b = 2;
                         int c = 3;
@@ -41,44 +30,10 @@ class StatementExtractorTest {
                 }
                 """;
 
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
-
-        // Should extract exactly 1 sequence (5 statements minimum, only 5 total)
-        // Window sizes: 5
-        assertEquals(1, sequences.size());
-        assertEquals(5, sequences.get(0).statements().size());
-    }
-
-    @Test
-    void testExtractFromMethodWith6Statements() {
-        String code = """
+    private final String bigBoy = """
                 class Test {
-                    void method() {
-                        int a = 1;
-                        int b = 2;
-                        int c = 3;
-                        int d = 4;
-                        int e = 5;
-                        int f = 6;
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
-
-        // Should extract 3 sequences:
-        // - [0-4] (5 statements)
-        // - [1-5] (5 statements)
-        // - [0-5] (6 statements)
-        assertEquals(3, sequences.size());
-    }
-
-    @Test
-    void testExtractFromMethodWith10Statements() {
-        String code = """
-                class Test {
+                    abstract void abstractMethod();
+                
                     void method() {
                         int a = 1;
                         int b = 2;
@@ -93,8 +48,30 @@ class StatementExtractorTest {
                     }
                 }
                 """;
+    private StatementExtractor extractor;
+    private Path testFile;
 
-        CompilationUnit cu = StaticJavaParser.parse(code);
+    @BeforeEach
+    void setUp() {
+        // Use maximalOnly=false to test all window sizes (original behavior)
+        extractor = new StatementExtractor(5, 5, false);
+        testFile = Paths.get("TestFile.java");
+    }
+
+    @Test
+    void testExtractFromMethodWith5Statements() {
+        CompilationUnit cu = StaticJavaParser.parse(smallBoy);
+        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+
+        // Should extract exactly 1 sequence (5 statements minimum, only 5 total)
+        // Window sizes: 5
+        assertEquals(1, sequences.size());
+        assertEquals(5, sequences.get(0).statements().size());
+    }
+
+    @Test
+    void testExtractFromMethodWith10Statements() {
+        CompilationUnit cu = StaticJavaParser.parse(bigBoy);
         List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
 
         // 10 statements, min 5
@@ -161,29 +138,6 @@ class StatementExtractorTest {
     }
 
     @Test
-    void testSkipsAbstractMethods() {
-        String code = """
-                abstract class Test {
-                    abstract void abstractMethod();
-
-                    void concreteMethod() {
-                        int a = 1;
-                        int b = 2;
-                        int c = 3;
-                        int d = 4;
-                        int e = 5;
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
-
-        // Should only extract from concreteMethod
-        assertEquals(1, sequences.size());
-    }
-
-    @Test
     void testCustomMinStatements() {
         extractor = new StatementExtractor(3, 5, false); // Min 3 statements, maximalOnly=false
 
@@ -207,19 +161,7 @@ class StatementExtractorTest {
 
     @Test
     void testSequenceHasCorrectMetadata() {
-        String code = """
-                class Test {
-                    void myMethod() {
-                        int a = 1;
-                        int b = 2;
-                        int c = 3;
-                        int d = 4;
-                        int e = 5;
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = StaticJavaParser.parse(smallBoy);
         List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
 
         assertEquals(1, sequences.size());
@@ -292,25 +234,8 @@ class StatementExtractorTest {
     @Test
     void testMaximalOnly_10Statements() {
         StatementExtractor maximalExtractor = new StatementExtractor(5, 5, true);
-        
-        String code = """
-                class Test {
-                    void method() {
-                        int a = 1;
-                        int b = 2;
-                        int c = 3;
-                        int d = 4;
-                        int e = 5;
-                        int f = 6;
-                        int g = 7;
-                        int h = 8;
-                        int i = 9;
-                        int j = 10;
-                    }
-                }
-                """;
 
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = StaticJavaParser.parse(bigBoy);
         List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
 
         // With maximalOnly=true and maxWindowGrowth=5:

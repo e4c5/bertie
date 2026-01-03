@@ -41,7 +41,7 @@ public class RefactoringEngine {
     public RefactoringSession refactorAll(DuplicationReport report) {
         RefactoringSession session = new RefactoringSession();
 
-        System.out.println("\n=== Refactoring Session Started ===");
+        System.out.println("%n=== Refactoring Session Started ===");
         System.out.println("Mode: " + mode);
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
@@ -77,12 +77,7 @@ public class RefactoringEngine {
             SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
             if (!validation.isValid()) {
                 // For dry-run mode, show warnings but don't skip
-                if (mode == RefactoringMode.DRY_RUN) {
-                    System.out.println("  ⚠️  Validation warnings (proceeding anyway in dry-run):");
-                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
-                } else {
-                    System.out.println("  ❌ Validation failed:");
-                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
+                if (mode != RefactoringMode.DRY_RUN) {
                     session.addSkipped(cluster, String.join("; ", validation.getErrors()));
                     continue;
                 }
@@ -113,7 +108,7 @@ public class RefactoringEngine {
 
                 if (mode == RefactoringMode.DRY_RUN) {
                     // Collect diff for summary report
-                    collectDryRunDiff(cluster, recommendation, result, i + 1);
+                    collectDryRunDiff(recommendation, result, i + 1);
                     System.out.println("  ✓ Dry-run: Changes not applied");
                     session.addSkipped(cluster, "Dry-run mode");
                     continue;
@@ -157,7 +152,7 @@ public class RefactoringEngine {
             printDryRunReport();
         }
 
-        System.out.println("\n=== Session Summary ===");
+        System.out.println("%n=== Session Summary ===");
         System.out.println("Successful: " + session.successful.size());
         System.out.println("Skipped: " + session.skipped.size());
         System.out.println("Failed: " + session.failed.size());
@@ -210,7 +205,7 @@ public class RefactoringEngine {
      * Show diff and ask user for confirmation (interactive mode).
      */
     private boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
-        System.out.println("\n  === PROPOSED REFACTORING ===");
+        System.out.println("%n  === PROPOSED REFACTORING ===");
         System.out.println("  Strategy: " + recommendation.strategy());
         System.out.println("  Method: " + recommendation.generateMethodSignature());
         System.out.println("  Confidence: " + recommendation.formatConfidence());
@@ -310,26 +305,26 @@ public class RefactoringEngine {
     /**
      * Collect diff for dry-run summary report.
      */
-    private void collectDryRunDiff(DuplicateCluster cluster, RefactoringRecommendation recommendation,
+    private void collectDryRunDiff(RefactoringRecommendation recommendation,
             ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
         try {
             StringBuilder entry = new StringBuilder();
-            entry.append(String.format("\n### Cluster #%d: %s ###\n", clusterNum, recommendation.strategy()));
-            entry.append(String.format("Confidence: %.0f%%\n", recommendation.confidenceScore() * 100));
-            entry.append(String.format("Files modified: %d\n", result.modifiedFiles().size()));
-            entry.append(String.format("Method: %s\n", recommendation.generateMethodSignature()));
+            entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.strategy()));
+            entry.append(String.format("Confidence: %.0f%%%n", recommendation.confidenceScore() * 100));
+            entry.append(String.format("Files modified: %d%n", result.modifiedFiles().size()));
+            entry.append(String.format("Method: %s%n", recommendation.generateMethodSignature()));
 
             // Show diff for each modified file
             for (Map.Entry<Path, String> fileEntry : result.modifiedFiles().entrySet()) {
-                entry.append(String.format("\n--- File: %s ---\n", fileEntry.getKey().getFileName()));
+                entry.append(String.format("%n--- File: %s ---%n", fileEntry.getKey().getFileName()));
                 String diff = diffGenerator.generateUnifiedDiff(fileEntry.getKey(), fileEntry.getValue());
                 entry.append(diff);
             }
-            entry.append("\n");
+            entry.append("%n");
 
             dryRunDiffs.add(entry.toString());
         } catch (Exception e) {
-            dryRunDiffs.add(String.format("\n### Cluster #%d: ERROR ###\n%s\n", clusterNum, e.getMessage()));
+            dryRunDiffs.add(String.format("%n### Cluster #%d: ERROR ###%n%s%n", clusterNum, e.getMessage()));
         }
     }
 
@@ -337,7 +332,7 @@ public class RefactoringEngine {
      * Print dry-run summary report with all diffs.
      */
     private void printDryRunReport() {
-        System.out.println("\n" + "=".repeat(80));
+        System.out.println("%n" + "=".repeat(80));
         System.out.println("DRY-RUN SUMMARY REPORT");
         System.out.println("=".repeat(80));
         System.out.println("The following changes would be applied:");
