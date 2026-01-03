@@ -263,4 +263,55 @@ class ExtractUtilityClassRefactorerTest {
                 List.of(pair),
                 null, 100);
     }
+
+    @Test
+    void testThisScopeCallUpdate() {
+        String code = """
+                package com.example;
+
+                public class MyService {
+                    public void process() {
+                        // Unqualified call
+                        validate("test1");
+                        // Explicit 'this.' scope call
+                        this.validate("test2");
+                    }
+
+                    private void validate(String input) {
+                        if (input == null) throw new IllegalArgumentException();
+                        System.out.println("Validating " + input);
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        DuplicateCluster cluster = createMockCluster(cu, "validate");
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS,
+                "validate",
+                List.of(),
+                "void",
+                "ValidationUtils",
+                0.95,
+                5);
+
+        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+
+        assertNotNull(result);
+        
+        // Check Original Class
+        String originalCode = result.modifiedFiles().values().stream()
+                .filter(s -> s.contains("class MyService"))
+                .findFirst()
+                .orElseThrow();
+
+        // Both unqualified and this. qualified calls should be updated
+        assertTrue(originalCode.contains("ValidationUtils.validate(\"test1\");"), 
+            "Unqualified call should be updated");
+        assertTrue(originalCode.contains("ValidationUtils.validate(\"test2\");"), 
+            "this. qualified call should be updated");
+        assertFalse(originalCode.contains("this.validate"), 
+            "No remaining this.validate calls should exist");
+    }
 }

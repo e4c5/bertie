@@ -107,9 +107,9 @@ class DataFlowAnalyzerTest {
 
                 Set<String> liveVarsCalls = analyzer.findLiveOutVariables(sequenceCalls);
                 // result1, result2, result3 are used in assertions later
-                assertTrue(liveVarsCalls.contains("result1"), "result1 shoud be live out");
-                assertTrue(liveVarsCalls.contains("result2"), "result2 shoud be live out");
-                assertTrue(liveVarsCalls.contains("result3"), "result3 shoud be live out");
+                assertTrue(liveVarsCalls.contains("result1"), "result1 should be live out");
+                assertTrue(liveVarsCalls.contains("result2"), "result2 should be live out");
+                assertTrue(liveVarsCalls.contains("result3"), "result3 should be live out");
 
                 // 2. Test Block: Setup (lines 115-131 approx)
                 // Select EVERYTHING from start of method up to the start of service calls.
