@@ -81,7 +81,6 @@ public class BertieCLI {
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
 
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
-        String targetClass = DuplicationDetectorSettings.getTargetClass();
 
         List<DuplicationReport> reports = new ArrayList<>();
 
@@ -90,10 +89,10 @@ public class BertieCLI {
             String className = entry.getKey();
 
             // Production code and test code - check both locations
-            Path sourceFile = findSourceFile(className);
+            Path sourceFile = findSourceFile(className, entry.getValue());
             if (sourceFile == null) {
-                System.err.println("Warning: Could not locate source file for " + className);
-                continue;
+                throw new IllegalStateException("FAIL-FAST: Could not locate source file for class: " + className +
+                        "\nChecked storage and standard locations relative to: " + Settings.getBasePath());
             }
 
             DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
@@ -207,9 +206,37 @@ public class BertieCLI {
 
     /**
      * Locate the source file for a given class.
-     * Checks multiple standard locations.
+     * Checks CompilationUnit storage first, then standard locations.
      */
-    private static Path findSourceFile(String className) {
+    private static Path findSourceFile(String className, CompilationUnit cu) {
+        // 1. Try to get path from CompilationUnit storage (most robust)
+        if (cu != null && cu.getStorage().isPresent()) {
+            return cu.getStorage().get().getPath();
+        }
+
+        // 2. Name-based resolution (fallback)
+        // Handle inner classes: if Outer.Inner, we want to look for Outer.java
+        String currentName = className;
+        while (true) {
+            Path path = checkLocations(currentName);
+            if (path != null) {
+                return path;
+            }
+
+            // If it contains a dot, it might be an inner class
+            int lastDot = currentName.lastIndexOf('.');
+            if (lastDot == -1) {
+                break; // No more parents to check
+            }
+            // Strip the last segment to check the parent
+            // e.g., com.pkg.Outer.Inner -> com.pkg.Outer
+            currentName = currentName.substring(0, lastDot);
+        }
+
+        return null;
+    }
+
+    private static Path checkLocations(String className) {
         String relativePath = AbstractCompiler.classToPath(className);
 
         // Try src/main/java first
@@ -224,8 +251,7 @@ public class BertieCLI {
             return testPath;
         }
 
-        // Fallback: Check checking relative to base path directly (if structure is
-        // different)
+        // Fallback: Check checking relative to base path directly
         Path directPath = Paths.get(Settings.getBasePath(), relativePath);
         if (directPath.toFile().exists()) {
             return directPath;
@@ -495,7 +521,7 @@ public class BertieCLI {
                     if (arg.startsWith("--")) {
                         throw new IllegalArgumentException("Unknown option: " + arg);
                     }
-                    config.targetPath = Paths.get(arg);
+                    // target path was removed
                 }
             }
         }
@@ -604,7 +630,6 @@ public class BertieCLI {
 
     private static class CLIConfig {
         String command = "detect"; // "detect" or "refactor"
-        Path targetPath;
         String basePath = null;
         String outputPath = null;
         String configFile = null; // Custom configuration file path
