@@ -51,28 +51,26 @@ class DataFlowAnalyzerTest {
 
         // Find a method that creates and returns a User
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
-                m -> m.getNameAsString().equals("test1_ReturnsCorrectVariable")).orElse(null);
+                m -> m.getNameAsString().equals("testProcessUserAndReturnCorrectOne_returnsFinalUserNotTemp")).orElseThrow();
 
-        if (method != null && method.getBody().isPresent()) {
-            BlockStmt body = method.getBody().get();
-            List<Statement> stmts = body.getStatements();
 
-            if (stmts.size() >= 2) {
-                // Create sequence from first few statements
-                StatementSequence sequence = new StatementSequence(
-                        stmts.subList(0, Math.min(3, stmts.size())),
-                        new com.raditha.dedup.model.Range(1, 3, 1, 10),
-                        0,
-                        method,
-                        cu,
-                        Paths.get("Test.java"));
+        BlockStmt body = method.getBody().get();
+        List<Statement> stmts = body.getStatements();
 
-                // Test return variable detection
-                String returnVar = analyzer.findReturnVariable(sequence, "User");
-                // Should find a User variable
-                assertNotNull(returnVar, "Should find a return variable");
-            }
-        }
+        // Create sequence from first few statements
+        StatementSequence sequence = new StatementSequence(
+                stmts.subList(0, Math.min(3, stmts.size())),
+                new com.raditha.dedup.model.Range(1, 3, 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        // Test return variable detection
+        String returnVar = analyzer.findReturnVariable(sequence, "User");
+        // Should find a User variable
+        assertNotNull(returnVar, "Should find a return variable");
+
     }
 
     @Test
@@ -84,22 +82,20 @@ class DataFlowAnalyzerTest {
         assertNotNull(cu, "Test-bed class should be parsed");
 
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
-        if (method != null && method.getBody().isPresent()) {
-            List<Statement> stmts = method.getBody().get().getStatements();
-            if (!stmts.isEmpty()) {
-                StatementSequence sequence = new StatementSequence(
-                        List.of(stmts.get(0)),
-                        new com.raditha.dedup.model.Range(1, 1, 1, 10),
-                        0,
-                        method,
-                        cu,
-                        Paths.get("Test.java"));
 
-                // Call method - should not throw (no type parameter needed)
-                Set<String> liveVars = analyzer.findLiveOutVariables(sequence);
-                assertNotNull(liveVars, "Should return a set");
-            }
-        }
+        List<Statement> stmts = method.getBody().get().getStatements();
+
+        StatementSequence sequence = new StatementSequence(
+                List.of(stmts.get(0)),
+                new com.raditha.dedup.model.Range(1, 1, 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        // Call method - should not throw (no type parameter needed)
+        Set<String> liveVars = analyzer.findLiveOutVariables(sequence);
+        assertNotNull(liveVars, "Should return a set");
     }
 
     @Test
@@ -108,26 +104,22 @@ class DataFlowAnalyzerTest {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(
                 "com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidatesTest");
 
-        if (cu != null) {
-            MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
-            if (method != null && method.getBody().isPresent()) {
-                List<Statement> stmts = method.getBody().get().getStatements();
-                if (!stmts.isEmpty()) {
-                    StatementSequence sequence = new StatementSequence(
-                            stmts,
-                            new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
-                            0,
-                            method,
-                            cu,
-                            Paths.get("Test.java"));
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
 
-                    // Should not throw (requires returnType parameter)
-                    boolean safe = analyzer.isSafeToExtract(sequence, "void");
-                    // Just verify it returns a boolean
-                    assertTrue(safe || !safe, "Should return boolean");
-                }
-            }
-        }
+        List<Statement> stmts = method.getBody().get().getStatements();
+
+        StatementSequence sequence = new StatementSequence(
+                stmts,
+                new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        // Should not throw (requires returnType parameter)
+        boolean safe = analyzer.isSafeToExtract(sequence, "void");
+        // Just verify it returns a boolean
+        assertTrue(safe || !safe, "Should return boolean");
     }
 
     @Test

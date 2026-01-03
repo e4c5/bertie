@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class EscapeAnalyzerTest {
 
+    public static final String WITH_COUNTER_VARIABLE = "com.raditha.bertie.testbed.variablecapture.ServiceWithCounterVariableTest";
     private static EscapeAnalyzer analyzer;
 
     @BeforeAll
@@ -33,7 +34,7 @@ class EscapeAnalyzerTest {
         Settings.loadConfigMap(configFile);
 
         // Reset and parse
-        AbstractCompiler.reset();
+        AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
 
         analyzer = new EscapeAnalyzer();
@@ -43,81 +44,72 @@ class EscapeAnalyzerTest {
     void testAnalyze_WithTestBedCode() {
         // Use test-bed code that has variable usage
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(
-                "com.raditha.bertie.testbed.variablecapture.ServiceWithCounterVariableTest");
+                WITH_COUNTER_VARIABLE);
 
         assertNotNull(cu, "Test-bed class should be parsed");
 
-        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
-        if (method != null && method.getBody().isPresent()) {
-            List<Statement> stmts = method.getBody().get().getStatements();
-            if (!stmts.isEmpty()) {
-                StatementSequence sequence = new StatementSequence(
-                        stmts,
-                        new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
-                        0,
-                        method,
-                        cu,
-                        Paths.get("Test.java"));
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+        List<Statement> stmts = method.getBody().get().getStatements();
 
-                // Test analyze method
-                EscapeAnalysis result = analyzer.analyze(sequence);
-                assertNotNull(result, "Analysis should return a result");
-            }
-        }
+        StatementSequence sequence = new StatementSequence(
+                stmts,
+                new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        // Test analyze method
+        EscapeAnalysis result = analyzer.analyze(sequence);
+        assertNotNull(result, "Analysis should return a result");
+
     }
 
     @Test
     void testAnalyze_ChecksCapturedVariables() {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(
-                "com.raditha.bertie.testbed.variablecapture.ServiceWithCounterVariableTest");
+                WITH_COUNTER_VARIABLE);
 
-        if (cu != null) {
-            MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
-            if (method != null && method.getBody().isPresent()) {
-                List<Statement> stmts = method.getBody().get().getStatements();
-                if (stmts.size() >= 2) {
-                    StatementSequence sequence = new StatementSequence(
-                            stmts.subList(0, 2),
-                            new com.raditha.dedup.model.Range(1, 2, 1, 10),
-                            0,
-                            method,
-                            cu,
-                            Paths.get("Test.java"));
 
-                    // Test captured variables detection
-                    EscapeAnalysis result = analyzer.analyze(sequence);
-                    assertNotNull(result, "Should return analysis result");
-                    assertNotNull(result.capturedVariables(), "Should have captured variables set");
-                }
-            }
-        }
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
+                    methodDeclaration -> methodDeclaration.getNameAsString().equals("testProcessItemsAndCount_countsActiveUsers")
+                ).orElseThrow();
+        List<Statement> stmts = method.getBody().get().getStatements();
+        StatementSequence sequence = new StatementSequence(
+                stmts.subList(0, 2),
+                new com.raditha.dedup.model.Range(1, 2, 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        // Test captured variables detection
+        EscapeAnalysis result = analyzer.analyze(sequence);
+        assertNotNull(result, "Should return analysis result");
+        assertNotNull(result.capturedVariables(), "Should have captured variables set");
+
     }
 
     @Test
     void testAnalyze_ChecksEscapingReads() {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(
-                "com.raditha.bertie.testbed.variablecapture.ServiceWithCounterVariableTest");
+                WITH_COUNTER_VARIABLE);
 
-        if (cu != null) {
-            MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
-            if (method != null && method.getBody().isPresent()) {
-                List<Statement> stmts = method.getBody().get().getStatements();
-                if (!stmts.isEmpty()) {
-                    StatementSequence sequence = new StatementSequence(
-                            List.of(stmts.get(0)),
-                            new com.raditha.dedup.model.Range(1, 1, 1, 10),
-                            0,
-                            method,
-                            cu,
-                            Paths.get("Test.java"));
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+        List<Statement> stmts = method.getBody().get().getStatements();
 
-                    // Test escaping reads
-                    EscapeAnalysis result = analyzer.analyze(sequence);
-                    assertNotNull(result, "Should return analysis result");
-                    assertNotNull(result.escapingReads(), "Should have escaping reads set");
-                }
-            }
-        }
+        StatementSequence sequence = new StatementSequence(
+                List.of(stmts.get(0)),
+                new com.raditha.dedup.model.Range(1, 1, 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        // Test escaping reads
+        EscapeAnalysis result = analyzer.analyze(sequence);
+        assertNotNull(result, "Should return analysis result");
+        assertNotNull(result.escapingReads(), "Should have escaping reads set");
     }
 
     @Test
@@ -128,37 +120,33 @@ class EscapeAnalyzerTest {
     @Test
     void testTestBedVariableCaptureClassParsed() {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(
-                "com.raditha.bertie.testbed.variablecapture.ServiceWithCounterVariableTest");
+                WITH_COUNTER_VARIABLE);
         assertNotNull(cu, "Variable capture test class should be parsed");
     }
 
     @Test
     void testEscapeAnalysisResultStructure() {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(
-                "com.raditha.bertie.testbed.variablecapture.ServiceWithCounterVariableTest");
+                WITH_COUNTER_VARIABLE);
 
-        if (cu != null) {
-            MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElse(null);
-            if (method != null && method.getBody().isPresent()) {
-                List<Statement> stmts = method.getBody().get().getStatements();
-                if (!stmts.isEmpty()) {
-                    StatementSequence sequence = new StatementSequence(
-                            stmts,
-                            new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
-                            0,
-                            method,
-                            cu,
-                            Paths.get("Test.java"));
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
 
-                    EscapeAnalysis result = analyzer.analyze(sequence);
+        List<Statement> stmts = method.getBody().get().getStatements();
 
-                    // Verify all fields exist
-                    assertNotNull(result.capturedVariables(), "Should have captured variables");
-                    assertNotNull(result.escapingWrites(), "Should have escaping writes");
-                    assertNotNull(result.escapingReads(), "Should have escaping reads");
-                    assertNotNull(result.localVariables(), "Should have local variables");
-                }
-            }
-        }
+        StatementSequence sequence = new StatementSequence(
+                stmts,
+                new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
+                0,
+                method,
+                cu,
+                Paths.get("Test.java"));
+
+        EscapeAnalysis result = analyzer.analyze(sequence);
+
+        // Verify all fields exist
+        assertNotNull(result.capturedVariables(), "Should have captured variables");
+        assertNotNull(result.escapingWrites(), "Should have escaping writes");
+        assertNotNull(result.escapingReads(), "Should have escaping reads");
+        assertNotNull(result.localVariables(), "Should have local variables");
     }
 }
