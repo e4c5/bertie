@@ -508,7 +508,7 @@ public class RefactoringRecommendationGenerator {
      * variation analysis.
      */
     private List<ParameterSpec> identifyCapturedParameters(StatementSequence sequence,
-                                                           List<ParameterSpec> existingParams) {
+            List<ParameterSpec> existingParams) {
         Set<String> usedVars = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
         Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
 
@@ -536,20 +536,22 @@ public class RefactoringRecommendationGenerator {
             if (classDeclOpt.isPresent()) {
                 var classDecl = classDeclOpt.get();
                 classDecl.getFields().forEach(fd -> {
-                    boolean isStatic = fd.getModifiers().stream().anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
-                    fd.getVariables().forEach(v ->
-                            classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic))
-                    );
+                    boolean isStatic = fd.getModifiers().stream()
+                            .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                    fd.getVariables().forEach(
+                            v -> classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic)));
                 });
             }
         }
 
-
         for (String varName : capturedVars) {
             // Skip pseudo-variables and duplicates
-            if (varName == null || varName.isEmpty()) continue;
-            if (varName.equals("this") || varName.equals("super")) continue;
-            if (existingParamNames.contains(varName)) continue;
+            if (varName == null || varName.isEmpty())
+                continue;
+            if (varName.equals("this") || varName.equals("super"))
+                continue;
+            if (existingParamNames.contains(varName))
+                continue;
 
             // Heuristic: Skip names that look like type/class names (e.g., System)
             if (Character.isUpperCase(varName.charAt(0))) {
@@ -571,10 +573,11 @@ public class RefactoringRecommendationGenerator {
             if (fi != null) {
                 // If it is a class field, decide based on helper accessibility
                 // Helper mirrors containing method staticness
-                // - If containing method is non-static → helper non-static → instance fields are accessible → SKIP param
+                // - If containing method is non-static → helper non-static → instance fields
+                // are accessible → SKIP param
                 // - If containing method is static:
-                //     • static field → accessible → SKIP param
-                //     • non-static field → NOT accessible → KEEP as parameter with field type
+                // • static field → accessible → SKIP param
+                // • non-static field → NOT accessible → KEEP as parameter with field type
                 if (!containingMethodIsStatic) {
                     // accessible instance field
                     continue; // skip adding as parameter
@@ -596,65 +599,26 @@ public class RefactoringRecommendationGenerator {
                 continue;
             }
 
-            capturedParams.add(new ParameterSpec(varName, type != null ? type : "Object", List.of(varName), null, null, null));
+            capturedParams.add(
+                    new ParameterSpec(varName, type != null ? type : "Object", List.of(varName), null, null, null));
         }
 
         return capturedParams;
     }
 
     private String findTypeInContext(StatementSequence sequence, String varName) {
-        // 1. Scan statements for any expression referring to this variable
+        // 1. Scan statements for any variable declaration matching this name
         for (Statement stmt : sequence.statements()) {
-            // Check variable declarations directly
             for (VariableDeclarationExpr vde : stmt.findAll(VariableDeclarationExpr.class)) {
                 for (var v : vde.getVariables()) {
                     if (v.getNameAsString().equals(varName)) {
-                        // Use solver if possible, or fallback to AST type
-                        // Use solver if possible, or fallback to AST type
-                        String resolved = null;
-                        try {
-                            resolved = v.resolve().getType().describe();
-                        } catch (Exception e) {
-                        }
-
-                        if (resolved != null && !resolved.equals("java.lang.Object")
-                                && !resolved.equals("Object")) {
-                            return resolved;
-                        }
-
-                        // Fallback to AST type if resolution failed or is generic Object
-                        String astType = v.getType().asString();
-                        if (!astType.equals("var")) {
-                            return astType;
-                        }
-
-                        // If var, and resolved is Object, try to infer from initializer
-                        if (v.getInitializer().isPresent()) {
-                            Expression init = v.getInitializer().get();
-                            if (init.isMethodCallExpr()) {
-                                return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
-                            }
-                            return inferTypeFromExpression(init);
-                        }
-
-                        return resolved != null ? resolved : "Object";
-
-                    }
-                }
-            }
-
-            for (NameExpr nameExpr : stmt.findAll(NameExpr.class)) {
-                if (nameExpr.getNameAsString().equals(varName)) {
-                    String resolved = nameExpr.calculateResolvedType().describe();
-                    if (resolved != null && !resolved.equals("java.lang.Object")
-                            && !resolved.equals("Object")) {
-                        return resolved;
+                        return resolveType(v.getType(), v, sequence);
                     }
                 }
             }
         }
 
-        // Check field declarations in the containing class
+        // 2. Check field declarations in the containing class
         if (sequence.containingMethod() != null) {
             var classDecl = sequence.containingMethod()
                     .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
@@ -662,57 +626,93 @@ public class RefactoringRecommendationGenerator {
                 for (var field : classDecl.get().getFields()) {
                     for (var v : field.getVariables()) {
                         if (v.getNameAsString().equals(varName)) {
-                            // Use asString() to preserve generic type parameters (e.g., Repository<User>)
-                            return field.getElementType().asString();
+                            return resolveType(field.getElementType(), field, sequence);
                         }
                     }
                 }
             }
         }
 
-        // 2. Fallback: Scanner check (if solver failed on all usages, or no usages
-        // found in block)
-        // This handles cases where variable is defined OUTSIDE the block.
-        // We can't easily resolve outside without a reference node.
-
-        // If we have a reference to the method, we can scan parameters
+        // 3. Check parameters of the containing method
         if (sequence.containingMethod() != null) {
             for (var param : sequence.containingMethod().getParameters()) {
                 if (param.getNameAsString().equals(varName)) {
-                    try {
-                        return param.resolve().getType().describe();
-                    } catch (Exception e) {
-                        return param.getType().asString();
-                    }
+                    return resolveType(param.getType(), param, sequence);
                 }
             }
         }
 
-        // 3. Fallback: Scan method body for variables declared outside the block
+        // 4. Fallback: Scan method body for variables declared outside the block
         if (sequence.containingMethod() != null && sequence.containingMethod().getBody().isPresent()) {
             for (VariableDeclarationExpr vde : sequence.containingMethod().getBody().get()
                     .findAll(VariableDeclarationExpr.class)) {
                 for (var v : vde.getVariables()) {
                     if (v.getNameAsString().equals(varName)) {
-                        // Use solver if possible
-                        try {
-                            String resolved = v.resolve().getType().describe();
-                            if (resolved != null && !resolved.equals("java.lang.Object")
-                                    && !resolved.equals("Object")) {
-                                return resolved;
-                            }
-                        } catch (Exception e) {
-                        }
-
-                        // Fallback to AST type
-                        return v.getType().asString();
+                        return resolveType(v.getType(), v, sequence);
                     }
                 }
             }
         }
 
-
         throw new TypeInferenceException("Unable to infer type for variable: " + varName);
+    }
+
+    private String resolveType(com.github.javaparser.ast.type.Type type, com.github.javaparser.ast.Node contextNode,
+            StatementSequence sequence) {
+        // Attempt to resolve using AbstractCompiler
+        try {
+            var classDecl = contextNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            if (classDecl.isPresent()) {
+                String fqn = AbstractCompiler.resolveTypeFqn(type, classDecl.get(), null);
+                if (fqn != null && !fqn.equals("java.lang.Object") && !fqn.equals("Object")) {
+                    return simplifyType(fqn);
+                }
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+
+        // Fallback to AST string
+        String astType = type.asString();
+        if ("var".equals(astType)) {
+            // If implicit var, we might need initializer inference, but without solver it's
+            // hard.
+            // We can check initializer if available on the variable declarator
+            if (contextNode instanceof com.github.javaparser.ast.body.VariableDeclarator) {
+                var v = (com.github.javaparser.ast.body.VariableDeclarator) contextNode;
+                if (v.getInitializer().isPresent()) {
+                    var init = v.getInitializer().get();
+                    if (init.isMethodCallExpr()) {
+                        try {
+                            return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
+                        } catch (Exception e) {
+                            // ignore
+                        }
+                    }
+                    try {
+                        return inferTypeFromExpression(init);
+                    } catch (Exception e) {
+                        return "Object";
+                    }
+                }
+            }
+            return "Object"; // Worst case
+        }
+        return astType;
+    }
+
+    private String simplifyType(String fqn) {
+        if (fqn == null)
+            return null;
+        // Don't simplify primitives
+        if (fqn.equals("int") || fqn.equals("boolean") || fqn.equals("double") || fqn.equals("void"))
+            return fqn;
+
+        int lastDot = fqn.lastIndexOf('.');
+        if (lastDot > 0) {
+            return fqn.substring(lastDot + 1);
+        }
+        return fqn;
     }
 
     // [Rest of the class remains unchanged - keeping existing methods]
