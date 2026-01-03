@@ -5,10 +5,15 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +32,18 @@ class RefactoringIntegrationTest {
     private DuplicationAnalyzer analyzer;
     private RefactoringEngine engine;
 
+    @BeforeAll()
+    static void setupClass() throws IOException {
+        // Load test configuration pointing to test-bed
+        File configFile = new File("src/test/resources/analyzer-tests.yml");
+        Settings.loadConfigMap(configFile);
+
+        // Reset and parse test sources
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.reset();
+        AbstractCompiler.preProcess();
+    }
+
     @BeforeEach
     void setUp() {
         analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient());
@@ -34,52 +51,16 @@ class RefactoringIntegrationTest {
 
     @Test
     void testEndToEndRefactoring() throws IOException {
-        // 1. Create a test file with obvious duplicates
-        // Made more similar to increase confidence for batch mode
-        String originalCode = """
-                package com.test;
-
-                public class UserService {
-
-                    public void createUser1(String name, String email, String role) {
-                        User user = new User();
-                        user.setName(name);
-                        user.setEmail(email);
-                        user.setRole(role);
-                        user.setActive(true);
-                        repository.save(user);
-                    }
-
-                    public void createUser2(String name, String email, String role) {
-                        User user = new User();
-                        user.setName(name);
-                        user.setEmail(email);
-                        user.setRole(role);
-                        user.setActive(true);
-                        repository.save(user);
-                    }
-
-                    public void createUser3(String name, String email, String role) {
-                        User user = new User();
-                        user.setName(name);
-                        user.setEmail(email);
-                        user.setRole(role);
-                        user.setActive(true);
-                        repository.save(user);
-                    }
-                }
-                """;
-
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
+        String original = cu.toString();
         Path testFile = tempDir.resolve("UserService.java");
-        Files.writeString(testFile, originalCode);
+        Files.writeString(testFile, original);
 
-        // 2. Parse and analyze for duplicates
-        CompilationUnit cu = StaticJavaParser.parse(originalCode);
         DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         // Should find duplicates
         assertTrue(report.hasDuplicates(), "Should detect duplicates");
-        assertTrue(report.clusters().size() > 0, "Should have clusters");
+        assertFalse(report.clusters().isEmpty(), "Should have clusters");
 
         // 3. Run refactoring in BATCH mode (auto-apply)
         engine = new RefactoringEngine(
@@ -91,8 +72,7 @@ class RefactoringIntegrationTest {
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 
         // 4. Verify refactoring happened
-        assertTrue(session.getSuccessful().size() > 0,
-                "Should have successful refactorings");
+        assertFalse(session.getSuccessful().isEmpty(), "Should have successful refactorings");
         assertEquals(0, session.getFailed().size(),
                 "Should have no failures");
 
@@ -100,8 +80,7 @@ class RefactoringIntegrationTest {
         String refactoredCode = Files.readString(testFile);
 
         // 6. Verify changes
-        assertNotEquals(originalCode, refactoredCode,
-                "File should be modified");
+        assertNotEquals(cu.toString(), original, "File should be modified");
 
         // Should contain extracted method
         assertTrue(refactoredCode.contains("private"),
@@ -171,42 +150,10 @@ class RefactoringIntegrationTest {
 
     @Test
     void testMultipleRefactoringsInSameFile() throws IOException {
-        String code = """
-                package com.test;
-
-                public class OrderService {
-                    void processOrder1() {
-                        order.validate();
-                        order.calculateTotal();
-                        order.applyDiscounts();
-                        repository.save(order);
-                    }
-
-                    void processOrder2() {
-                        order.validate();
-                        order.calculateTotal();
-                        order.applyDiscounts();
-                        repository.save(order);
-                    }
-
-                    void setupUser1() {
-                        user.setActive(true);
-                        user.setVerified(true);
-                        user.save();
-                    }
-
-                    void setupUser2() {
-                        user.setActive(false);
-                        user.setVerified(false);
-                        user.save();
-                    }
-                }
-                """;
-
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
         Path testFile = tempDir.resolve("OrderService.java");
-        Files.writeString(testFile, code);
+        Files.writeString(testFile, cu.toString());
 
-        CompilationUnit cu = StaticJavaParser.parse(code);
         DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         engine = new RefactoringEngine(

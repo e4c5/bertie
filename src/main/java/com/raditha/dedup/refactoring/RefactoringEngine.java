@@ -38,7 +38,7 @@ public class RefactoringEngine {
     /**
      * Refactor all duplicates in a report.
      */
-    public RefactoringSession refactorAll(DuplicationReport report) {
+    public RefactoringSession refactorAll(DuplicationReport report) throws IOException {
         RefactoringSession session = new RefactoringSession();
 
         System.out.println("%n=== Refactoring Session Started ===");
@@ -102,8 +102,7 @@ public class RefactoringEngine {
                 continue;
             }
 
-            // Apply refactoring based on strategy
-            try {
+
                 ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
                 if (mode == RefactoringMode.DRY_RUN) {
@@ -136,15 +135,7 @@ public class RefactoringEngine {
                     verifier.rollback();
                     session.addFailed(cluster, String.join("; ", verify.errors()));
                 }
-            } catch (Exception e) {
-                System.out.println("  ❌ Refactoring failed: " + e.getMessage());
-                session.addFailed(cluster, e.getMessage());
-                try {
-                    verifier.rollback();
-                } catch (IOException rollbackEx) {
-                    System.err.println("  ⚠️  Rollback failed: " + rollbackEx.getMessage());
-                }
-            }
+
         }
 
         // Show dry-run diff report if in dry-run mode

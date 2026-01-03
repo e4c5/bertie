@@ -106,23 +106,7 @@ public class DuplicationAnalyzer {
 
         // Step 5: Add refactoring recommendations to clusters
         List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(cluster -> {
-                    // Get a representative similarity result from the first pair
-                    if (!cluster.duplicates().isEmpty()) {
-                        SimilarityResult similarity = cluster.duplicates().get(0).similarity();
-                        RefactoringRecommendation recommendation = recommendationGenerator
-                                .generateRecommendation(cluster, similarity);
-
-                        // Create new cluster with recommendation
-                        return new DuplicateCluster(
-                                cluster.primary(),
-                                cluster.duplicates(),
-                                recommendation,
-                                cluster.estimatedLOCReduction());
-                    }
-                    return cluster;
-                })
-                .toList();
+                .map(this::addRecommendation).toList();
 
         // Step 6: Create report
         return new DuplicationReport(
@@ -132,6 +116,23 @@ public class DuplicationAnalyzer {
                 sequences.size(),
                 candidates.size(),
                 config);
+    }
+
+    private DuplicateCluster addRecommendation(DuplicateCluster cluster) {
+        // Get a representative similarity result from the first pair
+        if (!cluster.duplicates().isEmpty()) {
+            SimilarityResult similarity = cluster.duplicates().getFirst().similarity();
+            RefactoringRecommendation recommendation = recommendationGenerator
+                    .generateRecommendation(cluster, similarity);
+
+            // Create new cluster with recommendation
+            return new DuplicateCluster(
+                    cluster.primary(),
+                    cluster.duplicates(),
+                    recommendation,
+                    cluster.estimatedLOCReduction());
+        }
+        return cluster;
     }
 
     /**

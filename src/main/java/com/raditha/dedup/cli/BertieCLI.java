@@ -14,6 +14,7 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -134,7 +135,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runRefactoring(CLIConfig config) {
+    private static void runRefactoring(CLIConfig config) throws IOException {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 

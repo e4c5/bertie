@@ -2,10 +2,17 @@ package com.raditha.dedup.analyzer;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.config.DuplicationConfig;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.File;
+import java.io.IOException;
 import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -16,6 +23,16 @@ import static org.junit.jupiter.api.Assertions.*;
 class DuplicationAnalyzerTest {
 
     private DuplicationAnalyzer analyzer;
+    @BeforeAll
+    static void setUpClass() throws IOException {
+        // Load test configuration
+        File configFile = new File("src/test/resources/analyzer-tests.yml");
+        Settings.loadConfigMap(configFile);
+
+        // Reset and parse
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.preProcess();
+    }
 
     @BeforeEach
     void setUp() {
@@ -52,29 +69,7 @@ class DuplicationAnalyzerTest {
 
     @Test
     void testSimpleDuplicate() {
-        String code = """
-                class Test {
-                    void setupUser1() {
-                        User user = new User();
-                        user.setName("John");
-                        user.setEmail("john@example.com");
-                        user.setActive(true);
-                        user.setRole("admin");
-                        user.save();
-                    }
-
-                    void setupUser2() {
-                        Customer customer = new Customer();
-                        customer.setName("Jane");
-                        customer.setEmail("jane@example.com");
-                        customer.setActive(false);
-                        customer.setRole("user");
-                        customer.save();
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
         DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("Test.java"));
 
         assertNotNull(report);

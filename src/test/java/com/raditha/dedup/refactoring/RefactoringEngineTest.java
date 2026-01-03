@@ -120,28 +120,10 @@ class RefactoringEngineTest {
 
     @Test
     void testSourceFileRefactoringWorks() throws IOException {
-        // Test that source files (non-test) are refactored correctly
-        String code = """
-                package com.example;
 
-                public class Calculator {
-                    public int addAndDouble1(int a, int b) {
-                        int sum = a + b;
-                        int result = sum * 2;
-                        return result;
-                    }
-
-                    public int addAndDouble2(int x, int y) {
-                        int sum = x + y;
-                        int result = sum * 2;
-                        return result;
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Calculator");
         Path sourceFile = tempDir.resolve("Calculator.java");
-        Files.writeString(sourceFile, code);
+        Files.writeString(sourceFile, cu.toString());
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 

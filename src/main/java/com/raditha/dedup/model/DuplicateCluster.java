@@ -39,14 +39,6 @@ public record DuplicateCluster(
     }
 
     /**
-     * Get total duplicate lines across all instances.
-     */
-    public int getTotalDuplicateLines() {
-        int primaryLines = primary.range().getLineCount();
-        return primaryLines * getDuplicateCount();
-    }
-
-    /**
      * Format cluster summary for display.
      */
     public String formatSummary() {

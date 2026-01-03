@@ -1,22 +1,30 @@
 package com.raditha.dedup.clustering;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
-import com.raditha.dedup.analysis.*;
-import com.raditha.dedup.model.*;
+import com.raditha.dedup.analysis.DataFlowAnalyzer;
+import com.raditha.dedup.analysis.ParameterExtractor;
+import com.raditha.dedup.analysis.TypeAnalyzer;
+import com.raditha.dedup.model.DuplicateCluster;
+import com.raditha.dedup.model.ParameterSpec;
+import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.SimilarityResult;
+import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.TypeCompatibility;
 import com.raditha.dedup.refactoring.MethodNameGenerator;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Generates refactoring recommendations for duplicate clusters.
@@ -28,12 +36,6 @@ public class RefactoringRecommendationGenerator {
     private final MethodNameGenerator nameGenerator;
     private final DataFlowAnalyzer dataFlowAnalyzer;
     private final Map<String, CompilationUnit> allCUs;
-
-    public static class TypeInferenceException extends RuntimeException {
-        public TypeInferenceException(String message) {
-            super(message);
-        }
-    }
 
     public RefactoringRecommendationGenerator() {
         this(java.util.Collections.emptyMap());
@@ -109,12 +111,8 @@ public class RefactoringRecommendationGenerator {
      */
     private String determineReturnType(DuplicateCluster cluster) {
         Set<String> returnTypes = new HashSet<>();
-
-        // Check primary
-        System.out.println("DEBUG determineReturnType: Analyzing PRIMARY sequence with "
-                + cluster.primary().statements().size() + " statements");
         String primaryType = analyzeReturnTypeForSequence(cluster.primary());
-        System.out.println("DEBUG determineReturnType: primary returned type = " + primaryType);
+
         if (primaryType != null) {
             returnTypes.add(primaryType);
         }
@@ -125,8 +123,6 @@ public class RefactoringRecommendationGenerator {
             // relative to primary
             // We want the duplicate sequence (seq2)
             StatementSequence duplicate = pair.seq2();
-            System.out.println("DEBUG determineReturnType: Analyzing DUPLICATE sequence with "
-                    + duplicate.statements().size() + " statements");
             String type = analyzeReturnTypeForSequence(duplicate);
             if (type != null) {
                 returnTypes.add(type);
@@ -189,7 +185,7 @@ public class RefactoringRecommendationGenerator {
 
         // Find variable that should be returned (live-out or used in return statements)
         String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
-                                                                                      // filtering
+        // filtering
         System.out.println("DEBUG analyzeReturnTypeForSequence: findReturnVariable returned: " + returnVarName);
 
         if (returnVarName != null) {
@@ -212,14 +208,9 @@ public class RefactoringRecommendationGenerator {
     }
 
     /**
-     * Determine what type the extracted method should return.
-     * Uses data flow analysis to check if any variables are live-out OR returned.
-     */
-
-    /**
      * Analyze return statement within the sequence to determine actual return type.
      * Handles cases where return statement is part of the duplicate.
-     * 
+     * <p>
      * Returns null if no return statement found or type cannot be determined.
      */
     private String analyzeReturnStatementType(StatementSequence sequence) {
@@ -257,9 +248,10 @@ public class RefactoringRecommendationGenerator {
     }
 
     /**
-     * Infer return type from method call expression.
-     * Uses common method naming conventions.
+     * Determine what type the extracted method should return.
+     * Uses data flow analysis to check if any variables are live-out OR returned.
      */
+
     /**
      * Infer return type from method call expression.
      * Uses resolution, manual lookup, and method naming conventions.
@@ -345,6 +337,11 @@ public class RefactoringRecommendationGenerator {
 
         return inferTypeFromMethodCallHeuristic(methodCall);
     }
+
+    /**
+     * Infer return type from method call expression.
+     * Uses common method naming conventions.
+     */
 
     /**
      * Extract generic type parameter from field declaration.
@@ -511,7 +508,7 @@ public class RefactoringRecommendationGenerator {
      * variation analysis.
      */
     private List<ParameterSpec> identifyCapturedParameters(StatementSequence sequence,
-            List<ParameterSpec> existingParams) {
+                                                           List<ParameterSpec> existingParams) {
         Set<String> usedVars = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
         Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
 
@@ -526,7 +523,7 @@ public class RefactoringRecommendationGenerator {
         List<ParameterSpec> capturedParams = new java.util.ArrayList<>();
 
         // Find CU for type checks
-        CompilationUnit cu =  sequence.statements().getFirst().findCompilationUnit().orElse(null);
+        CompilationUnit cu = sequence.statements().getFirst().findCompilationUnit().orElse(null);
 
         // AST: collect fields from the containing class
         boolean containingMethodIsStatic = false;
@@ -541,7 +538,7 @@ public class RefactoringRecommendationGenerator {
                 classDecl.getFields().forEach(fd -> {
                     boolean isStatic = fd.getModifiers().stream().anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
                     fd.getVariables().forEach(v ->
-                        classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic))
+                            classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic))
                     );
                 });
             }
@@ -605,179 +602,115 @@ public class RefactoringRecommendationGenerator {
         return capturedParams;
     }
 
-    // Lightweight holder for field metadata
-    private static final class FieldInfo {
-        final String type;
-        final boolean isStatic;
-        FieldInfo(String type, boolean isStatic) {
-            this.type = type;
-            this.isStatic = isStatic;
-        }
-    }
-
     private String findTypeInContext(StatementSequence sequence, String varName) {
-        try {
-            // 1. Scan statements for any expression referring to this variable
-            for (Statement stmt : sequence.statements()) {
-                // Check variable declarations directly
-                for (VariableDeclarationExpr vde : stmt.findAll(VariableDeclarationExpr.class)) {
-                    for (var v : vde.getVariables()) {
+        // 1. Scan statements for any expression referring to this variable
+        for (Statement stmt : sequence.statements()) {
+            // Check variable declarations directly
+            for (VariableDeclarationExpr vde : stmt.findAll(VariableDeclarationExpr.class)) {
+                for (var v : vde.getVariables()) {
+                    if (v.getNameAsString().equals(varName)) {
+                        // Use solver if possible, or fallback to AST type
+                        // Use solver if possible, or fallback to AST type
+                        String resolved = null;
+                        try {
+                            resolved = v.resolve().getType().describe();
+                        } catch (Exception e) {
+                        }
+
+                        if (resolved != null && !resolved.equals("java.lang.Object")
+                                && !resolved.equals("Object")) {
+                            return resolved;
+                        }
+
+                        // Fallback to AST type if resolution failed or is generic Object
+                        String astType = v.getType().asString();
+                        if (!astType.equals("var")) {
+                            return astType;
+                        }
+
+                        // If var, and resolved is Object, try to infer from initializer
+                        if (v.getInitializer().isPresent()) {
+                            Expression init = v.getInitializer().get();
+                            if (init.isMethodCallExpr()) {
+                                return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
+                            }
+                            return inferTypeFromExpression(init);
+                        }
+
+                        return resolved != null ? resolved : "Object";
+
+                    }
+                }
+            }
+
+            for (NameExpr nameExpr : stmt.findAll(NameExpr.class)) {
+                if (nameExpr.getNameAsString().equals(varName)) {
+                    String resolved = nameExpr.calculateResolvedType().describe();
+                    if (resolved != null && !resolved.equals("java.lang.Object")
+                            && !resolved.equals("Object")) {
+                        return resolved;
+                    }
+                }
+            }
+        }
+
+        // Check field declarations in the containing class
+        if (sequence.containingMethod() != null) {
+            var classDecl = sequence.containingMethod()
+                    .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            if (classDecl.isPresent()) {
+                for (var field : classDecl.get().getFields()) {
+                    for (var v : field.getVariables()) {
                         if (v.getNameAsString().equals(varName)) {
-                            // Use solver if possible, or fallback to AST type
-                            // Use solver if possible, or fallback to AST type
-                            String resolved = null;
-                            try {
-                                resolved = v.resolve().getType().describe();
-                            } catch (Exception e) {
-                            }
-
-                            if (resolved != null && !resolved.equals("java.lang.Object")
-                                    && !resolved.equals("Object")) {
-                                return resolved;
-                            }
-
-                            // Fallback to AST type if resolution failed or is generic Object
-                            String astType = v.getType().asString();
-                            if (!astType.equals("var")) {
-                                return astType;
-                            }
-
-                            // If var, and resolved is Object, try to infer from initializer
-                            if (v.getInitializer().isPresent()) {
-                                Expression init = v.getInitializer().get();
-                                if (init.isMethodCallExpr()) {
-                                    return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
-                                }
-                                return inferTypeFromExpression(init);
-                            }
-
-                            return resolved != null ? resolved : "Object";
-
+                            // Use asString() to preserve generic type parameters (e.g., Repository<User>)
+                            return field.getElementType().asString();
                         }
                     }
                 }
+            }
+        }
 
-                for (NameExpr nameExpr : stmt.findAll(NameExpr.class)) {
-                    if (nameExpr.getNameAsString().equals(varName)) {
+        // 2. Fallback: Scanner check (if solver failed on all usages, or no usages
+        // found in block)
+        // This handles cases where variable is defined OUTSIDE the block.
+        // We can't easily resolve outside without a reference node.
+
+        // If we have a reference to the method, we can scan parameters
+        if (sequence.containingMethod() != null) {
+            for (var param : sequence.containingMethod().getParameters()) {
+                if (param.getNameAsString().equals(varName)) {
+                    try {
+                        return param.resolve().getType().describe();
+                    } catch (Exception e) {
+                        return param.getType().asString();
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: Scan method body for variables declared outside the block
+        if (sequence.containingMethod() != null && sequence.containingMethod().getBody().isPresent()) {
+            for (VariableDeclarationExpr vde : sequence.containingMethod().getBody().get()
+                    .findAll(VariableDeclarationExpr.class)) {
+                for (var v : vde.getVariables()) {
+                    if (v.getNameAsString().equals(varName)) {
+                        // Use solver if possible
                         try {
-                            String resolved = nameExpr.calculateResolvedType().describe();
+                            String resolved = v.resolve().getType().describe();
                             if (resolved != null && !resolved.equals("java.lang.Object")
                                     && !resolved.equals("Object")) {
                                 return resolved;
                             }
                         } catch (Exception e) {
-                            // Continue...
                         }
+
+                        // Fallback to AST type
+                        return v.getType().asString();
                     }
                 }
             }
-
-            // Check field declarations in the containing class
-            if (sequence.containingMethod() != null) {
-                var classDecl = sequence.containingMethod()
-                        .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-                if (classDecl.isPresent()) {
-                    for (var field : classDecl.get().getFields()) {
-                        for (var v : field.getVariables()) {
-                            if (v.getNameAsString().equals(varName)) {
-                                // Use asString() to preserve generic type parameters (e.g., Repository<User>)
-                                return field.getElementType().asString();
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Fallback: Scanner check (if solver failed on all usages, or no usages
-            // found in block)
-            // This handles cases where variable is defined OUTSIDE the block.
-            // We can't easily resolve outside without a reference node.
-
-            // If we have a reference to the method, we can scan parameters
-            if (sequence.containingMethod() != null) {
-                for (var param : sequence.containingMethod().getParameters()) {
-                    if (param.getNameAsString().equals(varName)) {
-                        try {
-                            return param.resolve().getType().describe();
-                        } catch (Exception e) {
-                            return param.getType().asString();
-                        }
-                    }
-                }
-            }
-
-            // 3. Fallback: Scan method body for variables declared outside the block
-            if (sequence.containingMethod() != null && sequence.containingMethod().getBody().isPresent()) {
-                for (VariableDeclarationExpr vde : sequence.containingMethod().getBody().get()
-                        .findAll(VariableDeclarationExpr.class)) {
-                    for (var v : vde.getVariables()) {
-                        if (v.getNameAsString().equals(varName)) {
-                            // Use solver if possible
-                            try {
-                                String resolved = v.resolve().getType().describe();
-                                if (resolved != null && !resolved.equals("java.lang.Object")
-                                        && !resolved.equals("Object")) {
-                                    return resolved;
-                                }
-                            } catch (Exception e) {
-                            }
-
-                            // Fallback to AST type
-                            return v.getType().asString();
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            // Ignore
         }
 
-        // 4. Special handling for well-known Java classes and common patterns
-        // This handles cases where variables reference built-in classes or follow
-        // common naming conventions
-
-        // Built-in Java classes (static references that don't need declaration)
-        if ("System".equals(varName)) {
-            return "java.lang.System";
-        }
-        if ("Math".equals(varName)) {
-            return "java.lang.Math";
-        }
-        if ("String".equals(varName)) {
-            return "java.lang.String";
-        }
-
-        // Common naming patterns - infer type from variable name
-        // This is lenient but better than failing fast on test data
-        if (varName.toLowerCase().contains("logger")) {
-            return "Logger"; // Common logger pattern
-        }
-        if (varName.toLowerCase().contains("repository") || varName.toLowerCase().contains("repo")) {
-            return "Repository"; // Common repository pattern
-        }
-        if (varName.toLowerCase().contains("service")) {
-            return "Service";
-        }
-        if (varName.toLowerCase().contains("data")) {
-            return "Object"; // Generic data object
-        }
-        // Common domain objects
-        if (varName.toLowerCase().contains("order")) {
-            return "Order";
-        }
-        if (varName.toLowerCase().contains("customer")) {
-            return "Customer";
-        }
-        if (varName.toLowerCase().contains("product")) {
-            return "Product";
-        }
-        if (varName.toLowerCase().contains("account")) {
-            return "Account";
-        }
-        if (varName.toLowerCase().contains("user")) {
-            return "User";
-        }
 
         throw new TypeInferenceException("Unable to infer type for variable: " + varName);
     }
@@ -857,7 +790,7 @@ public class RefactoringRecommendationGenerator {
         if (!typeCompat.isTypeSafe())
             score *= 0.5;
 
-        if (parameters.size() > 4)
+        if (parameters.size() > 5)
             score *= 0.7;
 
         if (cluster.getAverageSimilarity() < 0.85)
@@ -984,5 +917,15 @@ public class RefactoringRecommendationGenerator {
             }
         }
         return filtered;
+    }
+
+    public static class TypeInferenceException extends RuntimeException {
+        public TypeInferenceException(String message) {
+            super(message);
+        }
+    }
+
+    // Lightweight holder for field metadata
+    private record FieldInfo(String type, boolean isStatic) {
     }
 }

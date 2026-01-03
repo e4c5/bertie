@@ -47,13 +47,6 @@ public record RefactoringRecommendation(
     }
 
     /**
-     * Check if this recommendation is safe for automated refactoring.
-     */
-    public boolean isSafeForAutomation() {
-        return isHighConfidence() && strategy != RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
-    }
-
-    /**
      * Generate method signature from recommendation.
      * Example: "private Admission createTestAdmission(String patientId, String
      * hospitalId)"

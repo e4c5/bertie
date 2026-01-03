@@ -331,9 +331,9 @@ public class BoundaryRefiner {
         Set<String> used = new HashSet<>();
 
         // Find all name expressions (variable references)
-        stmt.findAll(NameExpr.class).forEach(nameExpr -> {
-            used.add(nameExpr.getNameAsString());
-        });
+        stmt.findAll(NameExpr.class).forEach(nameExpr ->
+            used.add(nameExpr.getNameAsString())
+        );
 
         return used;
     }
@@ -357,19 +357,10 @@ public class BoundaryRefiner {
         }
 
         // Get range from first to last statement of trimmed list
-        Statement first = trimmed.get(0);
-        Statement last = trimmed.get(trimmed.size() - 1);
+        Statement first = trimmed.getFirst();
+        Statement last = trimmed.getLast();
 
-        com.github.javaparser.Range firstRange = first.getRange()
-                .orElseThrow(() -> new IllegalStateException("Statement missing range"));
-        com.github.javaparser.Range lastRange = last.getRange()
-                .orElseThrow(() -> new IllegalStateException("Statement missing range"));
-
-        Range newRange = new Range(
-                firstRange.begin.line,
-                lastRange.end.line,
-                firstRange.begin.column,
-                lastRange.end.column);
+        Range newRange = createRange(first, last);
 
         return new StatementSequence(
                 new ArrayList<>(trimmed),
@@ -378,6 +369,21 @@ public class BoundaryRefiner {
                 original.containingMethod(),
                 original.compilationUnit(),
                 original.sourceFilePath());
+    }
+
+    public static Range createRange(Statement first, Statement last) {
+        com.github.javaparser.Range firstRange = first.getRange()
+                .orElseThrow(() -> new IllegalStateException("Statement missing range"));
+        com.github.javaparser.Range lastRange = last.getRange()
+                .orElseThrow(() -> new IllegalStateException("Statement missing range"));
+
+        return new Range(
+                firstRange.begin.line,
+                lastRange.end.line,
+                firstRange.begin.column,
+                lastRange.end.column);
+
+
     }
 
     /**
