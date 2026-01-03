@@ -45,16 +45,15 @@ public class ParameterExtractor {
 
         List<ParameterSpec> parameters = new ArrayList<>();
 
-        // Group variations by position
+        // Group variations by position and iterate in ascending source order
         Map<Integer, List<Variation>> byPosition = variations.variations().stream()
                 .collect(Collectors.groupingBy(Variation::alignedIndex1));
 
-        // Create a parameter for each position
-        for (Map.Entry<Integer, List<Variation>> entry : byPosition.entrySet()) {
-            int position = entry.getKey();
-            List<Variation> positionVars = entry.getValue();
+        var orderedPositions = new java.util.TreeSet<>(byPosition.keySet());
+        for (Integer position : orderedPositions) {
+            List<Variation> positionVars = byPosition.get(position);
 
-            if (positionVars.isEmpty()) {
+            if (positionVars == null || positionVars.isEmpty()) {
                 continue;
             }
 
@@ -73,33 +72,36 @@ public class ParameterExtractor {
             String name = inferParameterName(positionVars, position);
 
             // Collect example values
-            // FIXED: Include both value1 (primary) AND value2 (duplicate)
+            // Include both value1 (primary) AND value2 (duplicate)
             List<String> exampleValues = positionVars.stream()
                     .flatMap(v -> java.util.stream.Stream.of(v.value1(), v.value2()))
                     .distinct()
-                    .limit(5) // Limit to 5 examples to ensure coverage
+                    .limit(5)
                     .toList();
 
-            // FIXED: Include variation index for robust lookup
-            int idx = variations.variations().indexOf(positionVars.get(0));
-            Integer variationIndex = idx >= 0 ? idx : null;
+            // Use aligned position as the binding key (matches VariationTracker's valueBindings key)
+            Integer variationIndex = position;
 
             Token t = null;
-            // Use position (alignedIndex1) to fetch token from primary tokens attached to
-            // analysis
+            // Use position (alignedIndex1) to fetch token from primary tokens attached to analysis
             if (variations.primaryTokens() != null && position >= 0 && position < variations.primaryTokens().size()) {
                 t = variations.primaryTokens().get(position);
             }
             Integer line = t != null ? t.lineNumber() : null;
             Integer col = t != null ? t.columnNumber() : null;
 
-            parameters.add(new ParameterSpec(
+            ParameterSpec spec = new ParameterSpec(
                     name,
                     type,
                     exampleValues,
                     variationIndex,
                     line,
-                    col));
+                    col);
+
+            logger.debug("[ParamExtractor] position={} type={} name={} examples={} varIdx={} loc=({}, {})",
+                    position, type, name, exampleValues, variationIndex, line, col);
+
+            parameters.add(spec);
 
             // Limit total parameters
             if (parameters.size() >= MAX_PARAMETERS) {
@@ -107,8 +109,8 @@ public class ParameterExtractor {
             }
         }
 
-        // Sort parameters (primitives first, then objects)
-        return sortParameters(parameters);
+        // Preserve original source order of parameters; do NOT reorder by type
+        return parameters;
     }
 
     /**

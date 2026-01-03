@@ -31,16 +31,27 @@ public class VariationTracker {
             List<Token> tokens2, StatementSequence seq2) {
 
         if (tokens1 == null || tokens2 == null) {
-            return new VariationAnalysis(List.of(), false, new HashMap<>());
+            return new VariationAnalysis(
+                    List.of(),
+                    false,
+                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, String>>(),
+                    java.util.Collections.emptyList(),
+                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, com.raditha.dedup.model.ExprInfo>>());
         }
 
         if (tokens1.isEmpty() && tokens2.isEmpty()) {
-            return new VariationAnalysis(List.of(), false, new HashMap<>());
+            return new VariationAnalysis(
+                    List.of(),
+                    false,
+                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, String>>(),
+                    java.util.Collections.emptyList(),
+                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, com.raditha.dedup.model.ExprInfo>>());
         }
 
         // Find all variations
         List<Variation> variations = new ArrayList<>();
         Map<Integer, Map<StatementSequence, String>> valueBindings = new HashMap<>();
+        Map<Integer, Map<StatementSequence, com.raditha.dedup.model.ExprInfo>> exprBindings = new HashMap<>();
         boolean hasControlFlowDifferences = false;
 
         // For simplicity in Phase 1: use positional alignment if same length
@@ -59,7 +70,8 @@ public class VariationTracker {
                     Variation variation = createVariation(i, i, t1, t2);
                     if (variation != null) {
                         variations.add(variation);
-                        captureValueBindings(valueBindings, variation, seq1, t1, seq2, t2);
+                        // Key value bindings by aligned source position to avoid index drift
+                        captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation, seq1, t1, seq2, t2);
 
                         if (variation.type() == VariationType.CONTROL_FLOW) {
                             hasControlFlowDifferences = true;
@@ -86,7 +98,8 @@ public class VariationTracker {
                                 alignment.token2());
                         if (variation != null) {
                             variations.add(variation);
-                            captureValueBindings(valueBindings, variation, seq1, alignment.token1(), seq2,
+                            // Key value bindings by aligned source position to avoid index drift
+                            captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation, seq1, alignment.token1(), seq2,
                                     alignment.token2());
 
                             if (variation.type() == VariationType.CONTROL_FLOW) {
@@ -105,11 +118,13 @@ public class VariationTracker {
             }
         }
 
-        return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1);
+        return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1, exprBindings);
     }
 
     private void captureValueBindings(
             Map<Integer, Map<StatementSequence, String>> valueBindings,
+            Map<Integer, Map<StatementSequence, com.raditha.dedup.model.ExprInfo>> exprBindings,
+            int paramIndex,
             Variation variation,
             StatementSequence seq1, Token t1,
             StatementSequence seq2, Token t2) {
@@ -119,26 +134,18 @@ public class VariationTracker {
             return;
         }
 
-        // We use the index in the variations list as the parameter index (0-based)
-        // But here we don't know the final index yet.
-        // Wait, the map key is "Integer" - which is typically the parameter index.
-        // But we are building the list of variations incrementally.
-        // So the current size of 'variations' list (before adding? or after?)
-        // The variation was already added to the list in the caller.
-        // Let's assume the caller adds it FIRST, then calls this.
-        // Ah, looking at the code above: variations.add(variation); THEN capture...
+        // Use the caller-provided variation index to key the bindings maps.
+        // Legacy string bindings (for backward compatibility)
+        Map<StatementSequence, String> strBinding = new HashMap<>();
+        strBinding.put(seq1, t1.originalValue());
+        strBinding.put(seq2, t2.originalValue());
+        valueBindings.put(paramIndex, strBinding);
 
-        // Re-checking caller:
-        // variations.add(variation);
-        // captureValueBindings(...)
-
-        int paramIndex = valueBindings.size(); // 0, 1, 2...
-
-        Map<StatementSequence, String> binding = new HashMap<>();
-        binding.put(seq1, t1.originalValue());
-        binding.put(seq2, t2.originalValue());
-
-        valueBindings.put(paramIndex, binding);
+        // New AST-first bindings (ExprInfo) — currently text-backed; later we can attach real nodes
+        Map<StatementSequence, com.raditha.dedup.model.ExprInfo> exprBinding = new HashMap<>();
+        exprBinding.put(seq1, com.raditha.dedup.model.ExprInfo.fromText(t1.originalValue()));
+        exprBinding.put(seq2, com.raditha.dedup.model.ExprInfo.fromText(t2.originalValue()));
+        exprBindings.put(paramIndex, exprBinding);
     }
 
     /**

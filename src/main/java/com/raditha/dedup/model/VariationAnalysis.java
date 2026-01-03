@@ -21,15 +21,26 @@ import java.util.stream.Collectors;
 public record VariationAnalysis(
         List<Variation> variations,
         boolean hasControlFlowDifferences,
-        Map<Integer, Map<StatementSequence, String>> valueBindings,
-        List<Token> primaryTokens) {
+        Map<Integer, Map<StatementSequence, String>> valueBindings, // BACK-COMPAT for tests
+        List<Token> primaryTokens,
+        Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings // New AST-first bindings
+        ) {
 
     /**
-     * Create without tokens (for backward compatibility/tests)
+     * Backward-compatibility constructor: no tokens, no exprBindings
      */
     public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
             Map<Integer, Map<StatementSequence, String>> valueBindings) {
-        this(variations, hasControlFlowDifferences, valueBindings, Collections.emptyList());
+        this(variations, hasControlFlowDifferences, valueBindings, Collections.emptyList(), Collections.emptyMap());
+    }
+
+    /**
+     * Convenience constructor without exprBindings
+     */
+    public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
+            Map<Integer, Map<StatementSequence, String>> valueBindings,
+            List<Token> primaryTokens) {
+        this(variations, hasControlFlowDifferences, valueBindings, primaryTokens, Collections.emptyMap());
     }
 
     /**

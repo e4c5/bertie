@@ -528,30 +528,42 @@ public class RefactoringRecommendationGenerator {
 
         List<ParameterSpec> capturedParams = new java.util.ArrayList<>();
 
+        // Find CU for type checks
+        CompilationUnit cu = null;
+        if (!sequence.statements().isEmpty()) {
+            cu = sequence.statements().get(0).findCompilationUnit().orElse(null);
+        }
+
         for (String varName : capturedVars) {
-            // Skip fields (this.field) - usually accessible in helper unless static context
-            // mismatch
-            // For now, assume fields are accessible (TODO: check static context)
-            if (varName.equals("this") || varName.equals("super"))
-                continue;
+            // Skip pseudo-variables and duplicates
+            if (varName == null || varName.isEmpty()) continue;
+            if (varName.equals("this") || varName.equals("super")) continue;
+            if (existingParamNames.contains(varName)) continue;
 
-            // Skip if already a parameter
-            if (existingParamNames.contains(varName))
+            // Heuristic: Skip names that look like type/class names (e.g., System)
+            if (Character.isUpperCase(varName.charAt(0))) {
                 continue;
+            }
+            // Explicitly skip well-known java.lang types referenced statically
+            if ("System".equals(varName) || "Math".equals(varName) || "Integer".equals(varName)) {
+                continue;
+            }
+            // If the name resolves to a type in context, skip (likely static access)
+            if (cu != null) {
+                try {
+                    if (AbstractCompiler.findType(cu, varName) != null) {
+                        continue;
+                    }
+                } catch (Exception ignore) {}
+            }
 
-            // Determine type
+            // Determine type of true captured variable
             String type = findTypeInContext(sequence, varName);
-            if ("void".equals(type) || "Object".equals(type)) {
-                // Try to resolve if it's a field
-                // If it's a field, we might not need to pass it
-                // But if it's a local variable/parameter, we MUST pass it
-                // Simple heuristic: if type found in context (params/locals), pass it.
-                // If not found, maybe field?
+            if ("void".equals(type)) {
+                continue;
             }
 
-            if (!"void".equals(type)) {
-                capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
-            }
+            capturedParams.add(new ParameterSpec(varName, type != null ? type : "Object", List.of(varName), null, null, null));
         }
 
         return capturedParams;
