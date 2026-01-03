@@ -314,4 +314,119 @@ class ExtractUtilityClassRefactorerTest {
         assertFalse(originalCode.contains("this.validate"), 
             "No remaining this.validate calls should exist");
     }
+
+    @Test
+    void testEmptyPackageNameHandling() {
+        // Test that empty package names are handled correctly
+        String code = """
+                public class MyService {
+                    public void process() {
+                        validate("test");
+                    }
+
+                    private void validate(String input) {
+                        if (input == null) throw new IllegalArgumentException();
+                        System.out.println("Validating " + input);
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        DuplicateCluster cluster = createMockCluster(cu, "validate");
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS,
+                "validate",
+                List.of(),
+                "void",
+                "ValidationUtils",
+                0.95,
+                5);
+
+        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+
+        assertNotNull(result);
+        
+        // Check that the utility class has "util" package, not ".util"
+        String utilityCode = result.modifiedFiles().values().stream()
+                .filter(s -> s.contains("class ValidationUtils"))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(utilityCode.contains("package util;"), 
+            "Utility class should use 'util' package when original has no package");
+        assertFalse(utilityCode.contains("package .util;"), 
+            "Utility class should not have '.util' package");
+    }
+
+    @Test
+    void testImplicitFieldAccessDetection() {
+        String code = """
+                package com.example;
+
+                public class StatefulService {
+                    private String prefix = "PRE";
+
+                    public void process() {
+                        print("test");
+                    }
+
+                    private void print(String input) {
+                        System.out.println(prefix + input);
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        DuplicateCluster cluster = createMockCluster(cu, "print");
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS,
+                "print",
+                List.of(),
+                "void",
+                "StringUtils",
+                0.95,
+                5);
+
+        // Should fail because 'print' uses 'prefix' (implicit instance field)
+        assertThrows(IllegalArgumentException.class, () -> {
+            refactorer.refactor(cluster, recommendation);
+        }, "Should detect implicit instance field access");
+    }
+
+    @Test
+    void testImplicitInstanceMethodCallDetection() {
+        String code = """
+                package com.example;
+
+                public class ServiceWithHelper {
+                    private String helper() {
+                        return "Helper";
+                    }
+
+                    private void process(String input) {
+                        String h = helper();
+                        System.out.println(h + input);
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        DuplicateCluster cluster = createMockCluster(cu, "process");
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS,
+                "process",
+                List.of(),
+                "void",
+                "StringUtils",
+                0.95,
+                5);
+
+        // Should fail because 'process' calls instance method 'helper'
+        assertThrows(IllegalArgumentException.class, () -> {
+            refactorer.refactor(cluster, recommendation);
+        }, "Should detect implicit instance method calls");
+    }
 }

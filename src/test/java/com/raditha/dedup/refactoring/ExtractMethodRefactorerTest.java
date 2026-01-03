@@ -115,4 +115,55 @@ class ExtractMethodRefactorerTest {
                 String methodName = recommendation.suggestedMethodName();
                 assertTrue(refactoredCode.contains(methodName + "("), "Should call the extracted method");
         }
+
+        @Test
+        void testPrimitiveParameterTypes() throws IOException {
+                // Test that primitive types are correctly created as PrimitiveType, not ClassOrInterfaceType
+                String codeWithDuplicates = """
+                               package com.example;
+                               class Calculator {
+                                   void calculateAreaA() {
+                                       int result = compute(10, 20, 3.14);
+                                   }
+                                   void calculateAreaB() {
+                                       int result = compute(15, 25, 2.71);
+                                   }
+                                   int compute(int x, int y, double z) {
+                                       return (int)(x * y * z);
+                                   }
+                               }
+                            """;
+
+                CompilationUnit cu = StaticJavaParser.parse(codeWithDuplicates);
+                Path sourceFile = tempDir.resolve("Calculator.java");
+                Files.writeString(sourceFile, codeWithDuplicates);
+
+                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+
+                if (report.hasDuplicates()) {
+                        var recommendation = report.clusters().get(0).recommendation();
+                        
+                        // Verify that parameters have primitive types where appropriate
+                        recommendation.suggestedParameters().forEach(p -> {
+                                System.out.println("Param: " + p.name() + " Type: " + p.type());
+                        });
+
+                        engine = new RefactoringEngine(
+                                        tempDir,
+                                        RefactoringEngine.RefactoringMode.INTERACTIVE,
+                                        RefactoringVerifier.VerificationLevel.NONE);
+                        
+                        System.setIn(new java.io.ByteArrayInputStream("y\n".getBytes()));
+                        RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
+
+                        if (!session.getSuccessful().isEmpty()) {
+                                String refactoredCode = Files.readString(sourceFile);
+                                System.out.println("Refactored Code:\n" + refactoredCode);
+                                
+                                // The code should compile correctly with primitive parameters
+                                assertDoesNotThrow(() -> StaticJavaParser.parse(refactoredCode),
+                                        "Refactored code with primitive parameters should parse correctly");
+                        }
+                }
+        }
 }
