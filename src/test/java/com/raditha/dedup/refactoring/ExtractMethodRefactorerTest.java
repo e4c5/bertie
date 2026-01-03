@@ -141,7 +141,7 @@ class ExtractMethodRefactorerTest {
                 DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
                 if (report.hasDuplicates()) {
-                        var recommendation = report.clusters().get(0).recommendation();
+                         report.clusters().get(0).recommendation();
 
                         engine = new RefactoringEngine(
                                         tempDir,
