@@ -142,11 +142,6 @@ class ExtractMethodRefactorerTest {
 
                 if (report.hasDuplicates()) {
                         var recommendation = report.clusters().get(0).recommendation();
-                        
-                        // Verify that parameters have primitive types where appropriate
-                        recommendation.suggestedParameters().forEach(p -> {
-                                System.out.println("Param: " + p.name() + " Type: " + p.type());
-                        });
 
                         engine = new RefactoringEngine(
                                         tempDir,
@@ -158,7 +153,6 @@ class ExtractMethodRefactorerTest {
 
                         if (!session.getSuccessful().isEmpty()) {
                                 String refactoredCode = Files.readString(sourceFile);
-                                System.out.println("Refactored Code:\n" + refactoredCode);
                                 
                                 // The code should compile correctly with primitive parameters
                                 assertDoesNotThrow(() -> StaticJavaParser.parse(refactoredCode),
