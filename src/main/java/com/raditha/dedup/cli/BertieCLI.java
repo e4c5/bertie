@@ -89,23 +89,13 @@ public class BertieCLI {
         for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
 
-            // Skip test classes - they use test frameworks (Mockito, etc.) that complicate
-            // type inference
-            if (isTestClass(className)) {
+            // Production code and test code - check both locations
+            Path sourceFile = findSourceFile(className);
+            if (sourceFile == null) {
+                System.err.println("Warning: Could not locate source file for " + className);
                 continue;
             }
 
-            // Apply filters inline
-            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
-                continue;
-            }
-            if (config.targetPath != null && !matchesTargetPath(className, config.targetPath)) {
-                continue;
-            }
-
-            // Production code only - use src/main/java
-            Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
-                    AbstractCompiler.classToPath(className));
             DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
             reports.add(report);
         }
@@ -216,31 +206,32 @@ public class BertieCLI {
     }
 
     /**
-     * Check if a class name matches the target path filter.
+     * Locate the source file for a given class.
+     * Checks multiple standard locations.
      */
-    private static boolean matchesTargetPath(String className, Path targetPath) {
-        if (targetPath == null) {
-            return true;
+    private static Path findSourceFile(String className) {
+        String relativePath = AbstractCompiler.classToPath(className);
+
+        // Try src/main/java first
+        Path mainPath = Paths.get(Settings.getBasePath(), "src/main/java", relativePath);
+        if (mainPath.toFile().exists()) {
+            return mainPath;
         }
 
-        String targetStr = targetPath.toString();
+        // Try src/test/java
+        Path testPath = Paths.get(Settings.getBasePath(), "src/test/java", relativePath);
+        if (testPath.toFile().exists()) {
+            return testPath;
+        }
 
-        // Check if class name contains target path (package or path segment)
-        return className.contains(targetStr.replace("/", ".")) ||
-                className.replace(".", "/").contains(targetStr);
-    }
+        // Fallback: Check checking relative to base path directly (if structure is
+        // different)
+        Path directPath = Paths.get(Settings.getBasePath(), relativePath);
+        if (directPath.toFile().exists()) {
+            return directPath;
+        }
 
-    /**
-     * Determine if a class is a test class based on naming conventions.
-     * Test classes typically end with "Test", "Tests", or "TestCase".
-     */
-    private static boolean isTestClass(String className) {
-        // Check common test class name patterns
-        return className.endsWith("Test") ||
-                className.endsWith("Tests") ||
-                className.endsWith("TestCase") ||
-                className.contains(".test.") ||
-                className.contains(".tests.");
+        return null;
     }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
