@@ -53,7 +53,8 @@ class ReturnValueIntegrationTest {
 
     @Test
     void testSimpleReturnValueDetected() {
-        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
+        CompilationUnit cu = AntikytheraRunTime
+                .getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
 
         Path sourceFile = tempDir.resolve("ServiceWithSimpleReturn.java");
 
@@ -118,9 +119,13 @@ class ReturnValueIntegrationTest {
     }
 
     @Test
-    void testCollectionReturnTypes() {
-        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
-        Path sourceFile = tempDir.resolve("ServiceWithCollectionReturns.java");
+    void testCollectionReturnTypes() throws IOException {
+        Path sourceFile = TEST_BED.resolve("ServiceWithCollectionReturns.java");
+        assertTrue(Files.exists(sourceFile), "Test-bed file should exist: " + sourceFile);
+
+        String code = Files.readString(sourceFile);
+        CompilationUnit cu = StaticJavaParser.parse(code);
+
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         // Lambda/stream code is complex - if no duplicates found, skip test
@@ -139,7 +144,8 @@ class ReturnValueIntegrationTest {
 
     @Test
     void testMultipleVariablesReturnsCorrectOne() {
-        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
+        CompilationUnit cu = AntikytheraRunTime
+                .getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
         Path sourceFile = tempDir.resolve("ServiceWithMultipleReturnCandidates.java");
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithMultipleReturnCandidates");

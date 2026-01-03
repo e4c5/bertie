@@ -74,7 +74,7 @@ public class RefactoringRecommendationGenerator {
         parameters = filterInternalParameters(parameters, cluster.primary());
 
         // Determine strategy
-        RefactoringStrategy strategy = determineStrategy(cluster, typeCompat);
+        RefactoringStrategy strategy = determineStrategy(cluster);
 
         // Generate method name
         String methodName = suggestMethodName(cluster, strategy);
@@ -164,7 +164,6 @@ public class RefactoringRecommendationGenerator {
                     .anyMatch(s -> s.contains("timeout") || s.contains("elapsed") || s.contains("Time"));
             if (hasTimeVar) {
                 hasLong = true;
-                hasLong = true;
             }
         }
 
@@ -186,13 +185,10 @@ public class RefactoringRecommendationGenerator {
         // Find variable that should be returned (live-out or used in return statements)
         String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
         // filtering
-        System.out.println("DEBUG analyzeReturnTypeForSequence: findReturnVariable returned: " + returnVarName);
 
         if (returnVarName != null) {
             // Get the actual type of that variable
             String varType = getVariableType(sequence, returnVarName);
-            System.out.println("DEBUG analyzeReturnTypeForSequence: Found return var '" + returnVarName
-                    + "' with type: " + varType);
             // Return the variable's type, NOT the return statement's expression type
             if (varType != null && !"void".equals(varType)) {
                 return varType;
@@ -248,18 +244,10 @@ public class RefactoringRecommendationGenerator {
     }
 
     /**
-     * Determine what type the extracted method should return.
-     * Uses data flow analysis to check if any variables are live-out OR returned.
-     */
-
-    /**
      * Infer return type from method call expression.
      * Uses resolution, manual lookup, and method naming conventions.
      */
     private String inferTypeFromMethodCall(MethodCallExpr methodCall, StatementSequence sequence) {
-        // DEBUG LOGGING
-        System.out.println("DEBUG: Inferring for " + methodCall);
-
         // Try resolution first
         String resolvedType = null;
         try {
@@ -660,16 +648,12 @@ public class RefactoringRecommendationGenerator {
     private String resolveType(com.github.javaparser.ast.type.Type type, com.github.javaparser.ast.Node contextNode,
             StatementSequence sequence) {
         // Attempt to resolve using AbstractCompiler
-        try {
-            var classDecl = contextNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            if (classDecl.isPresent()) {
-                String fqn = AbstractCompiler.resolveTypeFqn(type, classDecl.get(), null);
-                if (fqn != null && !fqn.equals("java.lang.Object") && !fqn.equals("Object")) {
-                    return simplifyType(fqn);
-                }
+        var classDecl = contextNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (classDecl.isPresent()) {
+            String fqn = AbstractCompiler.resolveTypeFqn(type, classDecl.get(), null);
+            if (fqn != null && !fqn.equals("java.lang.Object") && !fqn.equals("Object")) {
+                return simplifyType(fqn);
             }
-        } catch (Exception e) {
-            // Ignore
         }
 
         // Fallback to AST string
@@ -678,8 +662,7 @@ public class RefactoringRecommendationGenerator {
             // If implicit var, we might need initializer inference, but without solver it's
             // hard.
             // We can check initializer if available on the variable declarator
-            if (contextNode instanceof com.github.javaparser.ast.body.VariableDeclarator) {
-                var v = (com.github.javaparser.ast.body.VariableDeclarator) contextNode;
+            if (contextNode instanceof com.github.javaparser.ast.body.VariableDeclarator v) {
                 if (v.getInitializer().isPresent()) {
                     var init = v.getInitializer().get();
                     if (init.isMethodCallExpr()) {
@@ -689,11 +672,7 @@ public class RefactoringRecommendationGenerator {
                             // ignore
                         }
                     }
-                    try {
-                        return inferTypeFromExpression(init);
-                    } catch (Exception e) {
-                        return "Object";
-                    }
+                    return inferTypeFromExpression(init);
                 }
             }
             return "Object"; // Worst case
@@ -716,9 +695,7 @@ public class RefactoringRecommendationGenerator {
     }
 
     // [Rest of the class remains unchanged - keeping existing methods]
-    private RefactoringStrategy determineStrategy(
-            DuplicateCluster cluster,
-            TypeCompatibility typeCompat) {
+    private RefactoringStrategy determineStrategy(DuplicateCluster cluster) {
 
         // DEFAULT: EXTRACT_HELPER_METHOD is the primary, safest strategy
         // It works for both source and test files
