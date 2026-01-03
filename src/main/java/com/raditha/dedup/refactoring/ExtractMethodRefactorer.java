@@ -425,11 +425,6 @@ public class ExtractMethodRefactorer {
             return false;
         }
 
-        // For string literals, check if it's a string
-        if (expr.isStringLiteralExpr() && "String".equals(param.type())) {
-            return true;
-        }
-
         // For integer literals
         if (expr.isIntegerLiteralExpr() && ("int".equals(param.type()) || "Integer".equals(param.type()))) {
             return true;
@@ -475,8 +470,9 @@ public class ExtractMethodRefactorer {
 
             // For other literals/expressions
             for (String example : param.exampleValues()) {
-                if (example.equals(exprStr))
+                if (example.equals(exprStr)) {
                     return true;
+                }
             }
             // If we have examples but no match, it's NOT this parameter.
             return false;
