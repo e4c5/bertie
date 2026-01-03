@@ -39,4 +39,3 @@ build/
 .idea/
 src/main/resources/generator.yml
 *csvtarget/*
-test-bed/
