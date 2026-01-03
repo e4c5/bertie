@@ -9,6 +9,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.nio.file.Path;
+import com.raditha.dedup.model.StatementSequence;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -31,8 +35,8 @@ class VariationTrackerTest {
         }
 
         @Test
-        void testExactMatch_NoVariations() {
-                // Semantically identical normalized tokens
+        void testVariableRenaming_Detected() {
+                // Same structure (VAR, CALL, VAR) but different variable names
                 List<Token> tokens1 = List.of(
                                 new Token(TokenType.VAR, "VAR", "user"),
                                 new Token(TokenType.METHOD_CALL, "METHOD_CALL(save)", "save"),
@@ -45,9 +49,10 @@ class VariationTrackerTest {
 
                 VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
 
-                // All normalized values match → no variations
-                assertEquals(0, analysis.getVariationCount(),
-                                "Semantically identical sequences should have no variations");
+                // Should find 2 variations (user->customer, data->info)
+                assertEquals(2, analysis.getVariationCount(),
+                                "Renamed variables should be detected as variations");
+                assertEquals(VariationType.VARIABLE, analysis.variations().get(0).type());
                 assertFalse(analysis.hasControlFlowDifferences());
         }
 
@@ -156,11 +161,11 @@ class VariationTrackerTest {
 
                 VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
 
-                // Should detect: TYPE variation + METHOD_CALL variation
-                // (VAR matches since both have "VAR" as normalizedValue)
+                // Should detect: TYPE variation + VARIABLE variation + METHOD_CALL variation
                 assertTrue(analysis.hasVariations());
-                assertEquals(2, analysis.getVariationCount());
+                assertEquals(3, analysis.getVariationCount());
                 assertEquals(1, analysis.getTypeVariations().size());
+                assertEquals(1, analysis.getVariableVariations().size());
                 assertEquals(1, analysis.getMethodCallVariations().size());
         }
 
@@ -218,25 +223,22 @@ class VariationTrackerTest {
                 // LCS Alignment test: Sequence 2 has extra tokens at start and end
                 // Seq 1: [MATCH]
                 // Seq 2: [GAP] [MATCH] [GAP]
+                // Use tokens with DISTINCT NORMALIZED VALUES so LCS aligns them correctly
 
                 List<Token> tokens1 = List.of(
-                                new Token(TokenType.VAR, "VAR", "middle"));
+                                new Token(TokenType.METHOD_CALL, "METHOD(middle)", "middle"));
 
                 List<Token> tokens2 = List.of(
-                                new Token(TokenType.VAR, "VAR", "start"),
-                                new Token(TokenType.VAR, "VAR", "middle"),
-                                new Token(TokenType.VAR, "VAR", "end"));
+                                new Token(TokenType.METHOD_CALL, "METHOD(start)", "start"),
+                                new Token(TokenType.METHOD_CALL, "METHOD(middle)", "middle"),
+                                new Token(TokenType.METHOD_CALL, "METHOD(end)", "end"));
 
                 VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
 
                 // The middle token matches.
-                // The start and end tokens in tokens2 do NOT create variations because:
-                // 1. extractAlignments creates TokenAlignment with one side null.
-                // 2. trackVariations logic:
-                // if (alignment.token1() != null && alignment.token2() != null) { ... }
-                // else { check control flow }
-
-                // Since they are just VAR tokens (not control flow), they are ignored as gaps.
+                // The start and end tokens in tokens2 do NOT create variations.
+                // Since they are METHOD_CALL tokens (not control flow), they are ignored as
+                // gaps.
                 // Variation count should be 0.
                 assertEquals(0, analysis.getVariationCount());
                 assertFalse(analysis.hasControlFlowDifferences());
@@ -293,5 +295,36 @@ class VariationTrackerTest {
                 // Case 2: tokens2 empty
                 VariationAnalysis analysis2 = tracker.trackVariations(tokens, List.of());
                 assertEquals(0, analysis2.getVariationCount()); // Gaps ignored
+        }
+
+        @Test
+        void testValueBindingsPopulation() {
+                // Create dummy StatementSequence objects (mocked or minimal)
+                // Since StatementSequence is a record, we can just instantiate it with
+                // nulls/empty vars
+                // as long as we don't access fields that trigger NPEs in the test.
+                // However, the map uses StatementSequence as a key, so they must be distinct
+                // objects.
+
+                StatementSequence seq1 = new StatementSequence(
+                                List.of(), null, 0, null, null, Path.of("file1.java"));
+                StatementSequence seq2 = new StatementSequence(
+                                List.of(), null, 0, null, null, Path.of("file2.java"));
+
+                List<Token> tokens1 = List.of(new Token(TokenType.VAR, "VAR", "user"));
+                List<Token> tokens2 = List.of(new Token(TokenType.VAR, "VAR", "customer"));
+
+                VariationAnalysis analysis = tracker.trackVariations(tokens1, seq1, tokens2, seq2);
+
+                assertEquals(1, analysis.getVariationCount());
+
+                Map<Integer, Map<StatementSequence, String>> bindings = analysis.valueBindings();
+                assertNotNull(bindings);
+                assertFalse(bindings.isEmpty());
+
+                Map<StatementSequence, String> var0Bindings = bindings.get(0);
+                assertNotNull(var0Bindings);
+                assertEquals("user", var0Bindings.get(seq1));
+                assertEquals("customer", var0Bindings.get(seq2));
         }
 }

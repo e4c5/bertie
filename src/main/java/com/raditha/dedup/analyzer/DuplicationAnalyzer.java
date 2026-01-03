@@ -193,7 +193,9 @@ public class DuplicationAnalyzer {
         List<Token> tokens2 = norm2.tokens();
 
         // Track variations
-        VariationAnalysis variations = variationTracker.trackVariations(tokens1, tokens2);
+        VariationAnalysis variations = variationTracker.trackVariations(
+                tokens1, norm1.sequence(),
+                tokens2, norm2.sequence());
 
         // Analyze type compatibility (Phase 7 implementation)
         TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(variations);
