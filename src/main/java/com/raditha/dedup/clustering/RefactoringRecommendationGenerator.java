@@ -2,9 +2,7 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
@@ -324,12 +322,7 @@ public class RefactoringRecommendationGenerator {
         return null;
     }
 
-    /**
-     * Infer return type from method call expression.
-     * Uses common method naming conventions.
-     */
-
-    /**
+      /**
      * Extract generic type parameter from field declaration.
      * E.g., for "repository" with field "Repository<User> repository", returns
      * "User"
@@ -436,16 +429,14 @@ public class RefactoringRecommendationGenerator {
         var methodOpt = sequence.containingMethod();
         if (methodOpt != null) {
             containingMethodIsStatic = methodOpt.isStatic();
-            var classDeclOpt = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            if (classDeclOpt.isPresent()) {
-                var classDecl = classDeclOpt.get();
-                classDecl.getFields().forEach(fd -> {
-                    boolean isStatic = fd.getModifiers().stream()
-                            .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
-                    fd.getVariables().forEach(
-                            v -> classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic)));
-                });
-            }
+            var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElseThrow();
+
+            classDecl.getFields().forEach(fd -> {
+                boolean isStatic = fd.getModifiers().stream()
+                        .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                fd.getVariables().forEach(
+                        v -> classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic)));
+            });
         }
 
         for (String varName : capturedVars) {
@@ -582,11 +573,7 @@ public class RefactoringRecommendationGenerator {
                 if (v.getInitializer().isPresent()) {
                     var init = v.getInitializer().get();
                     if (init.isMethodCallExpr()) {
-                        try {
-                            return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
-                        } catch (Exception e) {
-                            // ignore
-                        }
+                        return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
                     }
                     return inferTypeFromExpression(init);
                 }

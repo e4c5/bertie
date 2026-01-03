@@ -231,11 +231,9 @@ public class ExtractMethodRefactorer {
     private String extractStringByContext(StatementSequence sequence, int stringParamOrder) {
         // Heuristic mapping: first String param → setName(...), second → equals(...)
         if (stringParamOrder == 0) {
-            String v = extractStringArgFromCall(sequence, "setName");
-            if (v != null) return v;
+            return extractStringArgFromCall(sequence, "setName");
         } else if (stringParamOrder == 1) {
-            String v = extractStringArgFromCall(sequence, "equals");
-            if (v != null) return v;
+            return extractStringArgFromCall(sequence, "equals");
         }
         return null;
     }
@@ -673,11 +671,8 @@ public class ExtractMethodRefactorer {
 
             // Replace all occurrences of this value with the parameter name
             stmt.findAll(Expression.class).forEach(expr -> {
-                if (shouldReplaceExpression(expr, primaryValue, param)) {
-                    // Replace with parameter name
-                    if (expr.getParentNode().isPresent()) {
+                if (shouldReplaceExpression(expr, primaryValue, param) && expr.getParentNode().isPresent()) {
                         expr.replace(new NameExpr(param.name()));
-                    }
                 }
             });
         }
@@ -726,36 +721,35 @@ public class ExtractMethodRefactorer {
 
     // Helper-reuse: find an existing equivalent helper in the same class to avoid duplicate methods
     private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass, MethodDeclaration newHelper) {
-        try {
-            boolean newIsStatic = newHelper.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-            String newReturnType = newHelper.getType().asString();
-            List<String> newParamTypes = new java.util.ArrayList<>();
-            for (Parameter p : newHelper.getParameters()) {
-                newParamTypes.add(p.getType().asString());
+        boolean newIsStatic = newHelper.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+        String newReturnType = newHelper.getType().asString();
+        List<String> newParamTypes = new java.util.ArrayList<>();
+        for (Parameter p : newHelper.getParameters()) {
+            newParamTypes.add(p.getType().asString());
+        }
+        String newBodyNorm = normalizeMethodBody(newHelper);
+
+        for (MethodDeclaration candidate : containingClass.getMethods()) {
+            // Only consider private helpers (or same staticness and signature) to be conservative
+            boolean candIsStatic = candidate.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+            if (candIsStatic != newIsStatic) continue;
+            if (!candidate.getType().asString().equals(newReturnType)) continue;
+            if (candidate.getParameters().size() != newParamTypes.size()) continue;
+
+            boolean paramsMatch = true;
+            for (int i = 0; i < candidate.getParameters().size(); i++) {
+                String ct = candidate.getParameter(i).getType().asString();
+                if (!ct.equals(newParamTypes.get(i))) { paramsMatch = false; break; }
             }
-            String newBodyNorm = normalizeMethodBody(newHelper);
+            if (!paramsMatch) continue;
 
-            for (MethodDeclaration candidate : containingClass.getMethods()) {
-                // Only consider private helpers (or same staticness and signature) to be conservative
-                boolean candIsStatic = candidate.getModifiers().stream().anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-                if (candIsStatic != newIsStatic) continue;
-                if (!candidate.getType().asString().equals(newReturnType)) continue;
-                if (candidate.getParameters().size() != newParamTypes.size()) continue;
-
-                boolean paramsMatch = true;
-                for (int i = 0; i < candidate.getParameters().size(); i++) {
-                    String ct = candidate.getParameter(i).getType().asString();
-                    if (!ct.equals(newParamTypes.get(i))) { paramsMatch = false; break; }
-                }
-                if (!paramsMatch) continue;
-
-                // Compare normalized bodies
-                String candNorm = normalizeMethodBody(candidate);
-                if (candNorm != null && candNorm.equals(newBodyNorm)) {
-                    return candidate; // Reuse this
-                }
+            // Compare normalized bodies
+            String candNorm = normalizeMethodBody(candidate);
+            if (candNorm != null && candNorm.equals(newBodyNorm)) {
+                return candidate; // Reuse this
             }
-        } catch (Exception ignore) {}
+        }
+
         return null;
     }
 
