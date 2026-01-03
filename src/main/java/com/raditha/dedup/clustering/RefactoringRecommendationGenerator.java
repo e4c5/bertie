@@ -1,5 +1,6 @@
 package com.raditha.dedup.clustering;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -76,6 +77,37 @@ public class RefactoringRecommendationGenerator {
 
         // Determine strategy
         RefactoringStrategy strategy = determineStrategy(cluster);
+
+        // Refine parameter types
+        // If ParameterExtractor defaulted to "Object", try to infer type from example
+        // values
+        List<ParameterSpec> refinedParameters = new java.util.ArrayList<>();
+        for (ParameterSpec p : parameters) {
+            if ("Object".equals(p.type()) && !p.exampleValues().isEmpty()) {
+                String val = p.exampleValues().get(0);
+                String inferred = null;
+                try {
+                    inferred = findTypeInContext(cluster.primary(), val);
+                } catch (Exception e) {
+                    // ignore
+                }
+
+                if (inferred != null && !inferred.equals("Object")) {
+                    refinedParameters.add(new ParameterSpec(
+                            p.name(),
+                            inferred,
+                            p.exampleValues(),
+                            p.variationIndex(),
+                            p.startLine(),
+                            p.startColumn()));
+                } else {
+                    refinedParameters.add(p);
+                }
+            } else {
+                refinedParameters.add(p);
+            }
+        }
+        parameters = refinedParameters;
 
         // Generate method name
         String methodName = suggestMethodName(cluster, strategy);
@@ -322,7 +354,7 @@ public class RefactoringRecommendationGenerator {
         return null;
     }
 
-      /**
+    /**
      * Extract generic type parameter from field declaration.
      * E.g., for "repository" with field "Repository<User> repository", returns
      * "User"
@@ -356,7 +388,6 @@ public class RefactoringRecommendationGenerator {
 
         return null;
     }
-
 
     /**
      * Infer type from other expression types.
@@ -429,7 +460,8 @@ public class RefactoringRecommendationGenerator {
         var methodOpt = sequence.containingMethod();
         if (methodOpt != null) {
             containingMethodIsStatic = methodOpt.isStatic();
-            var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElseThrow();
+            var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElseThrow();
 
             classDecl.getFields().forEach(fd -> {
                 boolean isStatic = fd.getModifiers().stream()
@@ -473,19 +505,12 @@ public class RefactoringRecommendationGenerator {
                 // - If containing method is static:
                 // • static field → accessible → SKIP param
                 // • non-static field → NOT accessible → KEEP as parameter with field type
-                if (!containingMethodIsStatic) {
-                    // accessible instance field
-                    continue; // skip adding as parameter
-                } else {
-                    if (fi.isStatic) {
-                        continue; // static field accessible from static helper
-                    } else {
-                        // non-static field needed for static helper; will pass as parameter
-                        String type = fi.type != null ? fi.type : "Object";
-                        capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
-                        continue;
-                    }
+                if (!containingMethodIsStatic && fi.isStatic) {
+                    // non-static field needed for static helper; will pass as parameter
+                    String type = fi.type != null ? fi.type : "Object";
+                    capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
                 }
+                continue; // skip adding as parameter
             }
 
             // Determine type of true captured variable (non-field or unresolved field)
@@ -508,6 +533,21 @@ public class RefactoringRecommendationGenerator {
                 for (var v : vde.getVariables()) {
                     if (v.getNameAsString().equals(varName)) {
                         return resolveType(v.getType(), v, sequence);
+                    }
+                }
+            }
+
+            // Check Lambda parameters
+            for (com.github.javaparser.ast.expr.LambdaExpr lambda : stmt
+                    .findAll(com.github.javaparser.ast.expr.LambdaExpr.class)) {
+                for (com.github.javaparser.ast.body.Parameter param : lambda.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        if (!param.getType().isUnknownType() && !param.getType().isVarType()) {
+                            String resolved = resolveType(param.getType(), lambda, sequence);
+                            if (resolved != null)
+                                return resolved;
+                        }
+                        return "Object";
                     }
                 }
             }
@@ -546,6 +586,48 @@ public class RefactoringRecommendationGenerator {
                         return resolveType(v.getType(), v, sequence);
                     }
                 }
+            }
+        }
+
+        // 5. Fallback: Check if it's an expression (e.g. method call)
+        if (varName.contains("(") || varName.contains(".")) {
+            try {
+                com.github.javaparser.ast.expr.Expression expr = com.github.javaparser.StaticJavaParser
+                        .parseExpression(varName);
+                if (expr.isMethodCallExpr()) {
+                    var call = expr.asMethodCallExpr();
+                    if (call.getScope().isPresent()) {
+                        String scopeName = call.getScope().get().toString();
+                        String scopeType = findTypeInContext(sequence, scopeName);
+
+                        // Find CU for this type
+                        CompilationUnit typeCU = allCUs.get(scopeType);
+                        if (typeCU == null) {
+                            // Try simple name matching
+                            for (var entry : allCUs.entrySet()) {
+                                if (entry.getKey().endsWith("." + scopeType) || entry.getKey().equals(scopeType)) {
+                                    typeCU = entry.getValue();
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (typeCU != null) {
+                            String methodName = call.getNameAsString();
+                            var methods = typeCU.findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
+                                    .stream()
+                                    .filter(m -> m.getNameAsString().equals(methodName))
+                                    .toList();
+
+                            if (!methods.isEmpty()) {
+                                // Return type
+                                return resolveType(methods.get(0).getType(), methods.get(0), sequence);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Ignore parse errors
             }
         }
 

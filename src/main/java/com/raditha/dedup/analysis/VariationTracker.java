@@ -34,18 +34,18 @@ public class VariationTracker {
             return new VariationAnalysis(
                     List.of(),
                     false,
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, String>>(),
+                    new java.util.HashMap<>(),
                     java.util.Collections.emptyList(),
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, com.raditha.dedup.model.ExprInfo>>());
+                    new java.util.HashMap<>());
         }
 
         if (tokens1.isEmpty() && tokens2.isEmpty()) {
             return new VariationAnalysis(
                     List.of(),
                     false,
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, String>>(),
+                    new java.util.HashMap<>(),
                     java.util.Collections.emptyList(),
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, com.raditha.dedup.model.ExprInfo>>());
+                    new java.util.HashMap<>());
         }
 
         // Find all variations

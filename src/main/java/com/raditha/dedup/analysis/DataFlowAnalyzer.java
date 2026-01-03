@@ -43,21 +43,23 @@ public class DataFlowAnalyzer {
         Set<String> defined = new HashSet<>();
 
         for (Statement stmt : sequence.statements()) {
-            // Variable declarations: User user = ...
-            if (stmt.isExpressionStmt()) {
-                var expr = stmt.asExpressionStmt().getExpression();
-                if (expr.isVariableDeclarationExpr()) {
-                    expr.asVariableDeclarationExpr().getVariables()
-                            .forEach(v -> defined.add(v.getNameAsString()));
+            // 1. Variable declarations (including nested ones)
+            stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
+                vde.getVariables().forEach(v -> defined.add(v.getNameAsString()));
+            });
+
+            // 2. Assignments (target variables)
+            stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class).forEach(ae -> {
+                var target = ae.getTarget();
+                if (target.isNameExpr()) {
+                    defined.add(target.asNameExpr().getNameAsString());
                 }
-                // Assignments: user = ...
-                if (expr.isAssignExpr()) {
-                    var target = expr.asAssignExpr().getTarget();
-                    if (target.isNameExpr()) {
-                        defined.add(target.asNameExpr().getNameAsString());
-                    }
-                }
-            }
+            });
+
+            // 3. Lambda parameters
+            stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).forEach(lambda -> {
+                lambda.getParameters().forEach(p -> defined.add(p.getNameAsString()));
+            });
         }
 
         return defined;
@@ -103,9 +105,7 @@ public class DataFlowAnalyzer {
     public Set<String> findVariablesUsedInSequence(StatementSequence sequence) {
         Set<String> used = new HashSet<>();
         for (Statement stmt : sequence.statements()) {
-            stmt.findAll(NameExpr.class).forEach(nameExpr ->
-                used.add(nameExpr.getNameAsString())
-            );
+            stmt.findAll(NameExpr.class).forEach(nameExpr -> used.add(nameExpr.getNameAsString()));
         }
         return used;
     }
@@ -164,7 +164,6 @@ public class DataFlowAnalyzer {
         Set<String> liveOut = findLiveOutVariables(sequence);
 
         List<String> candidates = findCandidates(sequence, liveOut);
-
 
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {

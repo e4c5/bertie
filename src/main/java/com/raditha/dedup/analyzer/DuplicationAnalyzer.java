@@ -147,13 +147,10 @@ public class DuplicationAnalyzer {
      */
     private List<SimilarityPair> findCandidates(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
-        int totalComparisons = 0;
-        int filteredOut = 0;
 
         // Compare all pairs
         for (int i = 0; i < normalizedSequences.size(); i++) {
             for (int j = i + 1; j < normalizedSequences.size(); j++) {
-                totalComparisons++;
 
                 NormalizedSequence norm1 = normalizedSequences.get(i);
                 NormalizedSequence norm2 = normalizedSequences.get(j);
@@ -164,13 +161,11 @@ public class DuplicationAnalyzer {
                 // Skip sequences from the same method (overlapping windows)
                 if (seq1.containingMethod() != null &&
                         seq1.containingMethod().equals(seq2.containingMethod())) {
-                    filteredOut++;
                     continue;
                 }
 
                 // Pre-filter to skip unlikely matches
                 if (!preFilter.shouldCompare(seq1, seq2)) {
-                    filteredOut++;
                     continue;
                 }
 

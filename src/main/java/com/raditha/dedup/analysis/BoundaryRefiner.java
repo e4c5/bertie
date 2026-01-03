@@ -75,8 +75,6 @@ public class BoundaryRefiner {
      */
     public List<SimilarityPair> refineBoundaries(List<SimilarityPair> pairs) {
         List<SimilarityPair> refined = new ArrayList<>();
-        int totalTrimmed = 0;
-        int totalExtended = 0;
 
         for (SimilarityPair pair : pairs) {
             // 1. TRIM END: Remove usage-only statements
@@ -111,10 +109,6 @@ public class BoundaryRefiner {
                 // Keep processed version if still above threshold
                 if (newSimilarity.overallScore() >= threshold) {
                     refined.add(new SimilarityPair(extended1, extended2, newSimilarity));
-                    if (wasTrimmed)
-                        totalTrimmed++;
-                    if (wasExtended)
-                        totalExtended++;
                 } else {
                     // Similarity too low - keep original
                     refined.add(pair);
@@ -123,10 +117,6 @@ public class BoundaryRefiner {
                 // No change - keep original
                 refined.add(pair);
             }
-        }
-
-        if (totalTrimmed > 0 || totalExtended > 0) {
-            System.out.printf("Boundary refinement: %d trimmed, %d extended%n", totalTrimmed, totalExtended);
         }
 
         return refined;
@@ -183,8 +173,8 @@ public class BoundaryRefiner {
             boolean relevantDeclaration = false;
             if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
                 VariableDeclarationExpr vde = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
-                for (var var : vde.getVariables()) {
-                    if (captured.contains(var.getNameAsString())) {
+                for (var variable : vde.getVariables()) {
+                    if (captured.contains(variable.getNameAsString())) {
                         relevantDeclaration = true;
                         // It is now defined, remove from captured set to stop looking for it?
                         // Ideally yes, but we might want to keep going for others.
