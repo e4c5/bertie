@@ -202,8 +202,10 @@ public class ExtractUtilityClassRefactorer {
         GraphNode contextNode = Graph.createGraphNode(typeDecl);
 
         // Update calls: method(...) -> UtilityClass.method(...)
+        // Also handles this.method(...) -> UtilityClass.method(...)
         cu.findAll(MethodCallExpr.class).forEach(call -> {
-            if (call.getNameAsString().equals(methodName) && call.getScope().isEmpty()) {
+            if (call.getNameAsString().equals(methodName) && 
+                (call.getScope().isEmpty() || call.getScope().map(s -> s instanceof ThisExpr).orElse(false))) {
                 MCEWrapper wrapper = Resolver.resolveArgumentTypes(contextNode, call);
                 Callable callable = AbstractCompiler.findCallableDeclaration(wrapper, typeDecl).orElse(null);
 
