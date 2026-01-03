@@ -1,6 +1,7 @@
 package com.raditha.dedup.analysis;
 
 import com.raditha.dedup.model.ParameterSpec;
+import com.raditha.dedup.model.Token;
 import com.raditha.dedup.model.Variation;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.model.VariationType;
@@ -79,10 +80,26 @@ public class ParameterExtractor {
                     .limit(5) // Limit to 5 examples to ensure coverage
                     .toList();
 
+            // FIXED: Include variation index for robust lookup
+            int idx = variations.variations().indexOf(positionVars.get(0));
+            Integer variationIndex = idx >= 0 ? idx : null;
+
+            Token t = null;
+            // Use position (alignedIndex1) to fetch token from primary tokens attached to
+            // analysis
+            if (variations.primaryTokens() != null && position >= 0 && position < variations.primaryTokens().size()) {
+                t = variations.primaryTokens().get(position);
+            }
+            Integer line = t != null ? t.lineNumber() : null;
+            Integer col = t != null ? t.columnNumber() : null;
+
             parameters.add(new ParameterSpec(
                     name,
                     type,
-                    exampleValues));
+                    exampleValues,
+                    variationIndex,
+                    line,
+                    col));
 
             // Limit total parameters
             if (parameters.size() >= MAX_PARAMETERS) {

@@ -1,5 +1,6 @@
 package com.raditha.dedup.model;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -14,14 +15,23 @@ import java.util.stream.Collectors;
  * @param hasControlFlowDifferences True if control structures differ
  * @param valueBindings             Map from parameter index to (sequence ->
  *                                  actual value)
- *                                  This maps each parameter position to which
- *                                  actual value
- *                                  is used in each duplicate sequence.
+ * @param primaryTokens             Tokens from the primary sequence (for
+ *                                  token-based location lookup)
  */
 public record VariationAnalysis(
         List<Variation> variations,
         boolean hasControlFlowDifferences,
-        Map<Integer, Map<StatementSequence, String>> valueBindings) {
+        Map<Integer, Map<StatementSequence, String>> valueBindings,
+        List<Token> primaryTokens) {
+
+    /**
+     * Create without tokens (for backward compatibility/tests)
+     */
+    public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
+            Map<Integer, Map<StatementSequence, String>> valueBindings) {
+        this(variations, hasControlFlowDifferences, valueBindings, Collections.emptyList());
+    }
+
     /**
      * Get variations of a specific type.
      */

@@ -207,7 +207,8 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Fallback: Check for explicit return statements IN the duplicate sequence
-        // But DO NOT use this if we found a return variable - that would give us the wrong type
+        // But DO NOT use this if we found a return variable - that would give us the
+        // wrong type
         String explicitType = analyzeReturnStatementType(sequence);
         System.out.println("DEBUG analyzeReturnTypeForSequence: Fallback to explicit type: " + explicitType);
         return explicitType;
@@ -548,9 +549,8 @@ public class RefactoringRecommendationGenerator {
                 // If not found, maybe field?
             }
 
-            // If we found a specific type, add it as parameter
             if (!"void".equals(type)) {
-                capturedParams.add(new ParameterSpec(varName, type, List.of(varName)));
+                capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
             }
         }
 

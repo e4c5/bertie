@@ -55,10 +55,10 @@ public class ExtractMethodRefactorer {
 
         // 3. Replace all duplicate occurrences with method calls (track each CU)
         for (SimilarityPair pair : cluster.duplicates()) {
-            replaceWithMethodCall(pair.seq1(), recommendation);
+            replaceWithMethodCall(pair.seq1(), recommendation, pair.similarity().variations());
             modifiedCUs.put(pair.seq1().compilationUnit(), pair.seq1().sourceFilePath());
 
-            replaceWithMethodCall(pair.seq2(), recommendation);
+            replaceWithMethodCall(pair.seq2(), recommendation, pair.similarity().variations());
             modifiedCUs.put(pair.seq2().compilationUnit(), pair.seq2().sourceFilePath());
         }
 
@@ -174,7 +174,8 @@ public class ExtractMethodRefactorer {
     /**
      * Replace duplicate code with a method call.
      */
-    private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation) {
+    private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation,
+            VariationAnalysis variations) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return;
@@ -185,12 +186,26 @@ public class ExtractMethodRefactorer {
         // Build argument list
         NodeList<Expression> arguments = new NodeList<>();
         for (ParameterSpec param : recommendation.suggestedParameters()) {
-            String actualValue = extractActualValue(sequence, param);
             String valToUse = null;
 
-            if (actualValue != null) {
-                valToUse = actualValue;
-            } else if (!param.exampleValues().isEmpty()) {
+            // STRATEGY 1: Use Variation Analysis (most accurate)
+            if (variations != null && param.variationIndex() != null) {
+                var bindings = variations.valueBindings().get(param.variationIndex());
+                if (bindings != null) {
+                    valToUse = bindings.get(sequence);
+                }
+            }
+
+            // STRATEGY 2: Fallback to extraction from AST
+            if (valToUse == null) {
+                String actualValue = extractActualValue(sequence, param);
+                if (actualValue != null) {
+                    valToUse = actualValue;
+                }
+            }
+
+            // STRATEGY 3: Fallback to example value
+            if (valToUse == null && !param.exampleValues().isEmpty()) {
                 valToUse = param.exampleValues().get(0);
             }
 
@@ -489,9 +504,28 @@ public class ExtractMethodRefactorer {
      */
     private Statement substituteParameters(Statement stmt, StatementSequence sequence,
             RefactoringRecommendation recommendation) {
-        // For each parameter, find and replace its example values with the parameter
-        // name
+        // For each parameter, replace its occurrence with the parameter name
         for (ParameterSpec param : recommendation.suggestedParameters()) {
+
+            // PRIORITY: Use location-based substitution if available (Avoids collisions)
+            if (param.startLine() != null && param.startColumn() != null) {
+                int targetLine = param.startLine();
+                int targetCol = param.startColumn();
+
+                stmt.findAll(Expression.class).forEach(expr -> {
+                    if (expr.getRange().isPresent()) {
+                        var begin = expr.getRange().get().begin;
+                        if (begin.line == targetLine && begin.column == targetCol) {
+                            if (expr.getParentNode().isPresent()) {
+                                expr.replace(new NameExpr(param.name()));
+                            }
+                        }
+                    }
+                });
+                continue; // Done for this param (assuming one location per param)
+            }
+
+            // FALLBACK: Value-based substitution for captured parameters
             if (param.exampleValues().isEmpty()) {
                 continue;
             }

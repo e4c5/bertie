@@ -1,12 +1,15 @@
 package com.raditha.dedup.analysis;
 
 import com.raditha.dedup.model.ParameterSpec;
+import com.raditha.dedup.model.Token;
+import com.raditha.dedup.model.TokenType;
 import com.raditha.dedup.model.Variation;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.model.VariationType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -24,13 +27,26 @@ class ParameterExtractorTest {
         extractor = new ParameterExtractor();
     }
 
+    private List<Token> createDummyTokens(int size) {
+        List<Token> tokens = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            tokens.add(new Token(TokenType.VAR, "val" + i, "val" + i, "String", 1, i));
+        }
+        return tokens;
+    }
+
     @Test
     void testExtractStringParameters() {
         List<Variation> variations = List.of(
                 new Variation(VariationType.LITERAL, 0, 0, "\"John\"", "\"Jane\"", "String"),
                 new Variation(VariationType.LITERAL, 1, 1, "\"test@example.com\"", "\"user@example.com\"", "String"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
+        VariationAnalysis analysis = new VariationAnalysis(
+                variations,
+                false,
+                java.util.Map.of(),
+                createDummyTokens(20)); // Pass tokens
+
         Map<String, String> types = Map.of("param0", "String", "param1", "String");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -49,7 +65,12 @@ class ParameterExtractorTest {
                 new Variation(VariationType.LITERAL, 0, 0, "1", "2", "int"),
                 new Variation(VariationType.LITERAL, 1, 1, "true", "false", "boolean"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of());
+        VariationAnalysis analysis = new VariationAnalysis(
+                variations,
+                false,
+                java.util.Map.of(),
+                createDummyTokens(20));
+
         Map<String, String> types = Map.of("param0", "int", "param1", "boolean");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -67,7 +88,12 @@ class ParameterExtractorTest {
                 new Variation(VariationType.VARIABLE, 0, 0, "userId", "customerId", "int"),
                 new Variation(VariationType.VARIABLE, 1, 1, "userName", "customerName", "String"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
+        VariationAnalysis analysis = new VariationAnalysis(
+                variations,
+                false,
+                java.util.Map.of(),
+                createDummyTokens(20));
+
         Map<String, String> types = Map.of("param0", "int", "param1", "String");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -93,8 +119,13 @@ class ParameterExtractorTest {
                     "String"));
         }
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
-        Map<String, String> types = new java.util.HashMap<>( java.util.Map.of());
+        VariationAnalysis analysis = new VariationAnalysis(
+                variations,
+                false,
+                java.util.Map.of(),
+                createDummyTokens(20));
+
+        Map<String, String> types = new java.util.HashMap<>(java.util.Map.of());
         for (int i = 0; i < 10; i++) {
             types.put("param" + i, "String");
         }
@@ -111,7 +142,12 @@ class ParameterExtractorTest {
                 new Variation(VariationType.CONTROL_FLOW, 0, 0, "if", "while", null),
                 new Variation(VariationType.LITERAL, 1, 1, "1", "2", "int"));
 
-        VariationAnalysis analysis = new VariationAnalysis(variations, false, java.util.Map.of( ));
+        VariationAnalysis analysis = new VariationAnalysis(
+                variations,
+                false,
+                java.util.Map.of(),
+                createDummyTokens(20));
+
         Map<String, String> types = Map.of("param1", "int");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
@@ -123,7 +159,12 @@ class ParameterExtractorTest {
 
     @Test
     void testNoVariations() {
-        VariationAnalysis analysis = new VariationAnalysis(List.of(), false, java.util.Map.of());
+        VariationAnalysis analysis = new VariationAnalysis(
+                List.of(),
+                false,
+                java.util.Map.of(),
+                createDummyTokens(0));
+
         Map<String, String> types = Map.of();
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);

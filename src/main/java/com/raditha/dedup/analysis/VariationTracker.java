@@ -105,7 +105,7 @@ public class VariationTracker {
             }
         }
 
-        return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings);
+        return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1);
     }
 
     private void captureValueBindings(
