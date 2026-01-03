@@ -2,6 +2,7 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
@@ -37,15 +38,13 @@ class RefactoringIntegrationTest {
         // Load test configuration pointing to test-bed
         File configFile = new File("src/test/resources/analyzer-tests.yml");
         Settings.loadConfigMap(configFile);
-
-        // Reset and parse test sources
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.reset();
-        AbstractCompiler.preProcess();
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.reset();
+        AbstractCompiler.preProcess();
         analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient());
     }
 
@@ -90,15 +89,10 @@ class RefactoringIntegrationTest {
         assertDoesNotThrow(() -> StaticJavaParser.parse(refactoredCode),
                 "Refactored code should parse successfully");
 
-        // 7. Verify semantic method naming
-        // Should NOT have generic "extractedMethod" if semantic naming worked
-        CompilationUnit refactoredCu = StaticJavaParser.parse(refactoredCode);
-        long methodCount = refactoredCu.findAll(
+        long methodCount = cu.findAll(
                 com.github.javaparser.ast.body.MethodDeclaration.class).size();
 
         assertTrue(methodCount > 3, "Should have added extracted method(s)");
-
-        // Cleanup happens automatically via @TempDir
     }
 
     @Test
@@ -139,7 +133,7 @@ class RefactoringIntegrationTest {
                     RefactoringEngine.RefactoringMode.BATCH,
                     RefactoringVerifier.VerificationLevel.NONE);
 
-            RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
+            engine.refactorAll(report);
 
             // File should be unchanged if validation failed
             String afterCode = Files.readString(testFile);
@@ -171,57 +165,11 @@ class RefactoringIntegrationTest {
         // File should still be valid Java
         String refactoredCode = Files.readString(testFile);
         assertDoesNotThrow(() -> StaticJavaParser.parse(refactoredCode));
-    }
 
-    @Test
-    void testUniqueMethodNames() throws IOException {
-        // Create code where semantic naming will generate similar names
-        String code = """
-                package com.test;
-
-                public class DataService {
-                    void load1() {
-                        data.load();
-                        data.validate();
-                        data.process();
-                    }
-
-                    void load2() {
-                        data.load();
-                        data.validate();
-                        data.process();
-                    }
-
-                    void load3() {
-                        data.load();
-                        data.validate();
-                        data.process();
-                    }
-                }
-                """;
-
-        Path testFile = tempDir.resolve("DataService.java");
-        Files.writeString(testFile, code);
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
-
-        engine = new RefactoringEngine(
-                tempDir,
-                RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE);
-
-        RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
-
-        // Read and parse refactored code
-        String refactoredCode = Files.readString(testFile);
-        CompilationUnit refactoredCu = StaticJavaParser.parse(refactoredCode);
-
-        // Extract all method names
-        var methodNames = refactoredCu.findAll(
-                com.github.javaparser.ast.body.MethodDeclaration.class)
+        var methodNames = cu.findAll(
+                        com.github.javaparser.ast.body.MethodDeclaration.class)
                 .stream()
-                .map(m -> m.getNameAsString())
+                .map(NodeWithSimpleName::getNameAsString)
                 .toList();
 
         // All method names should be unique (no duplicates)

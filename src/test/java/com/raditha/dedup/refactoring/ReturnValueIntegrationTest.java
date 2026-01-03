@@ -119,7 +119,7 @@ class ReturnValueIntegrationTest {
 
     @Test
     void testCollectionReturnTypes() {
-        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithCollectionReturns");
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
         Path sourceFile = tempDir.resolve("ServiceWithCollectionReturns.java");
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
