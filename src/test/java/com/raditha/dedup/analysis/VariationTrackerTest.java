@@ -1,17 +1,23 @@
 package com.raditha.dedup.analysis;
 
-import com.raditha.dedup.model.*;
+import com.raditha.dedup.model.Token;
+import com.raditha.dedup.model.TokenType;
+import com.raditha.dedup.model.Variation;
+import com.raditha.dedup.model.VariationAnalysis;
+import com.raditha.dedup.model.VariationType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for VariationTracker.
  * Verifies LCS alignment and variation detection.
- * 
+ * <p>
  * NOTE: Tests compare ALREADY NORMALIZED tokens. Variations are detected when
  * the normalizedValue differs, not when originalValue differs.
  */
@@ -205,5 +211,87 @@ class VariationTrackerTest {
 
                 assertEquals(0, analysis.getVariationCount());
                 assertFalse(analysis.hasControlFlowDifferences());
+        }
+
+        @Test
+        void testGapsAtStartAndEnd() {
+                // LCS Alignment test: Sequence 2 has extra tokens at start and end
+                // Seq 1: [MATCH]
+                // Seq 2: [GAP] [MATCH] [GAP]
+
+                List<Token> tokens1 = List.of(
+                                new Token(TokenType.VAR, "VAR", "middle"));
+
+                List<Token> tokens2 = List.of(
+                                new Token(TokenType.VAR, "VAR", "start"),
+                                new Token(TokenType.VAR, "VAR", "middle"),
+                                new Token(TokenType.VAR, "VAR", "end"));
+
+                VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
+
+                // The middle token matches.
+                // The start and end tokens in tokens2 do NOT create variations because:
+                // 1. extractAlignments creates TokenAlignment with one side null.
+                // 2. trackVariations logic:
+                // if (alignment.token1() != null && alignment.token2() != null) { ... }
+                // else { check control flow }
+
+                // Since they are just VAR tokens (not control flow), they are ignored as gaps.
+                // Variation count should be 0.
+                assertEquals(0, analysis.getVariationCount());
+                assertFalse(analysis.hasControlFlowDifferences());
+        }
+
+        @Test
+        void testDifferentLiteralTypes() {
+                // Boolean diff
+                List<Token> tokens1 = List.of(
+                                new Token(TokenType.BOOLEAN_LIT, "BOOLEAN_LIT", "true"));
+                List<Token> tokens2 = List.of(
+                                new Token(TokenType.BOOLEAN_LIT, "BOOLEAN_LIT", "false"));
+
+                VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
+                assertEquals(1, analysis.getVariationCount());
+                assertEquals(VariationType.LITERAL, analysis.variations().get(0).type());
+
+                // Integer diff
+                tokens1 = List.of(new Token(TokenType.INT_LIT, "INT_LIT", "100"));
+                tokens2 = List.of(new Token(TokenType.INT_LIT, "INT_LIT", "200"));
+                analysis = tracker.trackVariations(tokens1, tokens2);
+                assertEquals(1, analysis.getVariationCount());
+                assertEquals(VariationType.LITERAL, analysis.variations().get(0).type());
+
+                // Null diff? (NULL_LIT uses "null" as value usually)
+                tokens1 = List.of(new Token(TokenType.NULL_LIT, "NULL_LIT", "null"));
+                tokens2 = List.of(new Token(TokenType.NULL_LIT, "NULL_LIT", "null"));
+                // Same value -> 0
+                assertEquals(0, tracker.trackVariations(tokens1, tokens2).getVariationCount());
+        }
+
+        @Test
+        void testMixedTokenTypes_Ignored() {
+                // One is VAR, one is STRING_LIT.
+                // categorizeVariation returns null for mixed types (unless one is Control Flow)
+                List<Token> tokens1 = List.of(
+                                new Token(TokenType.VAR, "VAR", "x"));
+                List<Token> tokens2 = List.of(
+                                new Token(TokenType.STRING_LIT, "STRING_LIT", "\"x\""));
+
+                VariationAnalysis analysis = tracker.trackVariations(tokens1, tokens2);
+
+                assertEquals(0, analysis.getVariationCount(), "Mixed types should be ignored");
+        }
+
+        @Test
+        void testOneSequenceEmpty() {
+                List<Token> tokens = List.of(new Token(TokenType.VAR, "VAR", "x"));
+
+                // Case 1: tokens1 empty
+                VariationAnalysis analysis1 = tracker.trackVariations(List.of(), tokens);
+                assertEquals(0, analysis1.getVariationCount()); // Gaps ignored
+
+                // Case 2: tokens2 empty
+                VariationAnalysis analysis2 = tracker.trackVariations(tokens, List.of());
+                assertEquals(0, analysis2.getVariationCount()); // Gaps ignored
         }
 }
