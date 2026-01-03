@@ -295,8 +295,10 @@ public class ExtractMethodRefactorer {
                     }
                 }
 
-                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a return statement
-                // If so, and the extracted method returns a value, just return the method call directly
+                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a
+                // return statement
+                // If so, and the extracted method returns a value, just return the method call
+                // directly
                 boolean nextIsReturn = startIdx < block.getStatements().size() &&
                         block.getStatements().get(startIdx).isReturnStmt();
 
@@ -304,13 +306,14 @@ public class ExtractMethodRefactorer {
                 if (varName != null) {
                     // CRITICAL FIX: If the next statement is a return and the extracted method
                     // already has a return value, just return the method call directly
-                    // ALSO: If after removal the block becomes empty AND the containing method returns a value,
+                    // ALSO: If after removal the block becomes empty AND the containing method
+                    // returns a value,
                     // we should return the method call result
                     boolean shouldReturnDirectly = (nextIsReturn && originalReturnValues != null) ||
-                            (block.getStatements().isEmpty() && 
-                             !containingMethod.getType().asString().equals("void") &&
-                             originalReturnValues != null);
-                    
+                            (block.getStatements().isEmpty() &&
+                                    !containingMethod.getType().asString().equals("void") &&
+                                    originalReturnValues != null);
+
                     if (shouldReturnDirectly) {
                         // Remove the orphaned return statement if it exists
                         if (nextIsReturn) {
@@ -318,7 +321,7 @@ public class ExtractMethodRefactorer {
                         }
                         // Return the method call directly
                         block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-                    } else{
+                    } else {
                         VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
                                 new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
                                 varName);
@@ -444,26 +447,54 @@ public class ExtractMethodRefactorer {
 
         // For variable names, check if it matches one of the example patterns
         // REVERTED: Conservative approach - only accept known example values
-        // This avoids TypeInferenceException for out-of-scope variables
-        if (expr.isNameExpr() && !param.exampleValues().isEmpty()) {
-            // If any example value matches this name, it's likely the parameter
-            for (String example : param.exampleValues()) {
-                if (example.equals(exprStr)) {
-                    return true;
+        // If example values are provided (they should be!), STRICTLY check against
+        // them.
+        // This prevents "Alice" (String) being identified as a value for the 'email'
+        // parameter.
+        if (!param.exampleValues().isEmpty()) {
+
+            // For string literals, we need to handle quotes
+            if (expr.isStringLiteralExpr()) {
+                String literalVal = expr.asStringLiteralExpr().asString(); // value without quotes
+
+                // Example values usually contain the raw value (e.g., "Alice") or quoted
+                // depending on extraction.
+                // ParameterExtractor typically stores raw values for strings.
+                for (String example : param.exampleValues()) {
+                    // Check direct match
+                    if (example.equals(exprStr))
+                        return true;
+
+                    // Check match without quotes (if example is quoted in spec)
+                    String exampleNoQuotes = example.replace("\"", "");
+                    if (literalVal.equals(exampleNoQuotes))
+                        return true;
                 }
+                return false;
             }
+
+            // For other literals/expressions
+            for (String example : param.exampleValues()) {
+                if (example.equals(exprStr))
+                    return true;
+            }
+            // If we have examples but no match, it's NOT this parameter.
+            return false;
         }
 
         return false;
     }
 
     /**
-     * Substitute varying literals/expressions with parameter names in the extracted method body.
-     * This ensures that the extracted method uses parameters instead of hardcoded values.
+     * Substitute varying literals/expressions with parameter names in the extracted
+     * method body.
+     * This ensures that the extracted method uses parameters instead of hardcoded
+     * values.
      */
     private Statement substituteParameters(Statement stmt, StatementSequence sequence,
             RefactoringRecommendation recommendation) {
-        // For each parameter, find and replace its example values with the parameter name
+        // For each parameter, find and replace its example values with the parameter
+        // name
         for (ParameterSpec param : recommendation.suggestedParameters()) {
             if (param.exampleValues().isEmpty()) {
                 continue;

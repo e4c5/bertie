@@ -72,10 +72,11 @@ public class ParameterExtractor {
             String name = inferParameterName(positionVars, position);
 
             // Collect example values
+            // FIXED: Include both value1 (primary) AND value2 (duplicate)
             List<String> exampleValues = positionVars.stream()
-                    .map(v -> v.value1())
+                    .flatMap(v -> java.util.stream.Stream.of(v.value1(), v.value2()))
                     .distinct()
-                    .limit(3) // Limit to 3 examples
+                    .limit(5) // Limit to 5 examples to ensure coverage
                     .toList();
 
             parameters.add(new ParameterSpec(
@@ -107,9 +108,9 @@ public class ParameterExtractor {
 
         // Collect example values for AI
         List<String> exampleValues = variations.stream()
-                .map(Variation::value1)
+                .flatMap(v -> java.util.stream.Stream.of(v.value1(), v.value2()))
                 .distinct()
-                .limit(3)
+                .limit(5)
                 .toList();
 
         // Tier 1: Try AI naming (PRIMARY)
