@@ -58,6 +58,19 @@ public class RefactoringRecommendationGenerator {
             DuplicateCluster cluster,
             SimilarityResult similarity) {
 
+        // SAFETY CHECK: Abort if variations include METHOD_CALL or TYPE
+        // We do not support parameterizing method calls (functional interfaces) or
+        // Types yet.
+        // If we proceed, we would generate code that uses the primary sequence's
+        // method/type only,
+        // leading to incorrect behavior in duplicates.
+        if (!similarity.variations().getMethodCallVariations().isEmpty() ||
+                !similarity.variations().getTypeVariations().isEmpty()) {
+            System.out.println("SKIPPING cluster due to unsupported variation types (METHOD_CALL/TYPE): "
+                    + cluster.primary().range());
+            return null;
+        }
+
         // Analyze type compatibility
         TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(
                 similarity.variations());
