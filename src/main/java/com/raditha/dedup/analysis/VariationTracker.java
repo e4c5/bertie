@@ -84,6 +84,27 @@ public class VariationTracker {
             // Use LCS alignment for different-length sequences
             List<TokenAlignment> alignments = computeLCSAlignment(tokens1, tokens2);
 
+            // DEBUG ALIGNMENTS
+            if (alignments.stream().anyMatch(a -> a.token1() == null || a.token2() == null)) {
+                System.err.println("DEBUG LCS Alignments (Before Coalesce):");
+                for (TokenAlignment a : alignments) {
+                    String t1v = a.token1() == null ? "GAP" : a.token1().originalValue();
+                    String t2v = a.token2() == null ? "GAP" : a.token2().originalValue();
+                    System.err.println("  " + t1v + " vs " + t2v);
+                }
+            }
+
+            alignments = coalesceAlignments(alignments);
+
+            if (alignments.stream().anyMatch(a -> a.token1() == null || a.token2() == null)) {
+                System.err.println("DEBUG LCS Alignments (After Coalesce):");
+                for (TokenAlignment a : alignments) {
+                    String t1v = a.token1() == null ? "GAP" : a.token1().originalValue();
+                    String t2v = a.token2() == null ? "GAP" : a.token2().originalValue();
+                    System.err.println("  " + t1v + " vs " + t2v);
+                }
+            }
+
             for (TokenAlignment alignment : alignments) {
                 if (alignment.token1() != null && alignment.token2() != null) {
                     // Both tokens exist - check if they differ
@@ -122,6 +143,50 @@ public class VariationTracker {
         }
 
         return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1, exprBindings);
+    }
+
+    /**
+     * Coalesce adjacent insertion/deletion pairs into substitutions where possible.
+     * This fixes issue where LCS treats replaced literals (Bob vs Charlie) as
+     * separate
+     * gaps instead of a substitution.
+     */
+    private List<TokenAlignment> coalesceAlignments(List<TokenAlignment> raw) {
+        List<TokenAlignment> coalesced = new ArrayList<>();
+        for (int i = 0; i < raw.size(); i++) {
+            TokenAlignment curr = raw.get(i);
+
+            // Look ahead for substitution pattern
+            if (i + 1 < raw.size()) {
+                TokenAlignment next = raw.get(i + 1);
+
+                // Case 1: (A, null) then (null, B) -> Merge to (A, B)
+                if (curr.token1() != null && curr.token2() == null &&
+                        next.token1() == null && next.token2() != null) {
+
+                    // Only merge if types are compatible (e.g. both literals or both vars)
+                    if (curr.token1().type() == next.token2().type()) {
+                        coalesced.add(new TokenAlignment(curr.index1(), next.index2(), curr.token1(), next.token2()));
+                        i++;
+                        continue;
+                    }
+                }
+
+                // Case 2: (null, B) then (A, null) -> Merge to (A, B)
+                if (curr.token1() == null && curr.token2() != null &&
+                        next.token1() != null && next.token2() == null) {
+
+                    if (next.token1().type() == curr.token2().type()) {
+                        coalesced.add(new TokenAlignment(next.index1(), curr.index2(), next.token1(), curr.token2()));
+                        i++;
+                        continue;
+                    }
+                }
+            }
+
+            coalesced.add(curr);
+        }
+        return coalesced;
     }
 
     private void captureValueBindings(

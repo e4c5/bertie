@@ -166,11 +166,10 @@ public class RefactoringRecommendationGenerator {
             return "void";
         }
 
-        // PRIORITY: Check for String explicitly
-        // If we have an explicit String return (e.g. getName()), we want String, not
-        // the object (User)
-        if (returnTypes.contains(STRING))
-            return STRING;
+        // PRIORITY: Check for domain objects (User, Customer, etc.) FIRST
+        // This avoids issues where one duplicate returns a field (String) and another
+        // returns the object (User)
+        // We prefer the richer object type so call sites can use getters on it.
 
         // PRIORITY: Check for domain objects (User, Customer, etc.)
         Optional<String> domainType = returnTypes.stream()
@@ -190,7 +189,7 @@ public class RefactoringRecommendationGenerator {
         // Heuristic: Check for time-related variables in duplicates if inference failed
         boolean hasObject = returnTypes.stream()
                 .anyMatch(t -> !t.equals("int") && !t.equals("long") && !t.equals(DOUBLE) &&
-                        !t.equals(BOOLEAN) && !t.equals("void") && !t.equals(STRING));
+                        !t.equals(BOOLEAN) && !t.equals("void"));
 
         if (!hasObject && !hasLong && !hasDouble) {
             boolean hasTimeVar = cluster.duplicates().stream()
@@ -213,17 +212,7 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String analyzeReturnTypeForSequence(StatementSequence sequence) {
-        // PRIORITY 1: Check for logical return statements
-        // If the block explicitly returns a value, that is the return type.
-        String explicitType = analyzeReturnStatementType(sequence);
-        System.out.println("DEBUG analyzeReturnTypeForSequence [" +
-                (sequence.range().toString()) + "]: explicitType=" + explicitType);
-
-        if (explicitType != null) {
-            return explicitType;
-        }
-
-        // PRIORITY 2: Check for live-out variables
+        // PRIORITY 1: Check for live-out variables
         // If a variable is used AFTER this sequence, it MUST be returned.
         String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
                                                                                       // filtering
@@ -238,6 +227,16 @@ public class RefactoringRecommendationGenerator {
             if (varType != null && !"void".equals(varType)) {
                 return varType;
             }
+        }
+
+        // PRIORITY 2: Check for logical return statements
+        // If the block explicitly returns a value, that is the return type.
+        String explicitType = analyzeReturnStatementType(sequence);
+        System.out.println("DEBUG analyzeReturnTypeForSequence [" +
+                (sequence.range().toString()) + "]: explicitType=" + explicitType);
+
+        if (explicitType != null) {
+            return explicitType;
         }
 
         return null;

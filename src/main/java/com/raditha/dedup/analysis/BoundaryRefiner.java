@@ -123,6 +123,98 @@ public class BoundaryRefiner {
     }
 
     /**
+     * ALIGN START: Ensure both sequences start at structurally similar statements.
+     * Fixes issues where one duplicate includes an extra leading statement (like
+     * setName)
+     * while the other doesn't, causing extraction failures.
+     */
+    private SimilarityPair alignBoundaries(SimilarityPair pair) {
+        StatementSequence seq1 = pair.seq1();
+        StatementSequence seq2 = pair.seq2();
+
+        // Safety check to avoid infinite loops or excessive trimming
+        int maxTrim = 5;
+        int trimmed1 = 0;
+        int trimmed2 = 0;
+
+        while (trimmed1 < maxTrim && trimmed2 < maxTrim) {
+            if (seq1.statements().isEmpty() || seq2.statements().isEmpty())
+                break;
+
+            Statement s1 = seq1.statements().get(0);
+            Statement s2 = seq2.statements().get(0);
+
+            if (areSimilar(s1, s2)) {
+                break; // Aligned!
+            }
+
+            // Mismatch. Check lookahead to see which one is "extra".
+            int idx1 = findSimilar(seq1.statements(), s2); // Is s2 later in seq1?
+            int idx2 = findSimilar(seq2.statements(), s1); // Is s1 later in seq2?
+
+            if (idx1 > 0 && idx1 <= 3 && idx2 == -1) {
+                // s2 exists in seq1. s1 is extra. Trim seq1.
+                // Create a trimmed sequence starting from idx1
+                List<Statement> trimmedStmts = seq1.statements().subList(idx1, seq1.statements().size());
+                seq1 = createTrimmedSequence(seq1, trimmedStmts);
+                trimmed1 += idx1;
+            } else if (idx2 > 0 && idx2 <= 3 && idx1 == -1) {
+                // s1 exists in seq2. s2 is extra. Trim seq2.
+                List<Statement> trimmedStmts = seq2.statements().subList(idx2, seq2.statements().size());
+                seq2 = createTrimmedSequence(seq2, trimmedStmts);
+                trimmed2 += idx2;
+            } else {
+                // Ambiguous or neither match. Stop aligning.
+                break;
+            }
+        }
+
+        if (seq1 != pair.seq1() || seq2 != pair.seq2()) {
+            // If changed, verify minimal length
+            if (seq1.statements().size() < minStatements || seq2.statements().size() < minStatements) {
+                return pair; // Trimmed too much
+            }
+            // Recalculate similarity
+            SimilarityResult newSim = recalculateSimilarity(seq1, seq2);
+            if (newSim.overallScore() >= threshold) {
+                return new SimilarityPair(seq1, seq2, newSim);
+            } else {
+                return pair; // Similarity dropped too low
+            }
+        }
+
+        return pair;
+    }
+
+    private boolean areSimilar(Statement s1, Statement s2) {
+        List<Token> t1 = normalizer.normalizeStatements(Collections.singletonList(s1));
+        List<Token> t2 = normalizer.normalizeStatements(Collections.singletonList(s2));
+        if (t1.size() != t2.size())
+            return false;
+        for (int i = 0; i < t1.size(); i++) {
+            Token tok1 = t1.get(i);
+            Token tok2 = t2.get(i);
+            if (tok1.type() != tok2.type())
+                return false;
+            // For keywords/operators, values must match
+            if (tok1.type() != com.raditha.dedup.model.TokenType.LITERAL &&
+                    tok1.type() != com.raditha.dedup.model.TokenType.VARIABLE &&
+                    !tok1.value().equals(tok2.value())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private int findSimilar(List<Statement> stmts, Statement target) {
+        for (int i = 0; i < Math.min(stmts.size(), 5); i++) {
+            if (areSimilar(stmts.get(i), target))
+                return i;
+        }
+        return -1;
+    }
+
+    /**
      * Extend start boundary to include variable declarations.
      * If a variable is used in the sequence but not defined, and its declaration
      * immediately precedes the sequence, include it.
@@ -321,9 +413,7 @@ public class BoundaryRefiner {
         Set<String> used = new HashSet<>();
 
         // Find all name expressions (variable references)
-        stmt.findAll(NameExpr.class).forEach(nameExpr ->
-            used.add(nameExpr.getNameAsString())
-        );
+        stmt.findAll(NameExpr.class).forEach(nameExpr -> used.add(nameExpr.getNameAsString()));
 
         return used;
     }
@@ -372,7 +462,6 @@ public class BoundaryRefiner {
                 lastRange.end.line,
                 firstRange.begin.column,
                 lastRange.end.column);
-
 
     }
 

@@ -104,11 +104,30 @@ public class ExtractMethodRefactorer {
         String returnType = recommendation.suggestedReturnType();
         method.setType(returnType != null ? returnType : "void");
 
-        // Add parameters
+        // Fix for Bug #5: Parameter name collision check
+        Set<String> declaredVars = new HashSet<>();
+        for (Statement stmt : sequence.statements()) {
+            stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                    .forEach(v -> declaredVars.add(v.getNameAsString()));
+        }
+
+        Map<String, String> paramNameOverrides = new java.util.HashMap<>();
+
+        // Add parameters (resolving collisions)
         for (ParameterSpec param : recommendation.suggestedParameters()) {
+            String name = param.name();
+            if (declaredVars.contains(name)) {
+                String newName = name + "Param";
+                int counter = 2;
+                while (declaredVars.contains(newName)) {
+                    newName = name + "Param" + counter++;
+                }
+                paramNameOverrides.put(name, newName);
+                name = newName;
+            }
             method.addParameter(new Parameter(
                     new ClassOrInterfaceType(null, param.type()),
-                    param.name()));
+                    name));
         }
 
         // Copy thrown exceptions from containing method
@@ -136,7 +155,7 @@ public class ExtractMethodRefactorer {
             Statement clonedStmt = stmt.clone();
 
             // CRITICAL: Replace varying literals with parameter names
-            clonedStmt = substituteParameters(clonedStmt, sequence, recommendation);
+            clonedStmt = substituteParameters(clonedStmt, sequence, recommendation, paramNameOverrides);
 
             // FIX BUG #1: If return expression uses external variables (like prefix),
             // skip the return statement entirely - we'll add a simple return at the end
@@ -206,25 +225,18 @@ public class ExtractMethodRefactorer {
     private boolean hasExternalVariablesInReturn(StatementSequence sequence) {
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
         Set<String> definedInSequence = dfa.findDefinedVariables(sequence);
-        System.err.println("DEBUG hasExternal: definedInSequence=" + definedInSequence);
 
         // Find any return statement in the sequence
         for (Statement stmt : sequence.statements()) {
             if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
                 Expression returnExpr = stmt.asReturnStmt().getExpression().get();
-                System.err.println("DEBUG hasExternal: returnExpr=" + returnExpr);
                 // Check all variable references in the return expression
                 for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
                     String varName = nameExpr.getNameAsString();
-                    System.err.println("DEBUG hasExternal: checking var=" + varName + ", inSequence="
-                            + definedInSequence.contains(varName));
                     // If this variable is NOT defined in the sequence, it's external
                     if (!definedInSequence.contains(varName)) {
                         // Check if it's a local variable defined before the sequence
-                        boolean isLocal = isLocalVariable(sequence, varName);
-                        System.err.println(
-                                "DEBUG hasExternal: var=" + varName + " is NOT in sequence, isLocal=" + isLocal);
-                        if (isLocal) {
+                        if (isLocalVariable(sequence, varName)) {
                             return true;
                         }
                     }
@@ -383,6 +395,12 @@ public class ExtractMethodRefactorer {
      */
     private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation,
             VariationAnalysis variations, String methodNameToUse) {
+        System.err.println("DEBUG replaceWithMethodCall: method=" + methodNameToUse + ", variations="
+                + (variations != null) + ", params=" + recommendation.suggestedParameters().size());
+        if (variations != null) {
+            System.err.println("DEBUG replaceWithMethodCall: exprBindings="
+                    + (variations.exprBindings() != null ? variations.exprBindings().size() : "null"));
+        }
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return;
@@ -412,10 +430,21 @@ public class ExtractMethodRefactorer {
                         : null;
                 if (exprBindings != null) {
                     valToUse = resolveBindingForSequence(exprBindings, sequence);
+                    if (valToUse == null) {
+                        System.err.println("DEBUG Strategy1: resolveBindingForSequence returned null. Keys: "
+                                + exprBindings.keySet().size() + ", Target range: " + sequence.range());
+                        exprBindings.keySet().forEach(k -> System.err.println("DEBUG Strategy1 key: " + k.range()));
+                    }
+                } else {
+                    System.err.println("DEBUG Strategy1: exprBindings is null for param " + param.name() + " index "
+                            + param.variationIndex());
                 }
+
                 if (valToUse == null) {
                     var legacyBindings = variations.valueBindings() != null
                             ? variations.valueBindings().get(param.variationIndex())
+                            // ... rest of logic
+
                             : null;
                     if (legacyBindings != null) {
                         // Wrap legacy strings as ExprInfo-like via resolver overload
@@ -628,13 +657,7 @@ public class ExtractMethodRefactorer {
                 boolean nextIsReturn = startIdx < block.getStatements().size() &&
                         block.getStatements().get(startIdx).isReturnStmt();
 
-                // DEBUG: Trace the key decision values
-                System.err.println("DEBUG Bug1 TRACE: method=" + containingMethod.getNameAsString() +
-                        ", startIdx=" + startIdx + ", blockSize=" + block.getStatements().size() +
-                        ", nextIsReturn=" + nextIsReturn +
-                        (startIdx < block.getStatements().size()
-                                ? ", nextStmt=" + block.getStatements().get(startIdx).getClass().getSimpleName()
-                                : ""));
+                // DEBUG: Trace the key decision values (Removed)
 
                 // FIX BUG #1: Check if the post-sequence return uses external variables
                 // (like prefix + user.getName()). If so, we CANNOT return directly.
@@ -644,31 +667,24 @@ public class ExtractMethodRefactorer {
                 // that are defined in the sequence - this means we can't just return directly
                 if (nextIsReturn) {
                     ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
-                    System.err.println("DEBUG Bug1: nextReturn = " + nextReturn);
                     if (nextReturn.getExpression().isPresent()) {
                         Expression returnExpr = nextReturn.getExpression().get();
-                        System.err.println("DEBUG Bug1: returnExpr = " + returnExpr);
                         Set<String> returnVars = new HashSet<>();
                         for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
                             returnVars.add(nameExpr.getNameAsString());
                         }
-                        System.err.println("DEBUG Bug1: returnVars = " + returnVars);
                         // Check if return uses any variable defined in the sequence
                         DataFlowAnalyzer postDfa = new DataFlowAnalyzer();
                         Set<String> sequenceDefinedVars = postDfa.findDefinedVariables(sequence);
-                        System.err.println("DEBUG Bug1: sequenceDefinedVars = " + sequenceDefinedVars);
                         for (String definedVar : sequenceDefinedVars) {
                             if (returnVars.contains(definedVar)) {
-                                System.err.println("DEBUG Bug1: found match: " + definedVar + ", varName=" + varName);
                                 // The return uses a variable from the sequence
                                 // Check if it's a complex expression (not just the var or method on it)
                                 if (varName == null || !isSimpleReturnOfVariable(returnExpr, varName)) {
-                                    System.err.println("DEBUG Bug1: setting returnHasExternalVars=true");
                                     returnHasExternalVars = true;
                                     // Also set a fallback varName if null
                                     if (varName == null) {
                                         varName = definedVar;
-                                        System.err.println("DEBUG Bug1: set fallback varName=" + varName);
                                     }
                                 }
                                 break;
@@ -688,7 +704,6 @@ public class ExtractMethodRefactorer {
                     // Pick the first defined variable (usually 'user' or similar)
                     if (!seqDefined.isEmpty()) {
                         varName = seqDefined.iterator().next();
-                        System.err.println("DEBUG Bug1 FIX: set fallback varName=" + varName);
                     }
                 }
 
@@ -866,9 +881,11 @@ public class ExtractMethodRefactorer {
      * values.
      */
     private Statement substituteParameters(Statement stmt, StatementSequence sequence,
-            RefactoringRecommendation recommendation) {
+            RefactoringRecommendation recommendation, Map<String, String> nameOverrides) {
         // For each parameter, replace its occurrence with the parameter name
         for (ParameterSpec param : recommendation.suggestedParameters()) {
+
+            String paramName = nameOverrides.getOrDefault(param.name(), param.name());
 
             // PRIORITY: Use location-based substitution if available (Avoids collisions)
             java.util.concurrent.atomic.AtomicBoolean replaced = new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -881,7 +898,7 @@ public class ExtractMethodRefactorer {
                         var begin = expr.getRange().get().begin;
                         if (begin.line == targetLine && begin.column == targetCol) {
                             if (expr.getParentNode().isPresent()) {
-                                expr.replace(new NameExpr(param.name()));
+                                expr.replace(new NameExpr(paramName));
                                 replaced.set(true);
                             }
                         }
@@ -910,8 +927,8 @@ public class ExtractMethodRefactorer {
                 boolean replace = shouldReplaceExpression(expr, primaryValue, param);
                 if (replace && expr.getParentNode().isPresent()) {
                     System.out.println(
-                            "DEBUG substituteParameters: Value MATCH! Replaced " + expr + " with " + param.name());
-                    expr.replace(new NameExpr(param.name()));
+                            "DEBUG substituteParameters: Value MATCH! Replaced " + expr + " with " + paramName);
+                    expr.replace(new NameExpr(paramName));
                 } else if (!replace) {
                     // System.out.println("DEBUG substituteParameters: NO MATCH for " + expr);
                 }

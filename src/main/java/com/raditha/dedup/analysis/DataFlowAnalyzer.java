@@ -179,7 +179,8 @@ public class DataFlowAnalyzer {
         // But only if we haven't already filtered by type! (If we filtered, they all
         // match returnType anyway)
         if (candidates.size() > 1) {
-            return findBestCandidate(sequence, candidates);
+            String best = findBestCandidate(sequence, candidates);
+            return best;
         }
 
         // FALLBACK: If standard analysis found nothing, check if there is exactly

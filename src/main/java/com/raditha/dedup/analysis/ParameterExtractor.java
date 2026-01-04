@@ -57,14 +57,21 @@ public class ParameterExtractor {
             List<Variation> positionVars = byPosition.get(position);
 
             if (positionVars == null || positionVars.isEmpty()) {
+                logger.debug("[ParamExtractor] Skipping pos={} - empty vars", position);
                 continue;
             }
 
             // Get variation type
             VariationType varType = positionVars.get(0).type();
 
-            // Skip control flow variations (can't parameterize)
-            if (varType == VariationType.CONTROL_FLOW) {
+            // Log what we found
+            logger.debug("[ParamExtractor] Inspecting pos={} type={} vals={}", position, varType,
+                    positionVars.stream().limit(2).map(v -> v.value1() + "/" + v.value2()).toList());
+
+            // Skip control flow and complex variations (can't parameterize easily)
+            if (varType == VariationType.CONTROL_FLOW || varType == VariationType.METHOD_CALL
+                    || varType == VariationType.TYPE) {
+                System.err.println("[ParamExtractor] Skipping pos=" + position + " - " + varType);
                 continue;
             }
 
