@@ -66,8 +66,6 @@ public class RefactoringRecommendationGenerator {
         // leading to incorrect behavior in duplicates.
         if (!similarity.variations().getMethodCallVariations().isEmpty() ||
                 !similarity.variations().getTypeVariations().isEmpty()) {
-            System.out.println("SKIPPING cluster due to unsupported variation types (METHOD_CALL/TYPE): "
-                    + cluster.primary().range());
             return null;
         }
 

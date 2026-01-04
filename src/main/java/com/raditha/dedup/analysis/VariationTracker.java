@@ -63,7 +63,8 @@ public class VariationTracker {
                 Token t2 = tokens2.get(i);
 
                 boolean semanticallyMatches = t1.semanticallyMatches(t2);
-                boolean isValueMismatch = semanticallyMatches && (t1.type() == TokenType.VAR || isLiteral(t1.type()))
+                boolean isValueMismatch = semanticallyMatches && (t1.type() == TokenType.VAR || isLiteral(t1.type())
+                        || t1.type() == TokenType.METHOD_CALL || t1.type() == TokenType.TYPE)
                         && !t1.originalValue().equals(t2.originalValue());
 
                 if (!semanticallyMatches || isValueMismatch) {
@@ -110,7 +111,9 @@ public class VariationTracker {
                     // Both tokens exist - check if they differ
                     boolean semanticallyMatches = alignment.token1().semanticallyMatches(alignment.token2());
                     boolean isValueMismatch = semanticallyMatches
-                            && (alignment.token1().type() == TokenType.VAR || isLiteral(alignment.token1().type()))
+                            && (alignment.token1().type() == TokenType.VAR || isLiteral(alignment.token1().type())
+                                    || alignment.token1().type() == TokenType.METHOD_CALL
+                                    || alignment.token1().type() == TokenType.TYPE)
                             && !alignment.token1().originalValue().equals(alignment.token2().originalValue());
 
                     if (!semanticallyMatches || isValueMismatch) {
@@ -313,10 +316,27 @@ public class VariationTracker {
         if (t1.type() == t2.type()) {
             return switch (t1.type()) {
                 case STRING_LIT, INT_LIT, LONG_LIT, DOUBLE_LIT, BOOLEAN_LIT, NULL_LIT -> VariationType.LITERAL;
+
                 case VAR -> VariationType.VARIABLE;
-                case METHOD_CALL, ASSERT, MOCK -> VariationType.METHOD_CALL;
-                case TYPE -> VariationType.TYPE;
+
+                case METHOD_CALL, ASSERT, MOCK -> {
+                    // Check if original values differ (e.g. processJohn vs processAdmin)
+                    if (!t1.originalValue().equals(t2.originalValue())) {
+                        yield VariationType.METHOD_CALL;
+                    }
+                    yield null; // No variation
+                }
+
+                case TYPE -> {
+                    // Check if original type names differ (e.g. User vs Customer)
+                    if (!t1.originalValue().equals(t2.originalValue())) {
+                        yield VariationType.TYPE;
+                    }
+                    yield null; // No variation
+                }
+
                 case CONTROL_FLOW -> VariationType.CONTROL_FLOW;
+
                 default -> null;
             };
         }

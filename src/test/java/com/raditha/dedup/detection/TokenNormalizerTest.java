@@ -39,10 +39,16 @@ class TokenNormalizerTest {
 
         assertNotNull(methodCall1);
         assertNotNull(methodCall2);
-        assertEquals("METHOD_CALL(setActive)", methodCall1.normalizedValue());
-        assertEquals("METHOD_CALL(setDeleted)", methodCall2.normalizedValue());
-        assertFalse(methodCall1.semanticallyMatches(methodCall2),
-                "setActive and setDeleted should NOT match semantically");
+        // UPDATED: Normalized value should be generic "METHOD_CALL" to allow alignment
+        assertEquals("METHOD_CALL", methodCall1.normalizedValue());
+        assertEquals("METHOD_CALL", methodCall2.normalizedValue());
+
+        // UPDATED: They SHOULD match semantically for alignment purposes
+        assertTrue(methodCall1.semanticallyMatches(methodCall2),
+                "setActive and setDeleted SHOULD match semantically for alignment");
+
+        // But original values must differ
+        assertNotEquals(methodCall1.originalValue(), methodCall2.originalValue());
     }
 
     @Test
@@ -107,22 +113,19 @@ class TokenNormalizerTest {
         assertFalse(types1.isEmpty());
         assertFalse(types2.isEmpty());
 
-        // Should have TYPE(User) and TYPE(Customer)
-        assertTrue(types1.stream().anyMatch(t -> t.normalizedValue().contains("User")));
-        assertTrue(types2.stream().anyMatch(t -> t.normalizedValue().contains("Customer")));
+        // Should have generic TYPE tokens
+        assertEquals("TYPE", types1.get(0).normalizedValue());
+        assertEquals("TYPE", types2.get(0).normalizedValue());
 
-        // These should NOT match semantically
-        Token userType = types1.stream()
-                .filter(t -> t.normalizedValue().contains("User"))
-                .findFirst().orElse(null);
-        Token customerType = types2.stream()
-                .filter(t -> t.normalizedValue().contains("Customer"))
-                .findFirst().orElse(null);
+        // These SHOULD match semantically for alignment
+        Token userType = types1.get(0);
+        Token customerType = types2.get(0);
 
-        assertNotNull(userType);
-        assertNotNull(customerType);
-        assertFalse(userType.semanticallyMatches(customerType),
-                "User and Customer are semantically different");
+        assertTrue(userType.semanticallyMatches(customerType),
+                "User and Customer types should match semantically for alignment");
+
+        // But original values differ
+        assertNotEquals(userType.originalValue(), customerType.originalValue());
     }
 
     @Test
@@ -196,10 +199,10 @@ class TokenNormalizerTest {
         assertTrue(methods1.size() >= 3, "Should have at least 3 method calls");
         assertTrue(methods2.size() >= 3, "Should have at least 3 method calls");
 
-        // Check for specific method names
-        assertTrue(methods1.stream().anyMatch(m -> m.normalizedValue().contains("setPatientId")));
-        assertTrue(methods1.stream().anyMatch(m -> m.normalizedValue().contains("setHospitalId")));
-        assertTrue(methods1.stream().anyMatch(m -> m.normalizedValue().contains("setStatus")));
+        // Check for specific method names in ORIGINAL value, not normalized
+        assertTrue(methods1.stream().anyMatch(m -> m.originalValue().contains("setPatientId")));
+        assertTrue(methods1.stream().anyMatch(m -> m.originalValue().contains("setHospitalId")));
+        assertTrue(methods1.stream().anyMatch(m -> m.originalValue().contains("setStatus")));
     }
 
     // Helper methods

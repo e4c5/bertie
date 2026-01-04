@@ -81,11 +81,12 @@ public class TokenNormalizer {
                         node);
             }
 
-            // Generic method call - PRESERVE method name
+            // Generic method call - PRESERVE method name in original value, but normalize
+            // for alignment
             return createToken(
                     TokenType.METHOD_CALL,
-                    "METHOD_CALL(" + methodName + ")",
-                    methodCall.toString(),
+                    "METHOD_CALL",
+                    methodName,
                     node);
         }
 
@@ -155,23 +156,23 @@ public class TokenNormalizer {
                     node);
         }
 
-        // Type references - PRESERVE type name
+        // Type references - Normalize to generic TYPE
         if (node instanceof ClassExpr classExpr) {
             Type type = classExpr.getType();
             String typeName = type.asString();
             return createToken(
                     TokenType.TYPE,
-                    "TYPE(" + typeName + ")",
+                    "TYPE",
                     typeName,
                     node);
         }
 
-        // Object creation - PRESERVE type
+        // Object creation - Normalize to generic TYPE
         if (node instanceof ObjectCreationExpr objCreation) {
             String typeName = objCreation.getType().getNameAsString();
             return createToken(
                     TokenType.TYPE,
-                    "TYPE(" + typeName + ")",
+                    "TYPE",
                     typeName,
                     node);
         }
