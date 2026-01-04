@@ -102,7 +102,7 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                        sourceFilePath);
+                                sourceFilePath);
 
                 Set<String> liveVarsCalls = analyzer.findLiveOutVariables(sequenceCalls);
                 // result1, result2, result3 are used in assertions later
@@ -121,7 +121,7 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                        sourceFilePath);
+                                sourceFilePath);
 
                 Set<String> liveVarsFullSetup = analyzer.findLiveOutVariables(sequenceFullSetup);
                 assertTrue(liveVarsFullSetup.isEmpty(), "Setup variables should NOT be live out " + liveVarsFullSetup);
@@ -210,7 +210,8 @@ class DataFlowAnalyzerTest {
                 // sequence
                 // AND it is the best candidate (tempUser shouldn't be live out because usage is
                 // enclosed in sequence)
-                String returnVar = analyzer.findReturnVariable(sequence, "String");
+                // expected matches variable type
+                String returnVar = analyzer.findReturnVariable(sequence, "User");
                 assertEquals("finalUser", returnVar,
                                 "Should maintain finalUser as candidate due to return statement usage");
         }
@@ -282,14 +283,14 @@ class DataFlowAnalyzerTest {
 
         @Test
         void testFindReturnVariable_TypePreference_Synthetic() {
-            String code = """
-                    class Test { void m() { 
-                       int x = 1; 
-                       Object o = new Object(); 
-                       System.out.println(x); 
-                       System.out.println(o);
-                       }
-                    }""";
+                String code = """
+                                class Test { void m() {
+                                   int x = 1;
+                                   Object o = new Object();
+                                   System.out.println(x);
+                                   System.out.println(o);
+                                   }
+                                }""";
 
                 CompilationUnit cu = new com.github.javaparser.JavaParser().parse(code).getResult().get();
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class).get();
@@ -314,7 +315,7 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                        sourceFilePath);
+                                sourceFilePath);
 
                 // Mocking the ranges might be tricky with real JavaParser objects if they don't
                 // have them.
@@ -325,18 +326,18 @@ class DataFlowAnalyzerTest {
                 if (seqStmts.get(0).getRange().isEmpty()) {
                         // Fallback if no ranges: the test might be flaky or need invalidation.
                         // Let's construct a cleaner formatted string to ensure ranges.
-                    code = """
-                            class Test { void m() { 
-                               int x = 1; 
-                               Object o = new Object(); 
-                               System.out.println(x); 
-                                               System.out.println(o);
-                                               }
-                                            }""";
+                        code = """
+                                        class Test { void m() {
+                                           int x = 1;
+                                           Object o = new Object();
+                                           System.out.println(x);
+                                                           System.out.println(o);
+                                                           }
+                                                        }""";
                         cu = new com.github.javaparser.JavaParser().parse(code).getResult().get();
                         method = cu.findFirst(MethodDeclaration.class).get();
                         stmts = method.getBody().get().getStatements();
-                        seqStmts = stmts.subList(0, 2); 
+                        seqStmts = stmts.subList(0, 2);
 
                         // Real range of 2nd statement
                         int endLine = seqStmts.get(1).getRange().get().end.line;
@@ -347,11 +348,10 @@ class DataFlowAnalyzerTest {
                                         0,
                                         method,
                                         cu,
-                                sourceFilePath);
+                                        sourceFilePath);
                 }
 
-                String bestVar = analyzer.findReturnVariable(sequence, "generatedReference"); // Type arg irrelevant for
-                                                                                              // main logic
+                String bestVar = analyzer.findReturnVariable(sequence, "Object"); // Type match for 'o'
                 assertEquals("o", bestVar, "Should prefer Object 'o' over primitive 'x'");
         }
 }

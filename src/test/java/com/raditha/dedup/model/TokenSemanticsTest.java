@@ -6,24 +6,26 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for Token.semanticallyMatches() behavior.
  * 
- * CRITICAL: This tests the fix where literals compare ORIGINAL values
- * while semantic tokens compare NORMALIZED values.
+ * CRITICAL: This tests the design where literals compare NORMALIZED values
+ * to enable structural alignment during clustering.
  * 
- * Before fix: All literals with same type matched (enabled similarity but broke
- * variation detection)
- * After fix: Literals match only if original values match (enables both
- * similarity AND variation detection)
+ * Before fix: Literals compared ORIGINAL values, preventing clustering of
+ * methods
+ * differing only by literal values (e.g. "user" vs "admin").
+ * After fix: Literals match structurally (semanticallyMatches=true), allowing
+ * LCS
+ * to align them. Value mismatch is detected by VariationTracker.
  */
 class TokenSemanticsTest {
 
     @Test
-    void testStringLiterals_DifferentValues_ShouldNotMatch() {
-        // KEY TEST: Different string literals should NOT match semantically
+    void testStringLiterals_DifferentValues_ShouldMatchStructurally() {
+        // KEY TEST: Different string literals SHOULD match semantically (structurally)
         Token token1 = new Token(TokenType.STRING_LIT, "STRING_LIT", "\"John\"");
         Token token2 = new Token(TokenType.STRING_LIT, "STRING_LIT", "\"Jane\"");
 
-        assertFalse(token1.semanticallyMatches(token2),
-                "String literals with different values should NOT match");
+        assertTrue(token1.semanticallyMatches(token2),
+                "String literals with different values SHOULD match structurally");
     }
 
     @Test
@@ -40,8 +42,8 @@ class TokenSemanticsTest {
         Token token1 = new Token(TokenType.INT_LIT, "INT_LIT", "25");
         Token token2 = new Token(TokenType.INT_LIT, "INT_LIT", "30");
 
-        assertFalse(token1.semanticallyMatches(token2),
-                "Integer literals with different values should NOT match");
+        assertTrue(token1.semanticallyMatches(token2),
+                "Integer literals with different values SHOULD match structurally");
     }
 
     @Test
@@ -58,8 +60,8 @@ class TokenSemanticsTest {
         Token token1 = new Token(TokenType.BOOLEAN_LIT, "BOOLEAN_LIT", "true");
         Token token2 = new Token(TokenType.BOOLEAN_LIT, "BOOLEAN_LIT", "false");
 
-        assertFalse(token1.semanticallyMatches(token2),
-                "Boolean literals with different values should NOT match");
+        assertTrue(token1.semanticallyMatches(token2),
+                "Boolean literals with different values SHOULD match structurally");
     }
 
     @Test
@@ -67,8 +69,8 @@ class TokenSemanticsTest {
         Token token1 = new Token(TokenType.LONG_LIT, "LONG_LIT", "5000L");
         Token token2 = new Token(TokenType.LONG_LIT, "LONG_LIT", "10000L");
 
-        assertFalse(token1.semanticallyMatches(token2),
-                "Long literals with different values should NOT match");
+        assertTrue(token1.semanticallyMatches(token2),
+                "Long literals with different values SHOULD match structurally");
     }
 
     @Test
@@ -150,9 +152,10 @@ class TokenSemanticsTest {
         Token adminLiteral = new Token(TokenType.STRING_LIT, "STRING_LIT", "\"Admin\"");
 
         // All should be different
-        assertFalse(johnLiteral.semanticallyMatches(janeLiteral));
-        assertFalse(johnLiteral.semanticallyMatches(adminLiteral));
-        assertFalse(janeLiteral.semanticallyMatches(adminLiteral));
+        // All should look structurally identical
+        assertTrue(johnLiteral.semanticallyMatches(janeLiteral));
+        assertTrue(johnLiteral.semanticallyMatches(adminLiteral));
+        assertTrue(janeLiteral.semanticallyMatches(adminLiteral));
 
         // But the method call tokens should match
         Token setNameCall1 = new Token(TokenType.METHOD_CALL, "METHOD_CALL(setName)", "user.setName(\"John\")");

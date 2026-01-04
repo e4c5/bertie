@@ -213,9 +213,8 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String analyzeReturnTypeForSequence(StatementSequence sequence) {
-        // CRITICAL FIX: Check for explicit return statements IN the duplicate sequence
-        // first
-        // If the sequence contains a return statement, we MUST respect its type
+        // PRIORITY 1: Check for logical return statements
+        // If the block explicitly returns a value, that is the return type.
         String explicitType = analyzeReturnStatementType(sequence);
         System.out.println("DEBUG analyzeReturnTypeForSequence [" +
                 (sequence.range().toString()) + "]: explicitType=" + explicitType);
@@ -224,9 +223,10 @@ public class RefactoringRecommendationGenerator {
             return explicitType;
         }
 
-        // Find variable that should be returned (live-out or used in return statements)
+        // PRIORITY 2: Check for live-out variables
+        // If a variable is used AFTER this sequence, it MUST be returned.
         String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
-        // filtering
+                                                                                      // filtering
 
         System.out.println("DEBUG analyzeReturnTypeForSequence var=" + returnVarName);
 

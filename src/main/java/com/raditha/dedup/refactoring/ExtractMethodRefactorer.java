@@ -673,6 +673,7 @@ public class ExtractMethodRefactorer {
         for (ParameterSpec param : recommendation.suggestedParameters()) {
 
             // PRIORITY: Use location-based substitution if available (Avoids collisions)
+            java.util.concurrent.atomic.AtomicBoolean replaced = new java.util.concurrent.atomic.AtomicBoolean(false);
             if (param.startLine() != null && param.startColumn() != null) {
                 int targetLine = param.startLine();
                 int targetCol = param.startColumn();
@@ -683,11 +684,15 @@ public class ExtractMethodRefactorer {
                         if (begin.line == targetLine && begin.column == targetCol) {
                             if (expr.getParentNode().isPresent()) {
                                 expr.replace(new NameExpr(param.name()));
+                                replaced.set(true);
                             }
                         }
                     }
                 });
-                continue; // Done for this param (assuming one location per param)
+
+                if (replaced.get()) {
+                    continue;
+                }
             }
 
             // FALLBACK: Value-based substitution for captured parameters
@@ -697,14 +702,20 @@ public class ExtractMethodRefactorer {
 
             // Get the actual value used in the primary sequence
             String primaryValue = extractActualValue(sequence, param);
+
             if (primaryValue == null) {
                 continue;
             }
 
             // Replace all occurrences of this value with the parameter name
             stmt.findAll(Expression.class).forEach(expr -> {
-                if (shouldReplaceExpression(expr, primaryValue, param) && expr.getParentNode().isPresent()) {
+                boolean replace = shouldReplaceExpression(expr, primaryValue, param);
+                if (replace && expr.getParentNode().isPresent()) {
+                    System.out.println(
+                            "DEBUG substituteParameters: Value MATCH! Replaced " + expr + " with " + param.name());
                     expr.replace(new NameExpr(param.name()));
+                } else if (!replace) {
+                    // System.out.println("DEBUG substituteParameters: NO MATCH for " + expr);
                 }
             });
         }

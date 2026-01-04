@@ -50,6 +50,9 @@ public class ParameterExtractor {
                 .collect(Collectors.groupingBy(Variation::alignedIndex1));
 
         var orderedPositions = new java.util.TreeSet<>(byPosition.keySet());
+        // Track used names to prevent duplicates (e.g. multiple "id" params)
+        java.util.Set<String> usedNames = new java.util.HashSet<>();
+
         for (Integer position : orderedPositions) {
             List<Variation> positionVars = byPosition.get(position);
 
@@ -69,7 +72,15 @@ public class ParameterExtractor {
             String type = typeCompatibility.getOrDefault("param" + position, "Object");
 
             // Infer parameter name
-            String name = inferParameterName(positionVars, position);
+            String baseName = inferParameterName(positionVars, position);
+
+            // Ensure uniqueness
+            String uniqueName = baseName;
+            int counter = 2;
+            while (usedNames.contains(uniqueName)) {
+                uniqueName = baseName + counter++;
+            }
+            usedNames.add(uniqueName);
 
             // Collect example values
             // Include both value1 (primary) AND value2 (duplicate)
@@ -79,11 +90,13 @@ public class ParameterExtractor {
                     .limit(5)
                     .toList();
 
-            // Use aligned position as the binding key (matches VariationTracker's valueBindings key)
+            // Use aligned position as the binding key (matches VariationTracker's
+            // valueBindings key)
             Integer variationIndex = position;
 
             Token t = null;
-            // Use position (alignedIndex1) to fetch token from primary tokens attached to analysis
+            // Use position (alignedIndex1) to fetch token from primary tokens attached to
+            // analysis
             if (variations.primaryTokens() != null && position >= 0 && position < variations.primaryTokens().size()) {
                 t = variations.primaryTokens().get(position);
             }
@@ -91,7 +104,7 @@ public class ParameterExtractor {
             Integer col = t != null ? t.columnNumber() : null;
 
             ParameterSpec spec = new ParameterSpec(
-                    name,
+                    uniqueName,
                     type,
                     exampleValues,
                     variationIndex,
@@ -99,7 +112,7 @@ public class ParameterExtractor {
                     col);
 
             logger.debug("[ParamExtractor] position={} type={} name={} examples={} varIdx={} loc=({}, {})",
-                    position, type, name, exampleValues, variationIndex, line, col);
+                    position, type, uniqueName, exampleValues, variationIndex, line, col);
 
             parameters.add(spec);
 

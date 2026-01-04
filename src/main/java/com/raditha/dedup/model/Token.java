@@ -43,10 +43,10 @@ public record Token(
         if (this.type != other.type)
             return false;
 
-        // For literals: compare ORIGINAL values to detect variations
-        // This enables VariationTracker to see "John" != "Jane" != "Admin"
+        // For literals: compare NORMALIZED values to enable alignment
+        // We will detect value mismatches in VariationTracker
         if (isLiteralType(this.type)) {
-            return this.originalValue.equals(other.originalValue);
+            return this.normalizedValue.equals(other.normalizedValue);
         }
 
         // For semantic tokens: compare NORMALIZED values
