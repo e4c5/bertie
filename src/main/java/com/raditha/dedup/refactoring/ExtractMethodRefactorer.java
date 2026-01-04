@@ -420,14 +420,6 @@ public class ExtractMethodRefactorer {
                         : null;
                 if (exprBindings != null) {
                     valToUse = resolveBindingForSequence(exprBindings, sequence);
-                    if (valToUse == null) {
-                        System.err.println("DEBUG Strategy1: resolveBindingForSequence returned null. Keys: "
-                                + exprBindings.keySet().size() + ", Target range: " + sequence.range());
-                        exprBindings.keySet().forEach(k -> System.err.println("DEBUG Strategy1 key: " + k.range()));
-                    }
-                } else {
-                    System.err.println("DEBUG Strategy1: exprBindings is null for param " + param.name() + " index "
-                            + param.variationIndex());
                 }
 
                 if (valToUse == null) {
@@ -437,12 +429,6 @@ public class ExtractMethodRefactorer {
 
                             : null;
                     if (legacyBindings != null) {
-                        // Wrap legacy strings as ExprInfo-like via resolver overload
-                        for (var e : legacyBindings.entrySet()) {
-                            // no-op; just to touch map to avoid unused warning in some IDEs
-                            if (e == null) {
-                            }
-                        }
                         // Reuse the resolver by adapting to ExprInfo
                         java.util.Map<com.raditha.dedup.model.StatementSequence, com.raditha.dedup.model.ExprInfo> adapted = new java.util.HashMap<>();
                         if (legacyBindings != null) {
@@ -689,8 +675,6 @@ public class ExtractMethodRefactorer {
                 if (returnHasExternalVars && varName == null) {
                     DataFlowAnalyzer dfa2 = new DataFlowAnalyzer();
                     Set<String> seqDefined = dfa2.findDefinedVariables(sequence);
-                    System.err.println(
-                            "DEBUG Bug1 FIX: returnHasExternalVars=true, varName=null, seqDefined=" + seqDefined);
                     // Pick the first defined variable (usually 'user' or similar)
                     if (!seqDefined.isEmpty()) {
                         varName = seqDefined.iterator().next();
@@ -925,11 +909,7 @@ public class ExtractMethodRefactorer {
             stmt.findAll(Expression.class).forEach(expr -> {
                 boolean replace = shouldReplaceExpression(expr, primaryValue, param);
                 if (replace && expr.getParentNode().isPresent()) {
-                    System.out.println(
-                            "DEBUG substituteParameters: Value MATCH! Replaced " + expr + " with " + paramName);
                     expr.replace(new NameExpr(paramName));
-                } else if (!replace) {
-                    // System.out.println("DEBUG substituteParameters: NO MATCH for " + expr);
                 }
             });
         }
