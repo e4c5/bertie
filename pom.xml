@@ -18,7 +18,7 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <slf4j.version>2.0.13</slf4j.version>
-        <javaparser.version>3.26.2</javaparser.version>
+        <javaparser.version>3.27.1</javaparser.version>
         <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
         <antikythera.version>0.1.2.7</antikythera.version>
     </properties>
@@ -26,7 +26,7 @@
     <dependencies>
         <!-- Antikythera Core -->
         <dependency>
-            <groupId>com.github.Cloud-Solutions-International</groupId>
+            <groupId>sa.com.cloudsolutions</groupId>
             <artifactId>antikythera</artifactId>
             <version>${antikythera.version}</version>
         </dependency>
@@ -55,6 +55,18 @@
             <groupId>io.github.java-diff-utils</groupId>
             <artifactId>java-diff-utils</artifactId>
             <version>4.12</version>
+        </dependency>
+
+        <!-- Jackson for JSON serialization -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.17.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>2.17.2</version>
         </dependency>
 
         <!-- Test Dependencies -->

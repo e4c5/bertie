@@ -106,23 +106,7 @@ public class DuplicationAnalyzer {
 
         // Step 5: Add refactoring recommendations to clusters
         List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(cluster -> {
-                    // Get a representative similarity result from the first pair
-                    if (!cluster.duplicates().isEmpty()) {
-                        SimilarityResult similarity = cluster.duplicates().get(0).similarity();
-                        RefactoringRecommendation recommendation = recommendationGenerator
-                                .generateRecommendation(cluster, similarity);
-
-                        // Create new cluster with recommendation
-                        return new DuplicateCluster(
-                                cluster.primary(),
-                                cluster.duplicates(),
-                                recommendation,
-                                cluster.estimatedLOCReduction());
-                    }
-                    return cluster;
-                })
-                .toList();
+                .map(this::addRecommendation).toList();
 
         // Step 6: Create report
         return new DuplicationReport(
@@ -132,6 +116,23 @@ public class DuplicationAnalyzer {
                 sequences.size(),
                 candidates.size(),
                 config);
+    }
+
+    private DuplicateCluster addRecommendation(DuplicateCluster cluster) {
+        // Get a representative similarity result from the first pair
+        if (!cluster.duplicates().isEmpty()) {
+            SimilarityResult similarity = cluster.duplicates().getFirst().similarity();
+            RefactoringRecommendation recommendation = recommendationGenerator
+                    .generateRecommendation(cluster, similarity);
+
+            // Create new cluster with recommendation
+            return new DuplicateCluster(
+                    cluster.primary(),
+                    cluster.duplicates(),
+                    recommendation,
+                    cluster.estimatedLOCReduction());
+        }
+        return cluster;
     }
 
     /**
@@ -146,13 +147,10 @@ public class DuplicationAnalyzer {
      */
     private List<SimilarityPair> findCandidates(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
-        int totalComparisons = 0;
-        int filteredOut = 0;
 
         // Compare all pairs
         for (int i = 0; i < normalizedSequences.size(); i++) {
             for (int j = i + 1; j < normalizedSequences.size(); j++) {
-                totalComparisons++;
 
                 NormalizedSequence norm1 = normalizedSequences.get(i);
                 NormalizedSequence norm2 = normalizedSequences.get(j);
@@ -163,13 +161,11 @@ public class DuplicationAnalyzer {
                 // Skip sequences from the same method (overlapping windows)
                 if (seq1.containingMethod() != null &&
                         seq1.containingMethod().equals(seq2.containingMethod())) {
-                    filteredOut++;
                     continue;
                 }
 
                 // Pre-filter to skip unlikely matches
                 if (!preFilter.shouldCompare(seq1, seq2)) {
-                    filteredOut++;
                     continue;
                 }
 

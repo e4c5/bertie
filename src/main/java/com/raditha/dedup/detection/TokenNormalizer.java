@@ -260,10 +260,10 @@ public class TokenNormalizer {
         String inferredType = null;
         if (type == TokenType.VAR) {
             try {
-                if (node instanceof NameExpr) {
-                    inferredType = ((NameExpr) node).calculateResolvedType().describe();
-                } else if (node instanceof FieldAccessExpr) {
-                    inferredType = ((FieldAccessExpr) node).calculateResolvedType().describe();
+                if (node instanceof NameExpr nameExpr) {
+                    inferredType = nameExpr.calculateResolvedType().describe();
+                } else if (node instanceof FieldAccessExpr fae) {
+                    inferredType = fae.calculateResolvedType().describe();
                 }
             } catch (Exception e) {
                 // Type resolution failed (common if partial AST or no solver)

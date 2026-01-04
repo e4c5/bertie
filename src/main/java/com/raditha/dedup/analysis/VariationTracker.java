@@ -34,18 +34,18 @@ public class VariationTracker {
             return new VariationAnalysis(
                     List.of(),
                     false,
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, String>>(),
+                    new java.util.HashMap<>(),
                     java.util.Collections.emptyList(),
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, com.raditha.dedup.model.ExprInfo>>());
+                    new java.util.HashMap<>());
         }
 
         if (tokens1.isEmpty() && tokens2.isEmpty()) {
             return new VariationAnalysis(
                     List.of(),
                     false,
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, String>>(),
+                    new java.util.HashMap<>(),
                     java.util.Collections.emptyList(),
-                    new java.util.HashMap<Integer, java.util.Map<StatementSequence, com.raditha.dedup.model.ExprInfo>>());
+                    new java.util.HashMap<>());
         }
 
         // Find all variations
@@ -63,15 +63,16 @@ public class VariationTracker {
                 Token t2 = tokens2.get(i);
 
                 boolean semanticallyMatches = t1.semanticallyMatches(t2);
-                boolean isVariableMismatch = semanticallyMatches && t1.type() == TokenType.VAR
+                boolean isValueMismatch = semanticallyMatches && (t1.type() == TokenType.VAR || isLiteral(t1.type()))
                         && !t1.originalValue().equals(t2.originalValue());
 
-                if (!semanticallyMatches || isVariableMismatch) {
+                if (!semanticallyMatches || isValueMismatch) {
                     Variation variation = createVariation(i, i, t1, t2);
                     if (variation != null) {
                         variations.add(variation);
                         // Key value bindings by aligned source position to avoid index drift
-                        captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation, seq1, t1, seq2, t2);
+                        captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation, seq1,
+                                t1, seq2, t2);
 
                         if (variation.type() == VariationType.CONTROL_FLOW) {
                             hasControlFlowDifferences = true;
@@ -87,10 +88,11 @@ public class VariationTracker {
                 if (alignment.token1() != null && alignment.token2() != null) {
                     // Both tokens exist - check if they differ
                     boolean semanticallyMatches = alignment.token1().semanticallyMatches(alignment.token2());
-                    boolean isVariableMismatch = semanticallyMatches && alignment.token1().type() == TokenType.VAR
+                    boolean isValueMismatch = semanticallyMatches
+                            && (alignment.token1().type() == TokenType.VAR || isLiteral(alignment.token1().type()))
                             && !alignment.token1().originalValue().equals(alignment.token2().originalValue());
 
-                    if (!semanticallyMatches || isVariableMismatch) {
+                    if (!semanticallyMatches || isValueMismatch) {
                         Variation variation = createVariation(
                                 alignment.index1(),
                                 alignment.index2(),
@@ -99,7 +101,8 @@ public class VariationTracker {
                         if (variation != null) {
                             variations.add(variation);
                             // Key value bindings by aligned source position to avoid index drift
-                            captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation, seq1, alignment.token1(), seq2,
+                            captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation,
+                                    seq1, alignment.token1(), seq2,
                                     alignment.token2());
 
                             if (variation.type() == VariationType.CONTROL_FLOW) {
@@ -141,7 +144,8 @@ public class VariationTracker {
         strBinding.put(seq2, t2.originalValue());
         valueBindings.put(paramIndex, strBinding);
 
-        // New AST-first bindings (ExprInfo) — currently text-backed; later we can attach real nodes
+        // New AST-first bindings (ExprInfo) — currently text-backed; later we can
+        // attach real nodes
         Map<StatementSequence, com.raditha.dedup.model.ExprInfo> exprBinding = new HashMap<>();
         exprBinding.put(seq1, com.raditha.dedup.model.ExprInfo.fromText(t1.originalValue()));
         exprBinding.put(seq2, com.raditha.dedup.model.ExprInfo.fromText(t2.originalValue()));
@@ -268,5 +272,14 @@ public class VariationTracker {
             int index2,
             Token token1,
             Token token2) {
+    }
+
+    private boolean isLiteral(TokenType type) {
+        return type == TokenType.STRING_LIT ||
+                type == TokenType.INT_LIT ||
+                type == TokenType.LONG_LIT ||
+                type == TokenType.DOUBLE_LIT ||
+                type == TokenType.BOOLEAN_LIT ||
+                type == TokenType.NULL_LIT;
     }
 }

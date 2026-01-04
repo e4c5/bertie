@@ -143,24 +143,24 @@ public class DuplicationDetectorSettings {
 
     private static int getInt(Map<String, Object> map, String key, int defaultValue) {
         Object value = map.get(key);
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
+        if (value instanceof Number n) {
+            return n.intValue();
         }
         return defaultValue;
     }
 
     private static double getDouble(Map<String, Object> map, String key, double defaultValue) {
         Object value = map.get(key);
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
+        if (value instanceof Number n) {
+            return n.doubleValue();
         }
         return defaultValue;
     }
 
     private static boolean getBoolean(Map<String, Object> map, String key, boolean defaultValue) {
         Object value = map.get(key);
-        if (value instanceof Boolean) {
-            return (Boolean) value;
+        if (value instanceof Boolean b) {
+            return b;
         }
         return defaultValue;
     }

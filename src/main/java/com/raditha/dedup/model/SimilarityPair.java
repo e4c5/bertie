@@ -18,11 +18,4 @@ public record SimilarityPair(
     public double getScore() {
         return similarity.overallScore();
     }
-
-    /**
-     * Check if similarity exceeds threshold.
-     */
-    public boolean exceedsThreshold(double threshold) {
-        return similarity.exceedsThreshold(threshold);
-    }
 }

@@ -86,9 +86,10 @@ class TokenNormalizerTest {
         assertNotNull(lit2);
         assertEquals("STRING_LIT", lit1.normalizedValue());
         assertEquals("STRING_LIT", lit2.normalizedValue());
-        // UPDATED: After fix, different values should NOT match
-        assertFalse(lit1.semanticallyMatches(lit2),
-                "String literals with different values should NOT match");
+        // UPDATED: After fix, different values SHOULD match for structural alignment
+        // The VariationTracker is responsible for checking value equality
+        assertTrue(lit1.semanticallyMatches(lit2),
+                "String literals with different values SHOULD match semantically (structural)");
     }
 
     @Test
@@ -175,17 +176,15 @@ class TokenNormalizerTest {
                 parseStatement("Admission admission = new Admission();"),
                 parseStatement("admission.setPatientId(\"P123\");"),
                 parseStatement("admission.setHospitalId(\"H456\");"),
-                parseStatement("admission.setStatus(\"PENDING\");")
-        ));
+                parseStatement("admission.setStatus(\"PENDING\");")));
 
         List<Token> tokens2 = normalizer.normalizeStatements(List.of(
                 parseStatement("Admission admission = new Admission();"),
                 parseStatement("admission.setPatientId(\"P999\");"),
                 parseStatement("admission.setHospitalId(\"H888\");"),
-                parseStatement("admission.setStatus(\"APPROVED\");")
-        ));
+                parseStatement("admission.setStatus(\"APPROVED\");")));
 
-        // Should have similar structure  
+        // Should have similar structure
         assertFalse(tokens1.isEmpty());
         assertFalse(tokens2.isEmpty());
 

@@ -158,17 +158,35 @@ class ParameterExtractorTest {
     }
 
     @Test
-    void testNoVariations() {
+    void testDuplicateParameterNamesRenaming() {
+        // Create two integer variations that would both map to "id" (pattern matched)
+        List<Variation> variations = List.of(
+                new Variation(VariationType.LITERAL, 0, 0, "1", "2", "int"),
+                new Variation(VariationType.LITERAL, 1, 1, "100", "200", "int"));
+
         VariationAnalysis analysis = new VariationAnalysis(
-                List.of(),
+                variations,
                 false,
                 java.util.Map.of(),
-                createDummyTokens(0));
+                createDummyTokens(20));
 
-        Map<String, String> types = Map.of();
+        Map<String, String> types = Map.of("param0", "int", "param1", "int");
 
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
 
-        assertTrue(params.isEmpty());
+        assertEquals(2, params.size());
+
+        ParameterSpec p1 = params.get(0);
+        ParameterSpec p2 = params.get(1);
+
+        // Both should be valid identifiers and UNIQUE
+        assertNotNull(p1.name());
+        assertNotNull(p2.name());
+        assertNotEquals(p1.name(), p2.name(), "Parameter names must be unique");
+
+        // Verify the renaming strategy (e.g., id, id2)
+        // Note: The order depends on pattern matching success. Both are ints -> "id".
+        assertTrue(p1.name().equals("id") || p1.name().equals("id2"));
+        assertTrue(p2.name().equals("id") || p2.name().equals("id2"));
     }
 }

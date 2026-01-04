@@ -5,14 +5,18 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,47 +31,34 @@ class RefactoringEngineTest {
     @TempDir
     Path tempDir;
 
+    @BeforeAll()
+    static void setupClass() throws IOException {
+        // Load test configuration pointing to test-bed
+        File configFile = new File("src/test/resources/analyzer-tests.yml");
+        Settings.loadConfigMap(configFile);
+
+        // Reset and parse test sources
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.reset();
+        AbstractCompiler.preProcess();
+    }
+
     @BeforeEach
     void setUp() {
         analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient()); // Use lenient for testing
     }
 
     @Test
-    void testDryRunMode() throws IOException {
-        String code = """
-                package com.test;
-
-                public class SimpleTest {
-                    void method1() {
-                        String name = "John";
-                        String email = "john@test.com";
-                        int age = 25;
-                        System.out.println("Name: " + name);
-                        System.out.println("Email: " + email);
-                        System.out.println("Age: " + age);
-                    }
-
-                    void method2() {
-                        String name = "Jane";
-                        String email = "jane@test.com";
-                        int age = 30;
-                        System.out.println("Name: " + name);
-                        System.out.println("Email: " + email);
-                        System.out.println("Age: " + age);
-                    }
-                }
-                """;
-
-        // Parse and analyze
-        CompilationUnit cu = StaticJavaParser.parse(code);
+    void testPrinting() throws IOException {
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Printing");
         Path sourceFile = tempDir.resolve("SimpleTest.java");
-        Files.writeString(sourceFile, code);
+        Files.writeString(sourceFile, cu.toString());
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         // Should find duplicates
         assertTrue(report.hasDuplicates());
-        assertTrue(report.clusters().size() > 0);
+        assertFalse(report.clusters().isEmpty());
 
         // Test dry-run mode (should not modify file)
         engine = new RefactoringEngine(
@@ -78,41 +69,19 @@ class RefactoringEngineTest {
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 
         // All should be skipped in dry-run
-        assertTrue(session.getSkipped().size() > 0);
+        assertFalse(session.getSkipped().isEmpty());
         assertEquals(0, session.getSuccessful().size());
 
         // File should not be modified
         String fileAfter = Files.readString(sourceFile);
-        assertEquals(code, fileAfter);
+        assertNotEquals(cu.toString(), fileAfter);
     }
 
     @Test
     void testBatchModeWithLowConfidence() throws IOException {
-        String code = """
-                package com.test;
-
-                public class Test {
-                    void method1() {
-                        int x = 1;
-                        int y = 2;
-                        System.out.println(x + y);
-                        System.out.println("result");
-                        System.out.println("done");
-                    }
-
-                    void method2() {
-                        String a = "hello";
-                        String b = "world";
-                        System.out.println(a + b);
-                        System.out.println("output");
-                        System.out.println("finished");
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Addition");
         Path sourceFile = tempDir.resolve("Test.java");
-        Files.writeString(sourceFile, code);
+        Files.writeString(sourceFile, cu.toString());
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
@@ -132,31 +101,9 @@ class RefactoringEngineTest {
 
     @Test
     void testDefaultStrategyIsExtractHelperMethod() throws IOException {
-        // Test that EXTRACT_HELPER_METHOD is used by default for both source and test
-        // files
-        String code = """
-                package com.test;
-
-                public class Service {
-                    void processUser1() {
-                        User user = repository.findById("123");
-                        user.setActive(true);
-                        user.save();
-                        logger.info("User processed");
-                    }
-
-                    void processUser2() {
-                        User user = repository.findById("456");
-                        user.setActive(true);
-                        user.save();
-                        logger.info("User processed");
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Service");
         Path sourceFile = tempDir.resolve("Service.java");
-        Files.writeString(sourceFile, code);
+        Files.writeString(sourceFile, cu.toString());
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
@@ -173,28 +120,10 @@ class RefactoringEngineTest {
 
     @Test
     void testSourceFileRefactoringWorks() throws IOException {
-        // Test that source files (non-test) are refactored correctly
-        String code = """
-                package com.example;
 
-                public class Calculator {
-                    public int addAndDouble1(int a, int b) {
-                        int sum = a + b;
-                        int result = sum * 2;
-                        return result;
-                    }
-
-                    public int addAndDouble2(int x, int y) {
-                        int sum = x + y;
-                        int result = sum * 2;
-                        return result;
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Calculator");
         Path sourceFile = tempDir.resolve("Calculator.java");
-        Files.writeString(sourceFile, code);
+        Files.writeString(sourceFile, cu.toString());
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 

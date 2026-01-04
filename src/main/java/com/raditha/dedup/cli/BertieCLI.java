@@ -14,6 +14,7 @@ import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -80,7 +81,6 @@ public class BertieCLI {
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
 
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
-        String targetClass = DuplicationDetectorSettings.getTargetClass();
 
         List<DuplicationReport> reports = new ArrayList<>();
 
@@ -88,23 +88,13 @@ public class BertieCLI {
         for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
 
-            // Skip test classes - they use test frameworks (Mockito, etc.) that complicate
-            // type inference
-            if (isTestClass(className)) {
-                continue;
+            // Production code and test code - check both locations
+            Path sourceFile = findSourceFile(className, entry.getValue());
+            if (sourceFile == null) {
+                throw new IllegalStateException("FAIL-FAST: Could not locate source file for class: " + className +
+                        "\nChecked storage and standard locations relative to: " + Settings.getBasePath());
             }
 
-            // Apply filters inline
-            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
-                continue;
-            }
-            if (config.targetPath != null && !matchesTargetPath(className, config.targetPath)) {
-                continue;
-            }
-
-            // Production code only - use src/main/java
-            Path sourceFile = Paths.get(Settings.getBasePath(), "src/main/java",
-                    AbstractCompiler.classToPath(className));
             DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
             reports.add(report);
         }
@@ -134,7 +124,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runRefactoring(CLIConfig config) {
+    private static void runRefactoring(CLIConfig config) throws IOException {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
@@ -215,31 +205,59 @@ public class BertieCLI {
     }
 
     /**
-     * Check if a class name matches the target path filter.
+     * Locate the source file for a given class.
+     * Checks CompilationUnit storage first, then standard locations.
      */
-    private static boolean matchesTargetPath(String className, Path targetPath) {
-        if (targetPath == null) {
-            return true;
+    private static Path findSourceFile(String className, CompilationUnit cu) {
+        // 1. Try to get path from CompilationUnit storage (most robust)
+        if (cu != null && cu.getStorage().isPresent()) {
+            return cu.getStorage().get().getPath();
         }
 
-        String targetStr = targetPath.toString();
+        // 2. Name-based resolution (fallback)
+        // Handle inner classes: if Outer.Inner, we want to look for Outer.java
+        String currentName = className;
+        while (true) {
+            Path path = checkLocations(currentName);
+            if (path != null) {
+                return path;
+            }
 
-        // Check if class name contains target path (package or path segment)
-        return className.contains(targetStr.replace("/", ".")) ||
-                className.replace(".", "/").contains(targetStr);
+            // If it contains a dot, it might be an inner class
+            int lastDot = currentName.lastIndexOf('.');
+            if (lastDot == -1) {
+                break; // No more parents to check
+            }
+            // Strip the last segment to check the parent
+            // e.g., com.pkg.Outer.Inner -> com.pkg.Outer
+            currentName = currentName.substring(0, lastDot);
+        }
+
+        return null;
     }
 
-    /**
-     * Determine if a class is a test class based on naming conventions.
-     * Test classes typically end with "Test", "Tests", or "TestCase".
-     */
-    private static boolean isTestClass(String className) {
-        // Check common test class name patterns
-        return className.endsWith("Test") ||
-                className.endsWith("Tests") ||
-                className.endsWith("TestCase") ||
-                className.contains(".test.") ||
-                className.contains(".tests.");
+    private static Path checkLocations(String className) {
+        String relativePath = AbstractCompiler.classToPath(className);
+
+        // Try src/main/java first
+        Path mainPath = Paths.get(Settings.getBasePath(), "src/main/java", relativePath);
+        if (mainPath.toFile().exists()) {
+            return mainPath;
+        }
+
+        // Try src/test/java
+        Path testPath = Paths.get(Settings.getBasePath(), "src/test/java", relativePath);
+        if (testPath.toFile().exists()) {
+            return testPath;
+        }
+
+        // Fallback: Check checking relative to base path directly
+        Path directPath = Paths.get(Settings.getBasePath(), relativePath);
+        if (directPath.toFile().exists()) {
+            return directPath;
+        }
+
+        return null;
     }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
@@ -503,7 +521,7 @@ public class BertieCLI {
                     if (arg.startsWith("--")) {
                         throw new IllegalArgumentException("Unknown option: " + arg);
                     }
-                    config.targetPath = Paths.get(arg);
+                    // target path was removed
                 }
             }
         }
@@ -612,7 +630,6 @@ public class BertieCLI {
 
     private static class CLIConfig {
         String command = "detect"; // "detect" or "refactor"
-        Path targetPath;
         String basePath = null;
         String outputPath = null;
         String configFile = null; // Custom configuration file path

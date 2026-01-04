@@ -59,14 +59,7 @@ public class PreFilterChain {
         }
 
         // Stage 2: Structural filter (moderate cost, if enabled)
-        if (useStructuralFilter) {
-            if (!structuralFilter.shouldCompare(seq1, seq2)) {
-                return false; // Skip: structural dissimilarity
-            }
-        }
-
-        // Passed all filters
-        return true;
+        return !useStructuralFilter || structuralFilter.shouldCompare(seq1, seq2); // Skip: structural dissimilarity
     }
 
     /**

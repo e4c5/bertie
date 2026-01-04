@@ -50,6 +50,9 @@ public class ParameterExtractor {
                 .collect(Collectors.groupingBy(Variation::alignedIndex1));
 
         var orderedPositions = new java.util.TreeSet<>(byPosition.keySet());
+        // Track used names to prevent duplicates (e.g. multiple "id" params)
+        java.util.Set<String> usedNames = new java.util.HashSet<>();
+
         for (Integer position : orderedPositions) {
             List<Variation> positionVars = byPosition.get(position);
 
@@ -69,7 +72,15 @@ public class ParameterExtractor {
             String type = typeCompatibility.getOrDefault("param" + position, "Object");
 
             // Infer parameter name
-            String name = inferParameterName(positionVars, position);
+            String baseName = inferParameterName(positionVars, position);
+
+            // Ensure uniqueness
+            String uniqueName = baseName;
+            int counter = 2;
+            while (usedNames.contains(uniqueName)) {
+                uniqueName = baseName + counter++;
+            }
+            usedNames.add(uniqueName);
 
             // Collect example values
             // Include both value1 (primary) AND value2 (duplicate)
@@ -79,11 +90,13 @@ public class ParameterExtractor {
                     .limit(5)
                     .toList();
 
-            // Use aligned position as the binding key (matches VariationTracker's valueBindings key)
+            // Use aligned position as the binding key (matches VariationTracker's
+            // valueBindings key)
             Integer variationIndex = position;
 
             Token t = null;
-            // Use position (alignedIndex1) to fetch token from primary tokens attached to analysis
+            // Use position (alignedIndex1) to fetch token from primary tokens attached to
+            // analysis
             if (variations.primaryTokens() != null && position >= 0 && position < variations.primaryTokens().size()) {
                 t = variations.primaryTokens().get(position);
             }
@@ -91,7 +104,7 @@ public class ParameterExtractor {
             Integer col = t != null ? t.columnNumber() : null;
 
             ParameterSpec spec = new ParameterSpec(
-                    name,
+                    uniqueName,
                     type,
                     exampleValues,
                     variationIndex,
@@ -99,7 +112,7 @@ public class ParameterExtractor {
                     col);
 
             logger.debug("[ParamExtractor] position={} type={} name={} examples={} varIdx={} loc=({}, {})",
-                    position, type, name, exampleValues, variationIndex, line, col);
+                    position, type, uniqueName, exampleValues, variationIndex, line, col);
 
             parameters.add(spec);
 
@@ -198,66 +211,5 @@ public class ParameterExtractor {
             case METHOD_CALL -> "result" + position;
             default -> "param" + position;
         };
-    }
-
-    /**
-     * Find common part among variable names.
-     */
-    private String findCommonPart(List<String> names) {
-        if (names.isEmpty()) {
-            return null;
-        }
-
-        // Simple approach: find common suffix
-        // e.g., userId, customerId → "Id"
-        String first = names.get(0);
-        for (int len = 2; len <= first.length(); len++) {
-            String suffix = first.substring(first.length() - len);
-            boolean allMatch = names.stream()
-                    .allMatch(name -> name.endsWith(suffix));
-            if (allMatch && len > 2) {
-                return capitalize(suffix);
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Sort parameters: primitives first, then objects.
-     */
-    private List<ParameterSpec> sortParameters(List<ParameterSpec> parameters) {
-        return parameters.stream()
-                .sorted((p1, p2) -> {
-                    boolean p1IsPrimitive = isPrimitiveType(p1.type());
-                    boolean p2IsPrimitive = isPrimitiveType(p2.type());
-
-                    if (p1IsPrimitive && !p2IsPrimitive) {
-                        return -1;
-                    } else if (!p1IsPrimitive && p2IsPrimitive) {
-                        return 1;
-                    }
-                    return 0;
-                })
-                .toList();
-    }
-
-    /**
-     * Check if a type is a primitive or primitive wrapper.
-     */
-    private boolean isPrimitiveType(String type) {
-        return type.equals("int") || type.equals("long") || type.equals("double") ||
-                type.equals("boolean") || type.equals("Integer") || type.equals("Long") ||
-                type.equals("Double") || type.equals("Boolean");
-    }
-
-    /**
-     * Capitalize first letter.
-     */
-    private String capitalize(String str) {
-        if (str == null || str.isEmpty()) {
-            return str;
-        }
-        return str.substring(0, 1).toUpperCase() + str.substring(1);
     }
 }

@@ -31,23 +31,15 @@ public class MutabilityAnalyzer {
             "Mock", "Spy", "InjectMocks", "Captor");
 
     public boolean isSafeToPromote(String typeName) {
-        if (isImmutableType(typeName)) {
-            return true;
-        }
-
-        if (isMockType(typeName)) {
+        if (isImmutableType(typeName) || isMockType(typeName)) {
             return true;
         }
 
         // Allow test infrastructure patterns
         String baseType = stripGenerics(typeName);
-        if (baseType.endsWith("Service") || baseType.endsWith("Mock") ||
+        return (baseType.endsWith("Service") || baseType.endsWith("Mock") ||
                 baseType.endsWith("Stub") || baseType.endsWith("Test") ||
-                baseType.endsWith("Helper")) {
-            return true;
-        }
-
-        return false; // Default: mutable, not safe
+                baseType.endsWith("Helper"));
     }
 
     public boolean isImmutableType(String typeName) {

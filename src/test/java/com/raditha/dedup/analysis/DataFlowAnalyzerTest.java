@@ -13,6 +13,7 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
@@ -26,6 +27,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class DataFlowAnalyzerTest {
 
         private static DataFlowAnalyzer analyzer;
+
+        private final Path sourceFilePath = Paths.get("Test.java");
 
         @BeforeAll
         static void setUp() throws IOException {
@@ -55,7 +58,7 @@ class DataFlowAnalyzerTest {
                                                 .equals("testProcessUserAndReturnCorrectOne_returnsFinalUserNotTemp"))
                                 .orElseThrow();
 
-                BlockStmt body = method.getBody().get();
+                BlockStmt body = method.getBody().orElseThrow();
                 List<Statement> stmts = body.getStatements();
 
                 // Create sequence from first few statements
@@ -85,12 +88,8 @@ class DataFlowAnalyzerTest {
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
                                 m -> m.getNameAsString().equals("testAllMethodsReturnDifferentResults")).orElseThrow();
 
-                List<Statement> stmts = method.getBody().get().getStatements();
+                List<Statement> stmts = method.getBody().orElseThrow().getStatements();
 
-                // 1. Test Block: Service calls (lines 133-135 approx)
-                // String result1 = ...
-                // String result2 = ...
-                // String result3 = ...
                 List<Statement> serviceCalls = stmts.stream()
                                 .filter(s -> s.toString().contains("service.process"))
                                 .toList();
@@ -103,7 +102,7 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                                Paths.get("Test.java"));
+                                sourceFilePath);
 
                 Set<String> liveVarsCalls = analyzer.findLiveOutVariables(sequenceCalls);
                 // result1, result2, result3 are used in assertions later
@@ -113,7 +112,7 @@ class DataFlowAnalyzerTest {
 
                 // 2. Test Block: Setup (lines 115-131 approx)
                 // Select EVERYTHING from start of method up to the start of service calls.
-                int firstServiceCallIndex = stmts.indexOf(serviceCalls.get(0));
+                int firstServiceCallIndex = stmts.indexOf(serviceCalls.getFirst());
                 List<Statement> allSetup = stmts.subList(0, firstServiceCallIndex);
 
                 StatementSequence sequenceFullSetup = new StatementSequence(
@@ -122,18 +121,9 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                                Paths.get("Test.java"));
+                                sourceFilePath);
 
                 Set<String> liveVarsFullSetup = analyzer.findLiveOutVariables(sequenceFullSetup);
-                // repository and service are fields, not local vars.
-                // user1, user2, user3 are local. Are they used after line 132?
-                // Checking code:
-                // result1 = service...
-                // assertNotEquals(result1, result2)...
-                // assertTrue(result1.contains("User1")); -> "User1" is a literal string,
-                // checking content of result.
-                // The variable 'user1' itself is NOT used after the setup.
-
                 assertTrue(liveVarsFullSetup.isEmpty(), "Setup variables should NOT be live out " + liveVarsFullSetup);
         }
 
@@ -144,7 +134,7 @@ class DataFlowAnalyzerTest {
 
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
                                 m -> m.getNameAsString().equals("testAllMethodsReturnDifferentResults")).orElseThrow();
-                List<Statement> stmts = method.getBody().get().getStatements();
+                List<Statement> stmts = method.getBody().orElseThrow().getStatements();
 
                 // 1. Unsafe Block: Service calls (multiple outputs: result1, result2, result3)
                 List<Statement> serviceCalls = stmts.stream()
@@ -164,7 +154,7 @@ class DataFlowAnalyzerTest {
                                 "Should be unsafe to extract block with multiple live-out variables");
 
                 // 2. Safe Block: Setup (no live-out variables)
-                int firstServiceCallIndex = stmts.indexOf(serviceCalls.get(0));
+                int firstServiceCallIndex = stmts.indexOf(serviceCalls.getFirst());
                 List<Statement> allSetup = stmts.subList(0, firstServiceCallIndex);
                 StatementSequence sequenceSetup = new StatementSequence(
                                 allSetup,
@@ -204,9 +194,9 @@ class DataFlowAnalyzerTest {
                                 m -> m.getNameAsString().equals("processUserAndReturnCorrectOne")).orElseThrow();
 
                 // Sequence: Entire body
-                List<Statement> stmts = method.getBody().get().getStatements();
-                int startLine = stmts.get(0).getRange().get().begin.line;
-                int endLine = stmts.get(stmts.size() - 1).getRange().get().end.line;
+                List<Statement> stmts = method.getBody().orElseThrow().getStatements();
+                int startLine = stmts.getFirst().getRange().orElseThrow().begin.line;
+                int endLine = stmts.getLast().getRange().orElseThrow().end.line;
 
                 StatementSequence sequence = new StatementSequence(
                                 stmts,
@@ -214,13 +204,14 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                                Paths.get("Test.java"));
+                                sourceFilePath);
 
                 // Expected: finalUser should be found because it is explicitly RETURNED in the
                 // sequence
                 // AND it is the best candidate (tempUser shouldn't be live out because usage is
                 // enclosed in sequence)
-                String returnVar = analyzer.findReturnVariable(sequence, "String");
+                // expected matches variable type
+                String returnVar = analyzer.findReturnVariable(sequence, "User");
                 assertEquals("finalUser", returnVar,
                                 "Should maintain finalUser as candidate due to return statement usage");
         }
@@ -234,12 +225,12 @@ class DataFlowAnalyzerTest {
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
                                 m -> m.getNameAsString().equals("processAndDontReturn1")).orElseThrow();
 
-                List<Statement> stmts = method.getBody().get().getStatements();
+                List<Statement> stmts = method.getBody().orElseThrow().getStatements();
                 // Note: The method body contains comments which might be attached to statements
                 // or not.
                 // Using statement ranges is safest.
-                int startLine = stmts.get(0).getRange().get().begin.line;
-                int endLine = stmts.get(stmts.size() - 1).getRange().get().end.line;
+                int startLine = stmts.getFirst().getRange().orElseThrow().begin.line;
+                int endLine = stmts.getLast().getRange().orElseThrow().end.line;
 
                 StatementSequence sequence = new StatementSequence(
                                 stmts,
@@ -247,7 +238,7 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                                Paths.get("Test.java"));
+                                sourceFilePath);
 
                 // Expected: 'user' is defined, matches type User, but NOT live-out (not used
                 // after).
@@ -267,7 +258,7 @@ class DataFlowAnalyzerTest {
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
                                 m -> m.getNameAsString().equals("collectActiveUserNames")).orElseThrow();
 
-                Statement forStmt = method.getBody().get().getStatements().get(1); // 0 is list init, 1 is loop
+                Statement forStmt = method.getBody().orElseThrow().getStatements().get(1); // 0 is list init, 1 is loop
                 assertTrue(forStmt.isForEachStmt());
 
                 BlockStmt loopBody = forStmt.asForEachStmt().getBody().asBlockStmt();
@@ -292,14 +283,14 @@ class DataFlowAnalyzerTest {
 
         @Test
         void testFindReturnVariable_TypePreference_Synthetic() {
-            String code = """
-                    class Test { void m() { 
-                       int x = 1; 
-                       Object o = new Object(); 
-                       System.out.println(x); 
-                       System.out.println(o);
-                       }
-                    }""";
+                String code = """
+                                class Test { void m() {
+                                   int x = 1;
+                                   Object o = new Object();
+                                   System.out.println(x);
+                                   System.out.println(o);
+                                   }
+                                }""";
 
                 CompilationUnit cu = new com.github.javaparser.JavaParser().parse(code).getResult().get();
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class).get();
@@ -324,7 +315,7 @@ class DataFlowAnalyzerTest {
                                 0,
                                 method,
                                 cu,
-                                Paths.get("Test.java"));
+                                sourceFilePath);
 
                 // Mocking the ranges might be tricky with real JavaParser objects if they don't
                 // have them.
@@ -335,18 +326,18 @@ class DataFlowAnalyzerTest {
                 if (seqStmts.get(0).getRange().isEmpty()) {
                         // Fallback if no ranges: the test might be flaky or need invalidation.
                         // Let's construct a cleaner formatted string to ensure ranges.
-                    code = """
-                            class Test { void m() { 
-                               int x = 1; 
-                               Object o = new Object(); 
-                               System.out.println(x); 
-                                               System.out.println(o);
-                                               }
-                                            }""";
+                        code = """
+                                        class Test { void m() {
+                                           int x = 1;
+                                           Object o = new Object();
+                                           System.out.println(x);
+                                                           System.out.println(o);
+                                                           }
+                                                        }""";
                         cu = new com.github.javaparser.JavaParser().parse(code).getResult().get();
                         method = cu.findFirst(MethodDeclaration.class).get();
                         stmts = method.getBody().get().getStatements();
-                        seqStmts = stmts.subList(0, 2); 
+                        seqStmts = stmts.subList(0, 2);
 
                         // Real range of 2nd statement
                         int endLine = seqStmts.get(1).getRange().get().end.line;
@@ -357,11 +348,10 @@ class DataFlowAnalyzerTest {
                                         0,
                                         method,
                                         cu,
-                                        Paths.get("Test.java"));
+                                        sourceFilePath);
                 }
 
-                String bestVar = analyzer.findReturnVariable(sequence, "generatedReference"); // Type arg irrelevant for
-                                                                                              // main logic
+                String bestVar = analyzer.findReturnVariable(sequence, "Object"); // Type match for 'o'
                 assertEquals("o", bestVar, "Should prefer Object 'o' over primitive 'x'");
         }
 }
