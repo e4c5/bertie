@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,11 +127,23 @@ public class ExtractMethodRefactorer {
             targetReturnVar = findReturnVariable(sequence, returnType);
         }
 
+        // FIX BUG #1: Check if return expression uses external variables (like prefix)
+        // If so, we must NOT include the return statement - instead return the object
+        // and let the caller reconstruct the expression
+        boolean hasExternalVars = hasExternalVariablesInReturn(sequence);
+
         for (Statement stmt : sequence.statements()) {
             Statement clonedStmt = stmt.clone();
 
             // CRITICAL: Replace varying literals with parameter names
             clonedStmt = substituteParameters(clonedStmt, sequence, recommendation);
+
+            // FIX BUG #1: If return expression uses external variables (like prefix),
+            // skip the return statement entirely - we'll add a simple return at the end
+            if (hasExternalVars && clonedStmt.isReturnStmt()) {
+                // Don't add this return statement - the caller will handle the expression
+                continue;
+            }
 
             // If this is a return statement AND we have a specific variable to return
             // AND the return statement is complex (e.g. return user.getName())
@@ -158,6 +171,7 @@ public class ExtractMethodRefactorer {
                 }
             }
             body.addStatement(clonedStmt);
+
         }
 
         // Add return statement if needed (and not already present/unreachable)
@@ -178,6 +192,124 @@ public class ExtractMethodRefactorer {
     private String findReturnVariable(StatementSequence sequence, String returnType) {
         DataFlowAnalyzer analyzer = new DataFlowAnalyzer();
         return analyzer.findReturnVariable(sequence, returnType);
+    }
+
+    /**
+     * Check if a return expression references variables that are NOT defined within
+     * the sequence.
+     * Such "external" variables (like a prefix defined before the duplicate code)
+     * cannot be
+     * accessed in the extracted method, so we must return the object and let the
+     * caller
+     * reconstruct the expression.
+     */
+    private boolean hasExternalVariablesInReturn(StatementSequence sequence) {
+        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+        Set<String> definedInSequence = dfa.findDefinedVariables(sequence);
+        System.err.println("DEBUG hasExternal: definedInSequence=" + definedInSequence);
+
+        // Find any return statement in the sequence
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
+                Expression returnExpr = stmt.asReturnStmt().getExpression().get();
+                System.err.println("DEBUG hasExternal: returnExpr=" + returnExpr);
+                // Check all variable references in the return expression
+                for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
+                    String varName = nameExpr.getNameAsString();
+                    System.err.println("DEBUG hasExternal: checking var=" + varName + ", inSequence="
+                            + definedInSequence.contains(varName));
+                    // If this variable is NOT defined in the sequence, it's external
+                    if (!definedInSequence.contains(varName)) {
+                        // Check if it's a local variable defined before the sequence
+                        boolean isLocal = isLocalVariable(sequence, varName);
+                        System.err.println(
+                                "DEBUG hasExternal: var=" + varName + " is NOT in sequence, isLocal=" + isLocal);
+                        if (isLocal) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a variable name refers to a local variable (defined in the
+     * containing method
+     * but NOT in the sequence).
+     */
+    private boolean isLocalVariable(StatementSequence sequence, String varName) {
+        MethodDeclaration containingMethod = sequence.containingMethod();
+        if (containingMethod == null || containingMethod.getBody().isEmpty()) {
+            return false;
+        }
+
+        // Search for variable declaration in method body but BEFORE the sequence start
+        int sequenceStartLine = sequence.range().startLine();
+        BlockStmt methodBody = containingMethod.getBody().get();
+
+        for (VariableDeclarationExpr varDecl : methodBody.findAll(VariableDeclarationExpr.class)) {
+            if (varDecl.getRange().isPresent() &&
+                    varDecl.getRange().get().begin.line < sequenceStartLine) {
+                for (var variable : varDecl.getVariables()) {
+                    if (variable.getNameAsString().equals(varName)) {
+                        return true; // Found as local variable before sequence
+                    }
+                }
+            }
+        }
+
+        // Also check method parameters
+        for (var param : containingMethod.getParameters()) {
+            if (param.getNameAsString().equals(varName)) {
+                return true; // It's a method parameter, treated as external
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if a return expression is "simple" - just returning the variable or a
+     * method call on it.
+     * Returns false for "complex" expressions like: prefix + user.getName()
+     * where the expression combines the variable with other external variables.
+     */
+    private boolean isSimpleReturnOfVariable(Expression expr, String varName) {
+        // Case 1: Just return the variable itself (return user;)
+        if (expr.isNameExpr() && expr.asNameExpr().getNameAsString().equals(varName)) {
+            return true;
+        }
+
+        // Case 2: Method call on the variable (return user.getName();)
+        if (expr.isMethodCallExpr()) {
+            MethodCallExpr mce = expr.asMethodCallExpr();
+            if (mce.getScope().isPresent()) {
+                Expression scope = mce.getScope().get();
+                if (scope.isNameExpr() && scope.asNameExpr().getNameAsString().equals(varName)) {
+                    return true;
+                }
+            }
+        }
+
+        // Case 3: Check if this is a binary expression (like prefix + user.getName())
+        // - if it uses any variables OTHER than varName, it's complex
+        if (expr.isBinaryExpr()) {
+            // Find all name expressions used
+            Set<String> usedVars = new HashSet<>();
+            for (NameExpr nameExpr : expr.findAll(NameExpr.class)) {
+                usedVars.add(nameExpr.getNameAsString());
+            }
+            // If there's more than one unique variable, it's complex
+            usedVars.remove(varName);
+            if (!usedVars.isEmpty()) {
+                return false;
+            }
+        }
+
+        // Default: assume simple
+        return true;
     }
 
     private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings,
@@ -496,6 +628,70 @@ public class ExtractMethodRefactorer {
                 boolean nextIsReturn = startIdx < block.getStatements().size() &&
                         block.getStatements().get(startIdx).isReturnStmt();
 
+                // DEBUG: Trace the key decision values
+                System.err.println("DEBUG Bug1 TRACE: method=" + containingMethod.getNameAsString() +
+                        ", startIdx=" + startIdx + ", blockSize=" + block.getStatements().size() +
+                        ", nextIsReturn=" + nextIsReturn +
+                        (startIdx < block.getStatements().size()
+                                ? ", nextStmt=" + block.getStatements().get(startIdx).getClass().getSimpleName()
+                                : ""));
+
+                // FIX BUG #1: Check if the post-sequence return uses external variables
+                // (like prefix + user.getName()). If so, we CANNOT return directly.
+                boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
+
+                // ALSO check if the NEXT return (after the sequence) uses ANY variables
+                // that are defined in the sequence - this means we can't just return directly
+                if (nextIsReturn) {
+                    ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
+                    System.err.println("DEBUG Bug1: nextReturn = " + nextReturn);
+                    if (nextReturn.getExpression().isPresent()) {
+                        Expression returnExpr = nextReturn.getExpression().get();
+                        System.err.println("DEBUG Bug1: returnExpr = " + returnExpr);
+                        Set<String> returnVars = new HashSet<>();
+                        for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
+                            returnVars.add(nameExpr.getNameAsString());
+                        }
+                        System.err.println("DEBUG Bug1: returnVars = " + returnVars);
+                        // Check if return uses any variable defined in the sequence
+                        DataFlowAnalyzer postDfa = new DataFlowAnalyzer();
+                        Set<String> sequenceDefinedVars = postDfa.findDefinedVariables(sequence);
+                        System.err.println("DEBUG Bug1: sequenceDefinedVars = " + sequenceDefinedVars);
+                        for (String definedVar : sequenceDefinedVars) {
+                            if (returnVars.contains(definedVar)) {
+                                System.err.println("DEBUG Bug1: found match: " + definedVar + ", varName=" + varName);
+                                // The return uses a variable from the sequence
+                                // Check if it's a complex expression (not just the var or method on it)
+                                if (varName == null || !isSimpleReturnOfVariable(returnExpr, varName)) {
+                                    System.err.println("DEBUG Bug1: setting returnHasExternalVars=true");
+                                    returnHasExternalVars = true;
+                                    // Also set a fallback varName if null
+                                    if (varName == null) {
+                                        varName = definedVar;
+                                        System.err.println("DEBUG Bug1: set fallback varName=" + varName);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // FIX BUG #1: If returnHasExternalVars=true and varName is still null,
+                // we need to set varName to a defined variable from the sequence
+                // so the else-branch (with originalReturnValues reconstruction) is taken
+                if (returnHasExternalVars && varName == null) {
+                    DataFlowAnalyzer dfa2 = new DataFlowAnalyzer();
+                    Set<String> seqDefined = dfa2.findDefinedVariables(sequence);
+                    System.err.println(
+                            "DEBUG Bug1 FIX: returnHasExternalVars=true, varName=null, seqDefined=" + seqDefined);
+                    // Pick the first defined variable (usually 'user' or similar)
+                    if (!seqDefined.isEmpty()) {
+                        varName = seqDefined.iterator().next();
+                        System.err.println("DEBUG Bug1 FIX: set fallback varName=" + varName);
+                    }
+                }
+
                 // If we found a return variable, we assign it
                 if (varName != null) {
                     // CRITICAL FIX: If the next statement is a return and the extracted method
@@ -503,10 +699,12 @@ public class ExtractMethodRefactorer {
                     // ALSO: If after removal the block becomes empty AND the containing method
                     // returns a value,
                     // we should return the method call result
-                    boolean shouldReturnDirectly = (nextIsReturn && originalReturnValues != null) ||
-                            (block.getStatements().isEmpty() &&
-                                    !containingMethod.getType().asString().equals("void") &&
-                                    originalReturnValues != null);
+                    // BUT NOT if external variables exist in the return expression!
+                    boolean shouldReturnDirectly = !returnHasExternalVars &&
+                            ((nextIsReturn && originalReturnValues != null) ||
+                                    (block.getStatements().isEmpty() &&
+                                            !containingMethod.getType().asString().equals("void") &&
+                                            originalReturnValues != null));
 
                     if (shouldReturnDirectly) {
                         // Remove the orphaned return statement if it exists
