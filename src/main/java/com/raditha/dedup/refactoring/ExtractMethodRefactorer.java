@@ -29,6 +29,8 @@ import java.util.Set;
  */
 public class ExtractMethodRefactorer {
 
+    public static final String STRING = "String";
+
     /**
      * Perform extract method refactoring.
      * 
@@ -341,41 +343,34 @@ public class ExtractMethodRefactorer {
             return v;
         }
         // Fallback 1: match by exact source range (start/end lines)
-        try {
+
             int start = target.range().startLine();
             int end = target.range().endLine();
             for (Map.Entry<StatementSequence, com.raditha.dedup.model.ExprInfo> entry : bindings.entrySet()) {
                 StatementSequence seq = entry.getKey();
                 if (seq == null)
                     continue;
-                try {
+
                     if (seq.range().startLine() == start && seq.range().endLine() == end) {
                         return asText.apply(entry.getValue());
                     }
-                } catch (Exception ignore) {
-                }
+
             }
-        } catch (Exception ignore) {
-        }
+
         return null;
     }
 
     // Context-aware extraction for ambiguous multiple-String parameters
     private String extractStringArgFromCall(StatementSequence sequence, String methodName) {
-        try {
-            for (Statement stmt : sequence.statements()) {
-                for (MethodCallExpr call : stmt.findAll(MethodCallExpr.class)) {
-                    if (call.getNameAsString().equals(methodName) && call.getArguments().size() >= 1) {
-                        Expression arg = call.getArgument(0);
-                        if (arg.isStringLiteralExpr()) {
-                            return arg.toString(); // includes quotes
-                        } else if (arg.isNameExpr()) {
-                            return arg.toString(); // variable name (no quotes)
-                        }
+        for (Statement stmt : sequence.statements()) {
+            for (MethodCallExpr call : stmt.findAll(MethodCallExpr.class)) {
+                if (call.getNameAsString().equals(methodName) && call.getArguments().size() >= 1) {
+                    Expression arg = call.getArgument(0);
+                    if (arg.isStringLiteralExpr() || arg.isNameExpr()) {
+                        return arg.toString(); // includes quotes
                     }
                 }
             }
-        } catch (Exception ignore) {
         }
         return null;
     }
@@ -395,12 +390,7 @@ public class ExtractMethodRefactorer {
      */
     private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation,
             VariationAnalysis variations, String methodNameToUse) {
-        System.err.println("DEBUG replaceWithMethodCall: method=" + methodNameToUse + ", variations="
-                + (variations != null) + ", params=" + recommendation.suggestedParameters().size());
-        if (variations != null) {
-            System.err.println("DEBUG replaceWithMethodCall: exprBindings="
-                    + (variations.exprBindings() != null ? variations.exprBindings().size() : "null"));
-        }
+        debugReplaceWithMethodCall(recommendation, variations, methodNameToUse);
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return;
@@ -411,7 +401,7 @@ public class ExtractMethodRefactorer {
         // Determine ordering among String parameters for context-aware extraction
         List<ParameterSpec> stringParams = new ArrayList<>();
         for (ParameterSpec p : recommendation.suggestedParameters()) {
-            if ("String".equals(p.type())) {
+            if (STRING.equals(p.type())) {
                 stringParams.add(p);
             }
         }
@@ -468,7 +458,7 @@ public class ExtractMethodRefactorer {
 
             // STRATEGY 2a: Context-aware extraction for multiple String parameters (prefer
             // this over generic AST scan)
-            if (valToUse == null && "String".equals(param.type()) && stringParams.size() >= 2) {
+            if (valToUse == null && STRING.equals(param.type()) && stringParams.size() >= 2) {
                 int ord = stringParams.indexOf(param);
                 if (ord >= 0) {
                     String ctxVal = extractStringByContext(sequence, ord);
@@ -485,7 +475,7 @@ public class ExtractMethodRefactorer {
                 if (actualValue != null) {
                     // If multiple same-type params exist (e.g., two Strings), prefer values that
                     // match this param's example set
-                    if ("String".equals(param.type()) && actualValue.startsWith("\"")
+                    if (STRING.equals(param.type()) && actualValue.startsWith("\"")
                             && !param.exampleValues().isEmpty()) {
                         String unq = actualValue.replace("\"", "");
                         boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", ""))
@@ -504,7 +494,7 @@ public class ExtractMethodRefactorer {
             // type-compatible)
             if (valToUse == null && !param.exampleValues().isEmpty()) {
                 String pType = param.type();
-                if (!"String".equals(pType)) {
+                if (!STRING.equals(pType)) {
                     String candidate = param.exampleValues().get(0);
                     // Only accept if it looks type-compatible
                     boolean ok = false;
@@ -539,7 +529,7 @@ public class ExtractMethodRefactorer {
                 allArgsResolved = false; // quoted string where numeric/boolean expected
                 break;
             }
-            if ("String".equals(pType) && !valToUse.startsWith("\"") && valToUse.matches("-?\\d+(\\.\\d+)?")) {
+            if (STRING.equals(pType) && !valToUse.startsWith("\"") && valToUse.matches("-?\\d+(\\.\\d+)?")) {
                 allArgsResolved = false; // numeric literal where String expected
                 break;
             }
@@ -762,6 +752,15 @@ public class ExtractMethodRefactorer {
         }
     }
 
+    private static void debugReplaceWithMethodCall(RefactoringRecommendation recommendation, VariationAnalysis variations, String methodNameToUse) {
+        System.err.println("DEBUG replaceWithMethodCall: method=" + methodNameToUse + ", variations="
+                + (variations != null) + ", params=" + recommendation.suggestedParameters().size());
+        if (variations != null) {
+            System.err.println("DEBUG replaceWithMethodCall: exprBindings="
+                    + (variations.exprBindings() != null ? variations.exprBindings().size() : "null"));
+        }
+    }
+
     /**
      * Find the index of the first statement in a sequence within a block.
      */
@@ -815,7 +814,7 @@ public class ExtractMethodRefactorer {
 
         // Fallback to example value only for non-String parameters; for Strings, return
         // null to avoid wrong literals
-        if (!param.exampleValues().isEmpty() && (param.type() == null || !"String".equals(param.type()))) {
+        if (!param.exampleValues().isEmpty() && (param.type() == null || !STRING.equals(param.type()))) {
             return param.exampleValues().get(0);
         }
 
@@ -846,7 +845,7 @@ public class ExtractMethodRefactorer {
         if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || "Boolean".equals(param.type()))) {
             return true;
         }
-        if (expr.isStringLiteralExpr() && ("String".equals(param.type()))) {
+        if (expr.isStringLiteralExpr() && (STRING.equals(param.type()))) {
             // If we have example values (e.g., two String params), only accept literals
             // matching this param's examples
             if (!param.exampleValues().isEmpty()) {
