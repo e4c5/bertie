@@ -9,7 +9,6 @@ import com.raditha.dedup.analysis.VariationTracker;
 import com.raditha.dedup.analysis.TypeAnalyzer;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
-import com.raditha.dedup.filter.LSHIndex;
 import com.raditha.dedup.clustering.DuplicateClusterer;
 import com.raditha.dedup.clustering.RefactoringRecommendationGenerator;
 import com.raditha.dedup.model.*;
@@ -20,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Main orchestrator for duplicate detection.
@@ -148,35 +146,37 @@ public class DuplicationAnalyzer {
      */
     private List<SimilarityPair> findCandidates(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
+        int totalComparisons = 0;
+        int filteredOut = 0;
 
-        // Use LSH to find candidate pairs (Phase 1.6 Performance Optimization)
-        // This replaces the O(N^2) double loop with O(N) LSH indexing + O(C) where C is candidate pairs
-        LSHIndex<NormalizedSequence> lsh = new LSHIndex<>();
-        lsh.index(normalizedSequences, NormalizedSequence::tokens);
-        Set<LSHIndex.Pair<NormalizedSequence>> lshCandidates = lsh.getCandidates();
+        // Compare all pairs
+        for (int i = 0; i < normalizedSequences.size(); i++) {
+            for (int j = i + 1; j < normalizedSequences.size(); j++) {
+                totalComparisons++;
 
-        // Filter LSH candidates using traditional pre-filters (size & structural)
-        for (LSHIndex.Pair<NormalizedSequence> pair : lshCandidates) {
-            NormalizedSequence norm1 = pair.first();
-            NormalizedSequence norm2 = pair.second();
+                NormalizedSequence norm1 = normalizedSequences.get(i);
+                NormalizedSequence norm2 = normalizedSequences.get(j);
 
-            StatementSequence seq1 = norm1.sequence();
-            StatementSequence seq2 = norm2.sequence();
+                StatementSequence seq1 = norm1.sequence();
+                StatementSequence seq2 = norm2.sequence();
 
-            // Skip sequences from the same method (overlapping windows)
-            if (seq1.containingMethod() != null &&
-                    seq1.containingMethod().equals(seq2.containingMethod())) {
-                continue;
+                // Skip sequences from the same method (overlapping windows)
+                if (seq1.containingMethod() != null &&
+                        seq1.containingMethod().equals(seq2.containingMethod())) {
+                    filteredOut++;
+                    continue;
+                }
+
+                // Pre-filter to skip unlikely matches
+                if (!preFilter.shouldCompare(seq1, seq2)) {
+                    filteredOut++;
+                    continue;
+                }
+
+                // Calculate similarity using PRE-COMPUTED tokens
+                SimilarityPair pair = analyzePair(norm1, norm2);
+                candidates.add(pair);
             }
-
-            // Pre-filter to skip unlikely matches (Size & Structural)
-            if (!preFilter.shouldCompare(seq1, seq2)) {
-                continue;
-            }
-
-            // Calculate similarity using PRE-COMPUTED tokens
-            SimilarityPair simPair = analyzePair(norm1, norm2);
-            candidates.add(simPair);
         }
 
         return candidates;
