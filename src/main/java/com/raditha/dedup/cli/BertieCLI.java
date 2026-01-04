@@ -102,7 +102,7 @@ public class BertieCLI {
         return reports;
     }
 
-    private static void runAnalysis(CLIConfig config) {
+    private static void runAnalysis(CLIConfig config) throws IOException {
         List<DuplicationReport> reports = performAnalysis(config);
 
         // Load config again for display purposes
@@ -124,7 +124,7 @@ public class BertieCLI {
         }
     }
 
-    private static void runRefactoring(CLIConfig config) throws IOException {
+    private static void runRefactoring(CLIConfig config) throws IOException, InterruptedException {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
@@ -599,32 +599,29 @@ public class BertieCLI {
     /**
      * Export metrics to CSV/JSON files.
      */
-    private static void exportMetrics(List<DuplicationReport> reports, CLIConfig config) {
-        try {
-            MetricsExporter exporter = new MetricsExporter();
-            String projectName = config.basePath != null
-                    ? Paths.get(config.basePath).getFileName().toString()
-                    : "project";
+    private static void exportMetrics(List<DuplicationReport> reports, CLIConfig config) throws IOException {
 
-            MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(reports, projectName);
+        MetricsExporter exporter = new MetricsExporter();
+        String projectName = config.basePath != null
+                ? Paths.get(config.basePath).getFileName().toString()
+                : "project";
 
-            Path outputDir = config.outputPath != null
-                    ? Paths.get(config.outputPath)
-                    : Paths.get(".");
+        MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(reports, projectName);
 
-            if ("csv".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
-                Path csvPath = outputDir.resolve("duplication-metrics.csv");
-                exporter.exportToCsv(metrics, csvPath);
-                System.out.println("\n✓ Metrics exported to: " + csvPath.toAbsolutePath());
-            }
+        Path outputDir = config.outputPath != null
+                ? Paths.get(config.outputPath)
+                : Paths.get(".");
 
-            if ("json".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
-                Path jsonPath = outputDir.resolve("duplication-metrics.json");
-                exporter.exportToJson(metrics, jsonPath);
-                System.out.println("✓ Metrics exported to: " + jsonPath.toAbsolutePath());
-            }
-        } catch (Exception e) {
-            System.err.println("⚠ Failed to export metrics: " + e.getMessage());
+        if ("csv".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
+            Path csvPath = outputDir.resolve("duplication-metrics.csv");
+            exporter.exportToCsv(metrics, csvPath);
+            System.out.println("\n✓ Metrics exported to: " + csvPath.toAbsolutePath());
+        }
+
+        if ("json".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
+            Path jsonPath = outputDir.resolve("duplication-metrics.json");
+            exporter.exportToJson(metrics, jsonPath);
+            System.out.println("✓ Metrics exported to: " + jsonPath.toAbsolutePath());
         }
     }
 

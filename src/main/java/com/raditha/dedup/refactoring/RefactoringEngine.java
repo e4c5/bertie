@@ -39,7 +39,7 @@ public class RefactoringEngine {
     /**
      * Refactor all duplicates in a report.
      */
-    public RefactoringSession refactorAll(DuplicationReport report) throws IOException {
+    public RefactoringSession refactorAll(DuplicationReport report) throws IOException, InterruptedException {
         RefactoringSession session = new RefactoringSession();
 
         System.out.println("%n=== Refactoring Session Started ===");

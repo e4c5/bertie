@@ -49,7 +49,7 @@ class RefactoringEngineTest {
     }
 
     @Test
-    void testPrinting() throws IOException {
+    void testPrinting() throws IOException, InterruptedException {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Printing");
         Path sourceFile = tempDir.resolve("SimpleTest.java");
         Files.writeString(sourceFile, cu.toString());
@@ -78,7 +78,7 @@ class RefactoringEngineTest {
     }
 
     @Test
-    void testBatchModeWithLowConfidence() throws IOException {
+    void testBatchModeWithLowConfidence() throws IOException, InterruptedException {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Addition");
         Path sourceFile = tempDir.resolve("Test.java");
         Files.writeString(sourceFile, cu.toString());
@@ -138,7 +138,7 @@ class RefactoringEngineTest {
     }
 
     @Test
-    void testNoDuplicatesFoundScenario() throws IOException {
+    void testNoDuplicatesFoundScenario() throws IOException, InterruptedException {
         String code = """
                 package com.test;
 

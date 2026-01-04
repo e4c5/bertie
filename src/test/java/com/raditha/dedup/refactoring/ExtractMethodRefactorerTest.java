@@ -32,7 +32,7 @@ class ExtractMethodRefactorerTest {
         }
 
         @Test
-        void testMultipleSameTypeParameters() throws IOException {
+        void testMultipleSameTypeParameters() throws IOException, InterruptedException {
                 // Note: We are using a relative path that assumes execution from project root
                 // This might need adjustment if test-bed location changes
                 Path testBedFile = Path

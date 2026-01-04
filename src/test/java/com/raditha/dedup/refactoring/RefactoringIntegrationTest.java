@@ -49,7 +49,7 @@ class RefactoringIntegrationTest {
     }
 
     @Test
-    void testEndToEndRefactoring() throws IOException {
+    void testEndToEndRefactoring() throws IOException, InterruptedException {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
         String original = cu.toString();
         Path testFile = tempDir.resolve("UserService.java");
@@ -96,7 +96,7 @@ class RefactoringIntegrationTest {
     }
 
     @Test
-    void testRefactoringRollbackOnFailure() throws IOException {
+    void testRefactoringRollbackOnFailure() throws IOException, InterruptedException {
         // Create malformed code that will fail validation
         String badCode = """
                 package com.test;
@@ -143,7 +143,7 @@ class RefactoringIntegrationTest {
     }
 
     @Test
-    void testMultipleRefactoringsInSameFile() throws IOException {
+    void testMultipleRefactoringsInSameFile() throws IOException, InterruptedException {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
         Path testFile = tempDir.resolve("OrderService.java");
         Files.writeString(testFile, cu.toString());

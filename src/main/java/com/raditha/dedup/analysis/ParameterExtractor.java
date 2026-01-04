@@ -71,7 +71,6 @@ public class ParameterExtractor {
             // Skip control flow and complex variations (can't parameterize easily)
             if (varType == VariationType.CONTROL_FLOW || varType == VariationType.METHOD_CALL
                     || varType == VariationType.TYPE) {
-                System.err.println("[ParamExtractor] Skipping pos=" + position + " - " + varType);
                 continue;
             }
 
