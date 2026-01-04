@@ -197,13 +197,24 @@ public class BoundaryRefiner {
             if (tok1.type() != tok2.type())
                 return false;
             // For keywords/operators, values must match
-            if (tok1.type() != com.raditha.dedup.model.TokenType.LITERAL &&
-                    tok1.type() != com.raditha.dedup.model.TokenType.VARIABLE &&
-                    !tok1.value().equals(tok2.value())) {
+            // VAR (variables) are allowed to differ (parameterization)
+            // Literals are allowed to differ (parameterization)
+            if (tok1.type() != com.raditha.dedup.model.TokenType.VAR &&
+                    !isLiteral(tok1.type()) &&
+                    !tok1.normalizedValue().equals(tok2.normalizedValue())) {
                 return false;
             }
         }
         return true;
+    }
+
+    private boolean isLiteral(com.raditha.dedup.model.TokenType type) {
+        return type == com.raditha.dedup.model.TokenType.STRING_LIT ||
+                type == com.raditha.dedup.model.TokenType.INT_LIT ||
+                type == com.raditha.dedup.model.TokenType.LONG_LIT ||
+                type == com.raditha.dedup.model.TokenType.DOUBLE_LIT ||
+                type == com.raditha.dedup.model.TokenType.BOOLEAN_LIT ||
+                type == com.raditha.dedup.model.TokenType.NULL_LIT;
     }
 
     private int findSimilar(List<Statement> stmts, Statement target) {
