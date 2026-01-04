@@ -37,6 +37,9 @@ com.raditha.dedup/
 │   ├── SimilarityCalculator.java         (LCS + Levenshtein + Structural)
 │   └── PreFilterChain.java               (Size + Structural filters)
 │
+├── filter/
+│   └── LSHIndex.java                     (MinHash + LSH candidate generation)
+│
 ├── analysis/
 │   ├── VariationTracker.java             (Find differences)
 │   ├── TypeAnalyzer.java                 (Type compatibility)
@@ -252,12 +255,15 @@ public class DuplicationAnalyzer {
     }
     
     private List<DuplicateCluster> findDuplicates(List<StatementSequence> sequences) {
-        // Pre-filter pairs
-        List<SequencePair> candidates = generateCandidates(sequences);
+        // 1. LSH Candidate Generation (Global, O(N))
+        LSHIndex<StatementSequence> lsh = new LSHIndex<>();
+        lsh.index(sequences, seq -> normalize(seq)); // Normalize on the fly or pre-compute
+        Set<Pair<StatementSequence>> lshCandidates = lsh.getCandidates();
         
-        // Calculate similarities (parallel)
-        List<SimilarityResult> results = candidates.parallelStream()
-            .map(pair -> similarity.compare(pair.seq1(), pair.seq2()))
+        // 2. Precise Filtering & Comparison (Parallel, O(C))
+        List<SimilarityResult> results = lshCandidates.parallelStream()
+            .filter(pair -> preFilter.shouldCompare(pair.first(), pair.second())) // Size/Struct filter
+            .map(pair -> similarity.compare(pair.first(), pair.second()))
             .filter(r -> r.overallScore() > config.threshold())
             .toList();
         
