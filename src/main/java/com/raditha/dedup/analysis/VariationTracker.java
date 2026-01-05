@@ -1,6 +1,13 @@
 package com.raditha.dedup.analysis;
 
-import com.raditha.dedup.model.*;
+import com.raditha.dedup.model.ExprInfo;
+import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.Token;
+import com.raditha.dedup.model.TokenType;
+import com.raditha.dedup.model.Variation;
+import com.raditha.dedup.model.VariationAnalysis;
+import com.raditha.dedup.model.VariationType;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -13,6 +20,18 @@ import java.util.Map;
  * lengths.
  */
 public class VariationTracker {
+
+    private static void debugAlignments(List<TokenAlignment> alignments, String x) {
+        var log = LoggerFactory.getLogger(VariationTracker.class);
+        if (log.isDebugEnabled() && alignments.stream().anyMatch(a -> a.token1() == null || a.token2() == null)) {
+            log.debug(x);
+            for (TokenAlignment a : alignments) {
+                String t1v = a.token1() == null ? "GAP" : a.token1().originalValue();
+                String t2v = a.token2() == null ? "GAP" : a.token2().originalValue();
+                log.debug("  {} vs {}", t1v, t2v);
+            }
+        }
+    }
 
     /**
      * Track all variations between two token sequences.
@@ -30,16 +49,7 @@ public class VariationTracker {
             List<Token> tokens1, StatementSequence seq1,
             List<Token> tokens2, StatementSequence seq2) {
 
-        if (tokens1 == null || tokens2 == null) {
-            return new VariationAnalysis(
-                    List.of(),
-                    false,
-                    new java.util.HashMap<>(),
-                    java.util.Collections.emptyList(),
-                    new java.util.HashMap<>());
-        }
-
-        if (tokens1.isEmpty() && tokens2.isEmpty()) {
+        if ((tokens1 == null || tokens2 == null) || (tokens1.isEmpty() && tokens2.isEmpty())) {
             return new VariationAnalysis(
                     List.of(),
                     false,
@@ -57,62 +67,71 @@ public class VariationTracker {
         // For simplicity in Phase 1: use positional alignment if same length
         // For different lengths: use LCS alignment
         if (tokens1.size() == tokens2.size()) {
-            hasControlFlowDifferences = isPositionalAligned(tokens1, seq1, tokens2, seq2, variations, valueBindings, exprBindings, hasControlFlowDifferences);
+            hasControlFlowDifferences = isPositionalAligned(tokens1, seq1, tokens2, seq2, variations, valueBindings, exprBindings);
         } else {
-            // Use LCS alignment for different-length sequences
-            List<TokenAlignment> alignments = computeLCSAlignment(tokens1, tokens2);
-
-            // DEBUG ALIGNMENTS
-            debugAlignments(alignments, "DEBUG LCS Alignments (Before Coalesce):");
-
-            alignments = coalesceAlignments(alignments);
-
-            debugAlignments(alignments, "DEBUG LCS Alignments (After Coalesce):");
-
-            for (TokenAlignment alignment : alignments) {
-                if (alignment.token1() != null && alignment.token2() != null) {
-                    // Both tokens exist - check if they differ
-                    boolean semanticallyMatches = alignment.token1().semanticallyMatches(alignment.token2());
-                    boolean isValueMismatch = semanticallyMatches
-                            && (alignment.token1().type() == TokenType.VAR || isLiteral(alignment.token1().type())
-                                    || alignment.token1().type() == TokenType.METHOD_CALL
-                                    || alignment.token1().type() == TokenType.TYPE)
-                            && !alignment.token1().originalValue().equals(alignment.token2().originalValue());
-
-                    if (!semanticallyMatches || isValueMismatch) {
-                        Variation variation = createVariation(
-                                alignment.index1(),
-                                alignment.index2(),
-                                alignment.token1(),
-                                alignment.token2());
-                        if (variation != null) {
-                            variations.add(variation);
-                            // Key value bindings by aligned source position to avoid index drift
-                            captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation,
-                                    seq1, alignment.token1(), seq2,
-                                    alignment.token2());
-
-                            if (variation.type() == VariationType.CONTROL_FLOW) {
-                                hasControlFlowDifferences = true;
-                            }
-                        }
-                    }
-                } else {
-                    // Gap in one sequence - potential control flow difference
-                    if (alignment.token1() != null && alignment.token1().type() == TokenType.CONTROL_FLOW) {
-                        hasControlFlowDifferences = true;
-                    } else if (alignment.token2() != null && alignment.token2().type() == TokenType.CONTROL_FLOW) {
-                        hasControlFlowDifferences = true;
-                    }
-                }
-            }
+            hasControlFlowDifferences = isHasControlFlowDifferences(tokens1, seq1, tokens2, seq2, variations, valueBindings, exprBindings);
         }
 
         return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1, exprBindings);
     }
 
-    private boolean isPositionalAligned(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2, StatementSequence seq2, List<Variation> variations, Map<Integer, Map<StatementSequence, String>> valueBindings, Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings, boolean hasControlFlowDifferences) {
+    private boolean isHasControlFlowDifferences(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2, StatementSequence seq2, List<Variation> variations, Map<Integer, Map<StatementSequence, String>> valueBindings, Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
+        // Use LCS alignment for different-length sequences
+        boolean hasControlFlowDifferences = false;
+        List<TokenAlignment> alignments = computeLCSAlignment(tokens1, tokens2);
+
+        // DEBUG ALIGNMENTS
+        debugAlignments(alignments, "DEBUG LCS Alignments (Before Coalesce):");
+
+        alignments = coalesceAlignments(alignments);
+
+        debugAlignments(alignments, "DEBUG LCS Alignments (After Coalesce):");
+
+        for (TokenAlignment alignment : alignments) {
+            Token token1 = alignment.token1();
+            Token token2 = alignment.token2();
+            if (token1 != null && token2 != null) {
+                // Both tokens exist - check if they differ
+                boolean semanticallyMatches = token1.semanticallyMatches(token2);
+                boolean isValueMismatch = semanticallyMatches
+                        && (token1.type() == TokenType.VAR || isLiteral(token1.type())
+                        || token1.type() == TokenType.METHOD_CALL
+                        || token1.type() == TokenType.TYPE)
+                        && !token1.originalValue().equals(token2.originalValue());
+
+                if (!semanticallyMatches || isValueMismatch) {
+                    Variation variation = createVariation(
+                            alignment.index1(),
+                            alignment.index2(),
+                            token1,
+                            token2);
+                    if (variation != null) {
+                        variations.add(variation);
+                        // Key value bindings by aligned source position to avoid index drift
+                        captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(),
+                                seq1, token1, seq2,
+                                token2);
+
+                        if (variation.type() == VariationType.CONTROL_FLOW) {
+                            hasControlFlowDifferences = true;
+                        }
+                    }
+                }
+            } else {
+                // Gap in one sequence - potential control flow difference
+                if ((token1 != null && token1.type() == TokenType.CONTROL_FLOW)
+                        || token2 != null && token2.type() == TokenType.CONTROL_FLOW
+                ) {
+                    hasControlFlowDifferences = true;
+                }
+            }
+        }
+        return hasControlFlowDifferences;
+    }
+
+    private boolean isPositionalAligned(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2, StatementSequence seq2, List<Variation> variations, Map<Integer, Map<StatementSequence, String>> valueBindings, Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
         // Positional alignment - compare token by token
+        boolean hasControlFlowDifferences = false;
         for (int i = 0; i < tokens1.size(); i++) {
             Token t1 = tokens1.get(i);
             Token t2 = tokens2.get(i);
@@ -127,7 +146,7 @@ public class VariationTracker {
                 if (variation != null) {
                     variations.add(variation);
                     // Key value bindings by aligned source position to avoid index drift
-                    captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), variation, seq1,
+                    captureValueBindings(valueBindings, exprBindings, variation.alignedIndex1(), seq1,
                             t1, seq2, t2);
 
                     if (variation.type() == VariationType.CONTROL_FLOW) {
@@ -137,17 +156,6 @@ public class VariationTracker {
             }
         }
         return hasControlFlowDifferences;
-    }
-
-    private static void debugAlignments(List<TokenAlignment> alignments, String x) {
-        if (alignments.stream().anyMatch(a -> a.token1() == null || a.token2() == null)) {
-            System.err.println(x);
-            for (TokenAlignment a : alignments) {
-                String t1v = a.token1() == null ? "GAP" : a.token1().originalValue();
-                String t2v = a.token2() == null ? "GAP" : a.token2().originalValue();
-                System.err.println("  " + t1v + " vs " + t2v);
-            }
-        }
     }
 
     /**
@@ -196,9 +204,8 @@ public class VariationTracker {
 
     private void captureValueBindings(
             Map<Integer, Map<StatementSequence, String>> valueBindings,
-            Map<Integer, Map<StatementSequence, com.raditha.dedup.model.ExprInfo>> exprBindings,
+            Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings,
             int paramIndex,
-            Variation variation,
             StatementSequence seq1, Token t1,
             StatementSequence seq2, Token t2) {
 
@@ -351,6 +358,15 @@ public class VariationTracker {
         return null;
     }
 
+    private boolean isLiteral(TokenType type) {
+        return type == TokenType.STRING_LIT ||
+                type == TokenType.INT_LIT ||
+                type == TokenType.LONG_LIT ||
+                type == TokenType.DOUBLE_LIT ||
+                type == TokenType.BOOLEAN_LIT ||
+                type == TokenType.NULL_LIT;
+    }
+
     /**
      * Internal record for token alignment.
      */
@@ -359,14 +375,5 @@ public class VariationTracker {
             int index2,
             Token token1,
             Token token2) {
-    }
-
-    private boolean isLiteral(TokenType type) {
-        return type == TokenType.STRING_LIT ||
-                type == TokenType.INT_LIT ||
-                type == TokenType.LONG_LIT ||
-                type == TokenType.DOUBLE_LIT ||
-                type == TokenType.BOOLEAN_LIT ||
-                type == TokenType.NULL_LIT;
     }
 }

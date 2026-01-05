@@ -4,6 +4,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
 
@@ -179,67 +180,66 @@ public class DataFlowAnalyzer {
         // But only if we haven't already filtered by type! (If we filtered, they all
         // match returnType anyway)
         if (candidates.size() > 1) {
-            String best = findBestCandidate(sequence, candidates);
-            return best;
+            return findBestCandidate(sequence, candidates);
         }
 
         // FALLBACK: If standard analysis found nothing, check if there is exactly
         // one DEFINED variable matching the return type.
         // This handles cases where:
         // 1. Live-out analysis missed a usage (false negative)
-        if (!"void".equals(returnType)) {
-            List<String> fallbackCandidates = new ArrayList<>();
-            for (Statement stmt : sequence.statements()) {
-                if (stmt.isExpressionStmt()) {
-                    var expr = stmt.asExpressionStmt().getExpression();
-                    if (expr.isVariableDeclarationExpr()) {
-                        expr.asVariableDeclarationExpr().getVariables().forEach(v -> {
-                            if (v.getType().asString().equals(returnType)) { // Exact match prefered? Or contains?
-                                fallbackCandidates.add(v.getNameAsString());
-                            } else if (v.getType().asString().contains(returnType)
-                                    || returnType.contains(v.getType().asString())) {
-                                fallbackCandidates.add(v.getNameAsString());
-                            }
-                        });
-                    }
-                }
-            }
+        return findFallBackCandidate(sequence, returnType);
+    }
 
-            if (fallbackCandidates.size() == 1) {
-                return fallbackCandidates.getFirst();
+    private String findFallBackCandidate(StatementSequence sequence, String returnType) {
+        if ("void".equals(returnType)) {
+            return null;
+        }
+
+        List<String> fallbackCandidates = new ArrayList<>();
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isExpressionStmt()) {
+                var expr = stmt.asExpressionStmt().getExpression();
+                if (expr.isVariableDeclarationExpr()) {
+                    expr.asVariableDeclarationExpr().getVariables().forEach(v -> {
+                        if (v.getType().asString().equals(returnType) || v.getType().asString().contains(returnType)
+                                || returnType.contains(v.getType().asString())) {
+                            fallbackCandidates.add(v.getNameAsString());
+                        }
+                    });
+                }
             }
         }
 
-        // Multiple candidates or no candidates = unsafe to extract
+        if (fallbackCandidates.size() == 1) {
+            return fallbackCandidates.getFirst();
+        }
+
         return null;
     }
 
     private static String findBestCandidate(StatementSequence sequence, List<String> candidates) {
-        // Try to find a non-primitive variable
+        // Prefer the first candidate whose type is not primitive-like
         for (String varName : candidates) {
-            // Find the variable's type
             for (Statement stmt : sequence.statements()) {
-                if (stmt.isExpressionStmt()) {
-                    var expr = stmt.asExpressionStmt().getExpression();
-                    if (expr.isVariableDeclarationExpr()) {
-                        VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
-                        for (var variable : varDecl.getVariables()) {
-                            if (variable.getNameAsString().equals(varName)) {
-                                String varType = variable.getType().asString();
-                                // Prefer non-primitives
-                                if (!varType.equals("int") && !varType.equals("long") &&
-                                        !varType.equals("double") && !varType.equals("boolean") &&
-                                        !varType.equals("String")) {
-                                    return varName;
-                                }
-                            }
+                if (stmt instanceof ExpressionStmt expr && expr.getExpression() instanceof VariableDeclarationExpr varDecl) {
+                    for (var variable : varDecl.getVariables()) {
+                        var type = variable.getType();
+                        if ( variable.getNameAsString().equals(varName) && !isPrimitiveLike(type)) {
+                            return varName;
                         }
                     }
                 }
             }
         }
-        // If all primitives, return first
+        // If all are primitive-like, return first
         return candidates.getFirst();
+    }
+
+    private static boolean isPrimitiveLike(com.github.javaparser.ast.type.Type type) {
+        if (type.isClassOrInterfaceType()) {
+            return type.asClassOrInterfaceType().getNameAsString().equals("String");
+        }
+        return type.isPrimitiveType();
     }
 
     /**
