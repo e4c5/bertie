@@ -1,6 +1,10 @@
 package com.raditha.dedup.cli;
 
 import com.github.javaparser.ast.CompilationUnit;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine;
+import picocli.CommandLine.ITypeConverter;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
@@ -20,6 +24,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 /**
  * Command-line interface for the Duplication Detector.
@@ -29,54 +34,218 @@ import java.util.Map;
  * <p>
  * Configuration priority: CLI arguments > generator.yml > defaults
  */
+@Command(
+    name = "bertie",
+    mixinStandardHelpOptions = true,
+    version = "Bertie v1.0.0",
+    description = "Duplicate Code Detector and Refactoring Tool"
+)
 @SuppressWarnings("java:S106")
-public class BertieCLI {
+public class BertieCLI implements Callable<Integer> {
 
     private static final String VERSION = "1.0.0";
 
-    public static void main(String[] args) throws Exception {
-        CLIConfig config = parseArguments(args);
+    // Global Options
+    @Option(names = "--config-file", description = "Use custom configuration file", paramLabel = "<path>")
+    private String configFile;
 
-        if (config.showHelp) {
-            printHelp();
-            return;
-        }
+    @Option(names = "--base-path", description = "Override project base path", paramLabel = "<path>")
+    private String basePath;
 
-        if (config.showVersion) {
-            System.out.println("Duplication Detector v" + VERSION);
-            return;
-        }
+    @Option(names = "--output", description = "Custom output directory", paramLabel = "<path>")
+    private String outputPath;
 
-        // Initialize Settings once, optionally from custom config file
-        if (config.configFile != null) {
-            Settings.loadConfigMap(new java.io.File(config.configFile));
-        } else {
-            Settings.loadConfigMap();
-        }
-        if (config.basePath != null) {
-            Settings.setProperty(Settings.BASE_PATH, config.basePath);
-        }
-        if (config.outputPath != null) {
-            Settings.setProperty(Settings.OUTPUT_PATH, config.outputPath);
-        }
+    @Option(names = "--min-lines", description = "Minimum lines to consider (default: 5)", paramLabel = "<n>")
+    private int minLines = 0; // 0 = use YAML/default
 
-        // Parse all source files once
-        AbstractCompiler.preProcess();
+    @Option(names = "--threshold", description = "Similarity threshold 0-100 (default: 75)", paramLabel = "<n>")
+    private int threshold = 0; // 0 = use YAML/default
 
-        // Run detection or refactoring based on command
-        if (config.command.equals("refactor")) {
-            runRefactoring(config);
-        } else {
-            runAnalysis(config);
+    @Option(names = "--strict", description = "Strict preset (90%% threshold, 5 lines)")
+    private boolean strict = false;
+
+    @Option(names = "--lenient", description = "Lenient preset (60%% threshold, 3 lines)")
+    private boolean lenient = false;
+
+    @Option(names = "--json", description = "Output results in JSON format")
+    private boolean jsonOutput = false;
+
+    @Option(names = "--export", description = "Export metrics (csv, json, or both)", paramLabel = "<format>")
+    private String exportFormat;
+
+    // Command selection
+    @Option(names = "refactor", description = "Apply refactorings to eliminate duplicates")
+    private boolean refactorCommand = false;
+
+    // Refactor Options
+    @Option(names = "--mode", description = "Refactoring mode: ${COMPLETION-CANDIDATES}", paramLabel = "<mode>", 
+            converter = RefactorModeConverter.class)
+    private RefactorMode refactorMode = RefactorMode.INTERACTIVE;
+
+    @Option(names = "--verify", description = "Verification level: ${COMPLETION-CANDIDATES}", paramLabel = "<level>",
+            converter = VerifyModeConverter.class)
+    private VerifyMode verifyMode = VerifyMode.COMPILE;
+
+    /**
+     * Picocli call method - executes the main logic.
+     * 
+     * @return exit code (0 for success, non-zero for errors)
+     */
+    @Override
+    public Integer call() throws Exception {
+        try {
+            // Validate configuration before proceeding
+            validateConfiguration();
+            
+            // Initialize Settings once, optionally from custom config file
+            if (configFile != null) {
+                Settings.loadConfigMap(new java.io.File(configFile));
+            } else {
+                Settings.loadConfigMap();
+            }
+            if (basePath != null) {
+                Settings.setProperty(Settings.BASE_PATH, basePath);
+            }
+            if (outputPath != null) {
+                Settings.setProperty(Settings.OUTPUT_PATH, outputPath);
+            }
+
+            // Parse all source files once
+            AbstractCompiler.preProcess();
+
+            // Run detection or refactoring based on command
+            if (refactorCommand) {
+                runRefactoring();
+            } else {
+                runAnalysis();
+            }
+            
+            return 0; // Success
+        } catch (IllegalArgumentException e) {
+            // Configuration or validation errors
+            System.err.println("Configuration error: " + e.getMessage());
+            return 2; // Configuration error
+        } catch (IOException e) {
+            // File I/O errors
+            System.err.println("I/O error: " + e.getMessage());
+            return 3; // I/O error
+        } catch (InterruptedException e) {
+            // Process interruption
+            System.err.println("Process interrupted: " + e.getMessage());
+            Thread.currentThread().interrupt(); // Restore interrupted status
+            return 4; // Interrupted
+        } catch (Exception e) {
+            // General application errors
+            System.err.println("Error: " + e.getMessage());
+            if (e.getCause() != null) {
+                System.err.println("Caused by: " + e.getCause().getMessage());
+            }
+            return 1; // General error
         }
     }
 
-    private static List<DuplicationReport> performAnalysis(CLIConfig config) {
+    public static void main(String[] args) throws Exception {
+        CommandLine cmd = new CommandLine(new BertieCLI());
+        
+        // Configure error handling
+        cmd.setExecutionExceptionHandler((ex, commandLine, parseResult) -> {
+            // Handle execution exceptions with appropriate exit codes
+            if (ex instanceof IllegalArgumentException) {
+                commandLine.getErr().println("Configuration error: " + ex.getMessage());
+                return 2;
+            } else if (ex instanceof IOException) {
+                commandLine.getErr().println("I/O error: " + ex.getMessage());
+                return 3;
+            } else if (ex instanceof InterruptedException) {
+                commandLine.getErr().println("Process interrupted: " + ex.getMessage());
+                return 4;
+            } else {
+                commandLine.getErr().println("Error: " + ex.getMessage());
+                return 1;
+            }
+        });
+        
+        // Configure parameter exception handler for better error messages
+        cmd.setParameterExceptionHandler((ex, args1) -> {
+            CommandLine.Help.ColorScheme colorScheme = CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.AUTO);
+            cmd.getErr().println(colorScheme.errorText(ex.getMessage()));
+            CommandLine.UnmatchedArgumentException.printSuggestions(ex, cmd.getErr());
+            cmd.getErr().print(cmd.getUsageMessage(colorScheme));
+            return 2; // Invalid command line arguments
+        });
+        
+        int exitCode = cmd.execute(args);
+        System.exit(exitCode);
+    }
+
+    /**
+     * Validate CLI configuration before execution.
+     * 
+     * @throws IllegalArgumentException if configuration is invalid
+     */
+    private void validateConfiguration() {
+        // Validate threshold range
+        if (threshold != 0 && (threshold < 0 || threshold > 100)) {
+            throw new IllegalArgumentException("Threshold must be between 0 and 100, got: " + threshold);
+        }
+        
+        // Validate min-lines
+        if (minLines != 0 && minLines < 1) {
+            throw new IllegalArgumentException("Min-lines must be positive, got: " + minLines);
+        }
+        
+        // Validate export format
+        if (exportFormat != null && !exportFormat.isEmpty()) {
+            String format = exportFormat.toLowerCase();
+            if (!format.equals("csv") && !format.equals("json") && !format.equals("both")) {
+                throw new IllegalArgumentException("Export format must be 'csv', 'json', or 'both', got: " + exportFormat);
+            }
+        }
+        
+        // Validate mutually exclusive presets
+        if (strict && lenient) {
+            throw new IllegalArgumentException("Cannot use both --strict and --lenient presets simultaneously");
+        }
+        
+        // Validate config file exists if specified
+        if (configFile != null && !new java.io.File(configFile).exists()) {
+            throw new IllegalArgumentException("Config file not found: " + configFile);
+        }
+        
+        // Validate base path exists if specified
+        if (basePath != null && !new java.io.File(basePath).exists()) {
+            throw new IllegalArgumentException("Base path not found: " + basePath);
+        }
+        
+        // Validate output path is writable if specified
+        if (outputPath != null) {
+            java.io.File outputDir = new java.io.File(outputPath);
+            if (outputDir.exists() && !outputDir.isDirectory()) {
+                throw new IllegalArgumentException("Output path exists but is not a directory: " + outputPath);
+            }
+            if (!outputDir.exists()) {
+                try {
+                    outputDir.mkdirs();
+                } catch (SecurityException e) {
+                    throw new IllegalArgumentException("Cannot create output directory: " + outputPath);
+                }
+            }
+        }
+    }
+
+    private List<DuplicationReport> performAnalysis() {
         // Load configuration
+        String preset = null;
+        if (strict) {
+            preset = "strict";
+        } else if (lenient) {
+            preset = "lenient";
+        }
+        
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                config.minLines,
-                config.threshold,
-                config.preset);
+                minLines,
+                threshold,
+                preset);
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
 
@@ -102,33 +271,40 @@ public class BertieCLI {
         return reports;
     }
 
-    private static void runAnalysis(CLIConfig config) throws IOException {
-        List<DuplicationReport> reports = performAnalysis(config);
+    private void runAnalysis() throws IOException {
+        List<DuplicationReport> reports = performAnalysis();
 
         // Load config again for display purposes
+        String preset = null;
+        if (strict) {
+            preset = "strict";
+        } else if (lenient) {
+            preset = "lenient";
+        }
+        
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                config.minLines,
-                config.threshold,
-                config.preset);
+                minLines,
+                threshold,
+                preset);
 
         // Print the detailed report
-        if (config.jsonOutput) {
+        if (jsonOutput) {
             printJsonReport(reports);
         } else {
             printTextReport(reports, dupConfig);
         }
 
         // Export metrics if requested
-        if (config.exportFormat != null && !config.exportFormat.isEmpty()) {
-            exportMetrics(reports, config);
+        if (exportFormat != null && !exportFormat.isEmpty()) {
+            exportMetrics(reports);
         }
     }
 
-    private static void runRefactoring(CLIConfig config) throws IOException, InterruptedException {
+    private void runRefactoring() throws IOException, InterruptedException {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
-        List<DuplicationReport> reports = performAnalysis(config);
+        List<DuplicationReport> reports = performAnalysis();
 
         if (reports.isEmpty()) {
             System.out.println("No files found matching criteria");
@@ -157,18 +333,18 @@ public class BertieCLI {
         System.out.println();
 
         // Determine verification level
-        RefactoringVerifier.VerificationLevel verifyLevel = switch (config.verifyMode) {
-            case "none" -> RefactoringVerifier.VerificationLevel.NONE;
-            case "test" -> RefactoringVerifier.VerificationLevel.TEST;
-            default -> RefactoringVerifier.VerificationLevel.COMPILE;
+        RefactoringVerifier.VerificationLevel verifyLevel = switch (verifyMode) {
+            case NONE -> RefactoringVerifier.VerificationLevel.NONE;
+            case TEST -> RefactoringVerifier.VerificationLevel.TEST;
+            case COMPILE -> RefactoringVerifier.VerificationLevel.COMPILE;
         };
 
         // Create refactoring engine
         Path projectRoot = Paths.get(Settings.getBasePath());
-        RefactoringEngine.RefactoringMode mode = switch (config.refactorMode) {
-            case "batch" -> RefactoringEngine.RefactoringMode.BATCH;
-            case "dry-run" -> RefactoringEngine.RefactoringMode.DRY_RUN;
-            default -> RefactoringEngine.RefactoringMode.INTERACTIVE;
+        RefactoringEngine.RefactoringMode mode = switch (refactorMode) {
+            case BATCH -> RefactoringEngine.RefactoringMode.BATCH;
+            case DRY_RUN -> RefactoringEngine.RefactoringMode.DRY_RUN;
+            case INTERACTIVE -> RefactoringEngine.RefactoringMode.INTERACTIVE;
         };
 
         RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyLevel);
@@ -450,195 +626,52 @@ public class BertieCLI {
         System.out.println("}");
     }
 
-    private static CLIConfig parseArguments(String[] args) {
-        CLIConfig config = new CLIConfig();
-
-        for (int i = 0; i < args.length; i++) {
-            String arg = args[i];
-
-            switch (arg) {
-                case "--help", "-h" -> config.showHelp = true;
-                case "--version", "-v" -> config.showVersion = true;
-                case "--json" -> config.jsonOutput = true;
-                case "--strict" -> config.preset = "strict";
-                case "--lenient" -> config.preset = "lenient";
-                case "--export" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--export requires format (csv, json, or both)");
-                    config.exportFormat = args[++i].toLowerCase();
-                    if (!config.exportFormat.matches("csv|json|both")) {
-                        throw new IllegalArgumentException("Export format must be: csv, json, or both");
-                    }
-                }
-                case "--base-path" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--base-path requires a value");
-                    config.basePath = args[++i];
-                }
-                case "--output" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--output requires a value");
-                    config.outputPath = args[++i];
-                }
-                case "--min-lines" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--min-lines requires a value");
-                    config.minLines = Integer.parseInt(args[++i]);
-                }
-                case "--threshold" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--threshold requires a value");
-                    config.threshold = Integer.parseInt(args[++i]);
-                    if (config.threshold < 0 || config.threshold > 100) {
-                        throw new IllegalArgumentException("Threshold must be 0-100");
-                    }
-                }
-                case "--config-file" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--config-file requires a path");
-                    config.configFile = args[++i];
-                }
-                case "refactor" -> config.command = "refactor";
-                case "--mode" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--mode requires a value");
-                    String mode = args[++i];
-                    if (!mode.matches("interactive|batch|dry-run")) {
-                        throw new IllegalArgumentException("Mode must be: interactive, batch, or dry-run");
-                    }
-                    config.refactorMode = mode;
-                }
-                case "--verify" -> {
-                    if (i + 1 >= args.length)
-                        throw new IllegalArgumentException("--verify requires a value");
-                    String verify = args[++i];
-                    if (!verify.matches("none|compile|test")) {
-                        throw new IllegalArgumentException("Verify must be: none, compile, or test");
-                    }
-                    config.verifyMode = verify;
-                }
-                default -> {
-                    if (arg.startsWith("--")) {
-                        throw new IllegalArgumentException("Unknown option: " + arg);
-                    }
-                    // target path was removed
-                }
-            }
-        }
-
-        return config;
-    }
-
-    /**
-     * Print helpful usage information.
-     */
-    private static void printHelp() {
-        System.out.println("╔═══════════════════════════════════════════════════════════════╗");
-        System.out.println("║         Duplication Detector - Automated Refactoring          ║");
-        System.out.println("╚═══════════════════════════════════════════════════════════════╝");
-        System.out.println();
-        System.out.println("USAGE:");
-        System.out.println("  mvn exec:java -Dexec.mainClass=\"com.raditha.dedup.cli.DuplicationDetectorCLI\" \\");
-        System.out.println("    -Dexec.args=\"COMMAND [OPTIONS]\"");
-        System.out.println();
-        System.out.println("COMMANDS:");
-        System.out.println("  analyze          Detect duplicate code (read-only)");
-        System.out.println("  refactor         Apply refactorings to eliminate duplicates");
-        System.out.println("  --help, -h       Show this help message");
-        System.out.println("  --version, -v    Show version information");
-        System.out.println();
-        System.out.println("GLOBAL OPTIONS:");
-        System.out.println("  --config-file PATH       Use custom configuration file (e.g., bertie.yml)");
-        System.out.println("  --base-path PATH         Override project base path");
-        System.out.println("  --output PATH            Custom output directory");
-        System.out.println("  --min-lines N            Minimum lines to consider (default: 5)");
-        System.out.println("  --threshold N            Similarity threshold 0-100 (default: 75)");
-        System.out.println("  --strict                 Strict preset (90% threshold, 5 lines)");
-        System.out.println("  --lenient                Lenient preset (60% threshold, 3 lines)");
-        System.out.println("  --json                   Output results in JSON format");
-        System.out.println("  --export FORMAT          Export metrics (csv, json, or both)");
-        System.out.println();
-        System.out.println("REFACTOR OPTIONS:");
-        System.out.println("  --mode MODE              Refactoring mode:");
-        System.out.println("                             • interactive - Review each change (default)");
-        System.out.println("                             • batch - Auto-apply high-confidence only");
-        System.out.println("                             • dry-run - Preview without making changes");
-        System.out.println("  --verify LEVEL           Verification level:");
-        System.out.println("                             • compile - Verify compilation (default)");
-        System.out.println("                             • test - Run full test suite");
-        System.out.println("                             • none - Skip verification");
-        System.out.println();
-        System.out.println("EXAMPLES:");
-        System.out.println("  # Analyze with custom threshold");
-        System.out.println("  analyze --threshold 80 --min-lines 3");
-        System.out.println();
-        System.out.println("  # Preview refactorings (safe, no changes)");
-        System.out.println("  refactor --mode dry-run");
-        System.out.println();
-        System.out.println("  # Interactive refactoring with test verification");
-        System.out.println("  refactor --mode interactive --verify test");
-        System.out.println();
-        System.out.println("  # Auto-apply high-confidence refactorings");
-        System.out.println("  refactor --mode batch --verify compile");
-        System.out.println();
-        System.out.println("CONFIGURATION:");
-        System.out.println("  Edit src/main/resources/generator.yml to set:");
-        System.out.println("    • base_path: Your project root");
-        System.out.println("    • target_class: Class to analyze");
-        System.out.println("    • min_lines, threshold: Detection sensitivity");
-        System.out.println();
-        System.out.println("DOCUMENTATION:");
-        System.out.println("  📖 Quick Start:  docs/QUICK_START.md");
-        System.out.println("  ⚙️  Config Ref:   docs/CONFIGURATION.md");
-        System.out.println("  📚 User Guide:   docs/USER_GUIDE.md");
-        System.out.println();
-        System.out.println("For more information, visit: https://github.com/cloudsolutions/antikythera");
-        System.out.println();
-    }
-
     /**
      * Export metrics to CSV/JSON files.
      */
-    private static void exportMetrics(List<DuplicationReport> reports, CLIConfig config) throws IOException {
+    private void exportMetrics(List<DuplicationReport> reports) throws IOException {
 
         MetricsExporter exporter = new MetricsExporter();
-        String projectName = config.basePath != null
-                ? Paths.get(config.basePath).getFileName().toString()
+        String projectName = basePath != null
+                ? Paths.get(basePath).getFileName().toString()
                 : "project";
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(reports, projectName);
 
-        Path outputDir = config.outputPath != null
-                ? Paths.get(config.outputPath)
+        Path outputDir = outputPath != null
+                ? Paths.get(outputPath)
                 : Paths.get(".");
 
-        if ("csv".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
+        if ("csv".equals(exportFormat) || "both".equals(exportFormat)) {
             Path csvPath = outputDir.resolve("duplication-metrics.csv");
             exporter.exportToCsv(metrics, csvPath);
             System.out.println("\n✓ Metrics exported to: " + csvPath.toAbsolutePath());
         }
 
-        if ("json".equals(config.exportFormat) || "both".equals(config.exportFormat)) {
+        if ("json".equals(exportFormat) || "both".equals(exportFormat)) {
             Path jsonPath = outputDir.resolve("duplication-metrics.json");
             exporter.exportToJson(metrics, jsonPath);
             System.out.println("✓ Metrics exported to: " + jsonPath.toAbsolutePath());
         }
     }
 
-    private static class CLIConfig {
-        String command = "detect"; // "detect" or "refactor"
-        String basePath = null;
-        String outputPath = null;
-        String configFile = null; // Custom configuration file path
-        int minLines = 0; // 0 = use YAML/default
-        int threshold = 0; // 0 = use YAML/default
-        String preset = null;
-        boolean jsonOutput = false;
-        boolean showHelp = false;
-        boolean showVersion = false;
-        String exportFormat = null; // "csv", "json", or "both"
-        // Refactoring options
-        String refactorMode = "interactive"; // "interactive", "batch", "dry-run"
-        String verifyMode = "compile"; // "none", "compile", "test"
+    /**
+     * Custom converter for RefactorMode enum to handle CLI string values.
+     */
+    public static class RefactorModeConverter implements ITypeConverter<RefactorMode> {
+        @Override
+        public RefactorMode convert(String value) throws Exception {
+            return RefactorMode.fromString(value);
+        }
+    }
+
+    /**
+     * Custom converter for VerifyMode enum to handle CLI string values.
+     */
+    public static class VerifyModeConverter implements ITypeConverter<VerifyMode> {
+        @Override
+        public VerifyMode convert(String value) throws Exception {
+            return VerifyMode.fromString(value);
+        }
     }
 }
