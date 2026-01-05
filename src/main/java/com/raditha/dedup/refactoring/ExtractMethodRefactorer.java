@@ -33,6 +33,7 @@ public class ExtractMethodRefactorer {
 
     public static final String STRING = "String";
     public static final String DOUBLE = "Double";
+    public static final String Boolean = "Boolean";
 
     /**
      * Perform extract method refactoring.
@@ -457,342 +458,50 @@ public class ExtractMethodRefactorer {
 
         BlockStmt block = containingMethod.getBody().get();
 
-        // Determine ordering among String parameters for context-aware extraction
-        List<ParameterSpec> stringParams = new ArrayList<>();
-        for (ParameterSpec p : recommendation.suggestedParameters()) {
-            if (STRING.equals(p.type())) {
-                stringParams.add(p);
-            }
+        // 1) Build arguments. If anything fails, bail out safely.
+        NodeList<Expression> arguments = buildArgumentsForCall(recommendation, variations, sequence);
+        if (arguments == null) {
+            return; // Could not resolve args safely
         }
 
-        // Build argument list safely: if any argument cannot be resolved with
-        // type-compatibility, skip this occurrence
-        NodeList<Expression> arguments = new NodeList<>();
-        boolean allArgsResolved = true;
-        for (ParameterSpec param : recommendation.suggestedParameters()) {
-            String valToUse = null;
+        // 2) Create the method call expression
+        MethodCallExpr methodCall = new MethodCallExpr(methodNameToUse, arguments.toArray(new Expression[0]));
 
-            // STRATEGY 1: Use Variation Analysis (most accurate)
-            if (variations != null && param.variationIndex() != null) {
-                var exprBindings = variations.exprBindings() != null
-                        ? variations.exprBindings().get(param.variationIndex())
-                        : null;
-                if (exprBindings != null) {
-                    valToUse = resolveBindingForSequence(exprBindings, sequence);
-                }
+        // 3) Remember any original return inside the duplicate sequence
+        ReturnStmt originalReturnValues = findOriginalReturnInSequence(sequence);
 
-                if (valToUse == null) {
-                    var legacyBindings = variations.valueBindings() != null
-                            ? variations.valueBindings().get(param.variationIndex())
-                            // ... rest of logic
+        // 4) Locate sequence in the block and replace
+        int startIdx = findStatementIndex(block, sequence);
+        if (startIdx < 0) return;
 
-                            : null;
-                    if (legacyBindings != null) {
-                        // Reuse the resolver by adapting to ExprInfo
-                        java.util.Map<com.raditha.dedup.model.StatementSequence, com.raditha.dedup.model.ExprInfo> adapted = new java.util.HashMap<>();
-                        if (legacyBindings != null) {
-                            for (var entry : legacyBindings.entrySet()) {
-                                adapted.put(entry.getKey(),
-                                        com.raditha.dedup.model.ExprInfo.fromText(entry.getValue()));
-                            }
-                        }
-                        valToUse = resolveBindingForSequence(adapted, sequence);
-                    }
-                }
-            }
-
-            // STRATEGY 2a: Context-aware extraction for multiple String parameters (prefer
-            // this over generic AST scan)
-            if (valToUse == null && STRING.equals(param.type()) && stringParams.size() >= 2) {
-                int ord = stringParams.indexOf(param);
-                if (ord >= 0) {
-                    String ctxVal = extractStringByContext(sequence, ord);
-                    if (ctxVal != null) {
-                        valToUse = ctxVal;
-                    }
-                }
-            }
-
-            // STRATEGY 2b: Fallback to generic extraction from AST (with disambiguation by
-            // examples for Strings)
-            if (valToUse == null) {
-                String actualValue = extractActualValue(sequence, param);
-                if (actualValue != null) {
-                    // If multiple same-type params exist (e.g., two Strings), prefer values that
-                    // match this param's example set
-                    if (STRING.equals(param.type()) && actualValue.startsWith("\"")
-                            && !param.exampleValues().isEmpty()) {
-                        String unq = actualValue.replace("\"", "");
-                        boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", ""))
-                                .anyMatch(s -> s.equals(unq));
-                        if (!matches) {
-                            actualValue = null; // discard ambiguous value
-                        }
-                    }
-                }
-                if (actualValue != null) {
-                    valToUse = actualValue;
-                }
-            }
-
-            // STRATEGY 3: Fallback to example value (only for non-String types and when
-            // type-compatible)
-            if (valToUse == null && !param.exampleValues().isEmpty()) {
-                String pType = param.type();
-                if (!STRING.equals(pType)) {
-                    String candidate = param.exampleValues().get(0);
-                    // Only accept if it looks type-compatible
-                    boolean ok = false;
-                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+"))
-                        ok = true;
-                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?"))
-                        ok = true;
-                    if (("double".equals(pType) || DOUBLE.equals(pType)) && candidate.matches("-?\\d+\\.\\d+"))
-                        ok = true;
-                    if (("boolean".equals(pType) || "Boolean".equals(pType))
-                            && ("true".equals(candidate) || "false".equals(candidate)))
-                        ok = true;
-                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty())
-                        ok = true;
-                    if (ok) {
-                        valToUse = candidate;
-                    }
-                }
-            }
-
-            // Type-compatibility guardrails
-            if (valToUse == null) {
-                allArgsResolved = false;
-                break;
-            }
-
-            // Reject obviously incompatible literal forms
-            String pType = param.type();
-            if (("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType) || "Long".equals(pType)
-                    || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType)
-                    || "Boolean".equals(pType)) && valToUse.startsWith("\"")) {
-                allArgsResolved = false; // quoted string where numeric/boolean expected
-                break;
-            }
-            if (STRING.equals(pType) && !valToUse.startsWith("\"") && valToUse.matches("-?\\d+(\\.\\d+)?")) {
-                allArgsResolved = false; // numeric literal where String expected
-                break;
-            }
-
-            // If parameter is Class<?>, ensure we pass User.class, not just User
-            if (("Class<?>".equals(pType) || "Class".equals(pType)) && !valToUse.endsWith(".class")) {
-                arguments.add(new ClassExpr(new ClassOrInterfaceType(null, valToUse)));
-                continue;
-            }
-
-            // Default: variable name or literal
-            try {
-                if (valToUse.matches("-?\\d+")) {
-                    // Choose Integer or Long literal based on param type
-                    if ("long".equals(pType) || "Long".equals(pType)) {
-                        arguments.add(new LongLiteralExpr(valToUse + "L"));
-                    } else {
-                        arguments.add(new IntegerLiteralExpr(valToUse));
-                    }
-                } else if (valToUse.matches("-?\\d+\\.\\d+")) {
-                    arguments.add(new DoubleLiteralExpr(valToUse));
-                } else if ("true".equals(valToUse) || "false".equals(valToUse)) {
-                    arguments.add(new BooleanLiteralExpr(Boolean.parseBoolean(valToUse)));
-                } else if (valToUse.startsWith("\"")) { // String lit
-                    arguments.add(new StringLiteralExpr(valToUse.replace("\"", "")));
-                } else {
-                    // Variable or expression name
-                    arguments.add(new NameExpr(valToUse));
-                }
-            } catch (Exception e) {
-                allArgsResolved = false;
-                break;
-            }
+        // Remove the old statements belonging to the sequence
+        int removeCount = sequence.statements().size();
+        for (int i = 0; i < removeCount && startIdx < block.getStatements().size(); i++) {
+            block.getStatements().remove(startIdx);
         }
 
-        // If any argument could not be resolved safely, skip this occurrence (do not
-        // modify this sequence)
-        if (!allArgsResolved || arguments.size() != recommendation.suggestedParameters().size()) {
+        // 5) Insert new statements depending on return type
+        if ("void".equals(recommendation.suggestedReturnType())) {
+            insertVoidReplacement(block, startIdx, methodCall, originalReturnValues);
             return;
         }
 
-        // Create method call
-        MethodCallExpr methodCall = new MethodCallExpr(
-                methodNameToUse,
-                arguments.toArray(new Expression[0]));
-
-        // Check if the original sequence contained a return statement that we
-        // "swallowed"
-        // and if so, what expression it was returning.
-        ReturnStmt originalReturnValues = null;
-        for (Statement stmt : sequence.statements()) {
-            if (stmt.isReturnStmt()) {
-                originalReturnValues = stmt.asReturnStmt();
-                break; // Assume only one return path relevant for replacement logic
-            }
+        // For non-void: compute a good target var name and decide if we can inline return
+        String varName = inferReturnVariable(sequence, recommendation);
+        boolean nextIsReturn = startIdx < block.getStatements().size() && block.getStatements().get(startIdx).isReturnStmt();
+        boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
+        if (nextIsReturn) {
+            ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
+            returnHasExternalVars = returnHasExternalVars || affectsNextReturn(sequence, varName, nextReturn);
+        }
+        if (returnHasExternalVars && varName == null) {
+            // Ensure we go through the reconstruct path
+            varName = firstDefinedVariable(sequence);
         }
 
-        // Find and replace the statements
-        int startIdx = findStatementIndex(block, sequence);
-        if (startIdx >= 0) {
-            // Remove old statements
-            int count = sequence.statements().size();
-            for (int i = 0; i < count && startIdx < block.getStatements().size(); i++) {
-                block.getStatements().remove(startIdx);
-            }
+        boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, startIdx, originalReturnValues, returnHasExternalVars, nextIsReturn);
 
-            // Insert new logic
-            if ("void".equals(recommendation.suggestedReturnType())) {
-                // Void return: just the call
-                block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
-
-                // If original had return (void), add it back
-                if (originalReturnValues != null) {
-                    block.getStatements().add(startIdx + 1, new ReturnStmt());
-                }
-            } else {
-                // Returns a value
-                String varName = findReturnVariable(sequence, recommendation.suggestedReturnType());
-
-                DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-                Set<String> defined = dfa.findDefinedVariables(sequence);
-
-                // FALLBACK 1: Use primary return variable if defined in this sequence
-                if (varName == null && recommendation.primaryReturnVariable() != null) {
-                    if (defined.contains(recommendation.primaryReturnVariable())) {
-                        varName = recommendation.primaryReturnVariable();
-                    }
-                }
-
-                // FALLBACK 2: If still null, look for ANY defined variable matching the return
-                // type
-                // This handles parameter renaming (e.g. Primary returns 'user', Duplicate
-                // returns 'customer')
-                if (varName == null) {
-                    List<String> typedCandidates = new ArrayList<>();
-                    // Iterate statements to find variable declarations of matching type
-                    for (Statement stmt : sequence.statements()) {
-                        stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
-                            vde.getVariables().forEach(v -> {
-                                if (v.getType().asString().equals(recommendation.suggestedReturnType())) {
-                                    typedCandidates.add(v.getNameAsString());
-                                }
-                            });
-                        });
-                    }
-                    if (typedCandidates.size() == 1) {
-                        varName = typedCandidates.get(0);
-                    }
-                }
-
-                // CRITICAL: Check if the statement AFTER the duplicate (AFTER removal) is a
-                // return statement
-                // If so, and the extracted method returns a value, just return the method call
-                // directly
-                boolean nextIsReturn = startIdx < block.getStatements().size() &&
-                        block.getStatements().get(startIdx).isReturnStmt();
-
-                // DEBUG: Trace the key decision values (Removed)
-
-                // FIX BUG #1: Check if the post-sequence return uses external variables
-                // (like prefix + user.getName()). If so, we CANNOT return directly.
-                boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-
-                // ALSO check if the NEXT return (after the sequence) uses ANY variables
-                // that are defined in the sequence - this means we can't just return directly
-                if (nextIsReturn) {
-                    ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
-                    if (nextReturn.getExpression().isPresent()) {
-                        Expression returnExpr = nextReturn.getExpression().get();
-                        Set<String> returnVars = new HashSet<>();
-                        for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
-                            returnVars.add(nameExpr.getNameAsString());
-                        }
-                        // Check if return uses any variable defined in the sequence
-                        DataFlowAnalyzer postDfa = new DataFlowAnalyzer();
-                        Set<String> sequenceDefinedVars = postDfa.findDefinedVariables(sequence);
-                        for (String definedVar : sequenceDefinedVars) {
-                            if (returnVars.contains(definedVar)) {
-                                // The return uses a variable from the sequence
-                                // Check if it's a complex expression (not just the var or method on it)
-                                if (varName == null || !isSimpleReturnOfVariable(returnExpr, varName)) {
-                                    returnHasExternalVars = true;
-                                    // Also set a fallback varName if null
-                                    if (varName == null) {
-                                        varName = definedVar;
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // FIX BUG #1: If returnHasExternalVars=true and varName is still null,
-                // we need to set varName to a defined variable from the sequence
-                // so the else-branch (with originalReturnValues reconstruction) is taken
-                if (returnHasExternalVars && varName == null) {
-                    DataFlowAnalyzer dfa2 = new DataFlowAnalyzer();
-                    Set<String> seqDefined = dfa2.findDefinedVariables(sequence);
-                    // Pick the first defined variable (usually 'user' or similar)
-                    if (!seqDefined.isEmpty()) {
-                        varName = seqDefined.iterator().next();
-                    }
-                }
-
-                // If we found a return variable, we assign it
-                if (varName != null) {
-                    // CRITICAL FIX: If the next statement is a return and the extracted method
-                    // already has a return value, just return the method call directly
-                    // ALSO: If after removal the block becomes empty AND the containing method
-                    // returns a value,
-                    // we should return the method call result
-                    // BUT NOT if external variables exist in the return expression!
-                    boolean shouldReturnDirectly = !returnHasExternalVars &&
-                            ((nextIsReturn && originalReturnValues != null) ||
-                                    (block.getStatements().isEmpty() &&
-                                            !containingMethod.getType().asString().equals("void") &&
-                                            originalReturnValues != null));
-
-                    if (shouldReturnDirectly) {
-                        // Remove the orphaned return statement if it exists
-                        if (nextIsReturn) {
-                            block.getStatements().remove(startIdx);
-                        }
-                        // Return the method call directly
-                        block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-                    } else {
-                        VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                                new ClassOrInterfaceType(null, recommendation.suggestedReturnType()),
-                                varName);
-                        varDecl.getVariable(0).setInitializer(methodCall);
-                        block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
-
-                        // IF the original code had a return, we must RECONSTRUCT it
-                        if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                            // We need to assume the original return expression used 'varName'
-                            // and we should now return that SAME expression
-                            // BUT 'varName' is now the result of the method call.
-                            // So effectively we just copy the original return statement!
-                            // Since 'varName' is now defined in the scope (we just added it),
-                            // `return varName.getName()` will work validly.
-                            block.getStatements().add(startIdx + 1, originalReturnValues.clone());
-                        }
-                    }
-                } else {
-                    // No variable found (maybe direct return?), just add call
-                    // This case is tricky if we need to return.
-                    if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                        // Fallback: return methodCall() directly?
-                        // Only if types match. If mismatched (User vs String), this is broken.
-                        // But we can't solve everything.
-                        block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-                    } else {
-                        block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
-                    }
-                }
-            }
-        }
+        insertValueReplacement(block, startIdx, recommendation, methodCall, originalReturnValues, varName, shouldReturnDirectly, nextIsReturn);
     }
 
     private static void debugReplaceWithMethodCall(RefactoringRecommendation recommendation, VariationAnalysis variations, String methodNameToUse) {
@@ -804,6 +513,238 @@ public class ExtractMethodRefactorer {
                 log.debug("DEBUG replaceWithMethodCall: exprBindings = {}",
                         variations.exprBindings() != null ? variations.exprBindings().size() : "null");
             }
+        }
+    }
+
+    private NodeList<Expression> buildArgumentsForCall(RefactoringRecommendation recommendation,
+                                                       VariationAnalysis variations,
+                                                       StatementSequence sequence) {
+        // Determine ordering among String parameters for context-aware extraction
+        List<ParameterSpec> stringParams = new ArrayList<>();
+        for (ParameterSpec p : recommendation.suggestedParameters()) {
+            if (STRING.equals(p.type())) {
+                stringParams.add(p);
+            }
+        }
+
+        NodeList<Expression> arguments = new NodeList<>();
+        for (ParameterSpec param : recommendation.suggestedParameters()) {
+            String valToUse = null;
+
+            // 1) Variation-based (most accurate)
+            if (variations != null && param.variationIndex() != null) {
+                var exprBindings = variations.exprBindings() != null
+                        ? variations.exprBindings().get(param.variationIndex())
+                        : null;
+                if (exprBindings != null) {
+                    valToUse = resolveBindingForSequence(exprBindings, sequence);
+                }
+                if (valToUse == null) {
+                    var legacyBindings = variations.valueBindings() != null
+                            ? variations.valueBindings().get(param.variationIndex())
+                            : null;
+                    if (legacyBindings != null) {
+                        Map<StatementSequence, ExprInfo> adapted = new java.util.HashMap<>();
+                        for (var entry : legacyBindings.entrySet()) {
+                            adapted.put(entry.getKey(), ExprInfo.fromText(entry.getValue()));
+                        }
+                        valToUse = resolveBindingForSequence(adapted, sequence);
+                    }
+                }
+            }
+
+            // 2) Context-aware extraction for multiple String parameters
+            if (valToUse == null && STRING.equals(param.type()) && stringParams.size() >= 2) {
+                int ord = stringParams.indexOf(param);
+                if (ord >= 0) {
+                    String ctxVal = extractStringByContext(sequence, ord);
+                    if (ctxVal != null) valToUse = ctxVal;
+                }
+            }
+
+            // 3) Generic AST-based extraction with disambiguation for strings
+            if (valToUse == null) {
+                String actualValue = extractActualValue(sequence, param);
+                if (actualValue != null) {
+                    if (STRING.equals(param.type()) && actualValue.startsWith("\"") && !param.exampleValues().isEmpty()) {
+                        String unq = actualValue.replace("\"", "");
+                        boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", ""))
+                                .anyMatch(s -> s.equals(unq));
+                        if (!matches) actualValue = null;
+                    }
+                }
+                if (actualValue != null) valToUse = actualValue;
+            }
+
+            // 4) Fallback to example values for non-String, if type-compatible
+            if (valToUse == null && !param.exampleValues().isEmpty()) {
+                String pType = param.type();
+                if (!STRING.equals(pType)) {
+                    String candidate = param.exampleValues().get(0);
+                    boolean ok = false;
+                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+")) ok = true;
+                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?")) ok = true;
+                    if (("double".equals(pType) || DOUBLE.equals(pType)) && candidate.matches("-?\\d+\\.\\d+")) ok = true;
+                    if (("boolean".equals(pType) || Boolean.equals(pType)) && ("true".equals(candidate) || "false".equals(candidate))) ok = true;
+                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty()) ok = true;
+                    if (ok) valToUse = candidate;
+                }
+            }
+
+            if (valToUse == null) return null; // cannot resolve safely
+
+            // Quick type-form guardrails
+            String pType = param.type();
+            if (("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType) || "Long".equals(pType)
+                    || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType) || Boolean.equals(pType))
+                    && valToUse.startsWith("\"")) {
+                return null;
+            }
+            if (STRING.equals(pType) && !valToUse.startsWith("\"") && valToUse.matches("-?\\d+(\\.\\d+)?")) {
+                return null;
+            }
+
+            // Convert the textual value to an Expression
+            Expression expr = toExpressionForParam(pType, valToUse);
+            if (expr == null) return null;
+            arguments.add(expr);
+        }
+        return arguments;
+    }
+
+    private Expression toExpressionForParam(String pType, String valToUse) {
+        try {
+            if (("Class<?>".equals(pType) || "Class".equals(pType)) && !valToUse.endsWith(".class")) {
+                return new ClassExpr(new ClassOrInterfaceType(null, valToUse));
+            }
+            if (valToUse.matches("-?\\d+")) {
+                if ("long".equals(pType) || "Long".equals(pType)) {
+                    return new LongLiteralExpr(valToUse + "L");
+                }
+                return new IntegerLiteralExpr(valToUse);
+            }
+            if (valToUse.matches("-?\\d+\\.\\d+")) {
+                return new DoubleLiteralExpr(valToUse);
+            }
+            if ("true".equals(valToUse) || "false".equals(valToUse)) {
+                return new BooleanLiteralExpr(java.lang.Boolean.parseBoolean(valToUse));
+            }
+            if (valToUse.startsWith("\"")) {
+                return new StringLiteralExpr(valToUse.replace("\"", ""));
+            }
+            return new NameExpr(valToUse);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private ReturnStmt findOriginalReturnInSequence(StatementSequence sequence) {
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isReturnStmt()) {
+                return stmt.asReturnStmt();
+            }
+        }
+        return null;
+    }
+
+    private void insertVoidReplacement(BlockStmt block, int startIdx, MethodCallExpr methodCall, ReturnStmt originalReturnValues) {
+        block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+        if (originalReturnValues != null) {
+            block.getStatements().add(startIdx + 1, new ReturnStmt());
+        }
+    }
+
+    private String inferReturnVariable(StatementSequence sequence, RefactoringRecommendation recommendation) {
+        String varName = findReturnVariable(sequence, recommendation.suggestedReturnType());
+        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+        Set<String> defined = dfa.findDefinedVariables(sequence);
+        if (varName == null && recommendation.primaryReturnVariable() != null) {
+            if (defined.contains(recommendation.primaryReturnVariable())) {
+                varName = recommendation.primaryReturnVariable();
+            }
+        }
+        if (varName == null) {
+            List<String> typedCandidates = new ArrayList<>();
+            for (Statement stmt : sequence.statements()) {
+                stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
+                    vde.getVariables().forEach(v -> {
+                        if (v.getType().asString().equals(recommendation.suggestedReturnType())) {
+                            typedCandidates.add(v.getNameAsString());
+                        }
+                    });
+                });
+            }
+            if (typedCandidates.size() == 1) {
+                varName = typedCandidates.get(0);
+            }
+        }
+        return varName;
+    }
+
+    private boolean affectsNextReturn(StatementSequence sequence, String currentVarName, ReturnStmt nextReturn) {
+        if (!nextReturn.getExpression().isPresent()) return false;
+        Expression returnExpr = nextReturn.getExpression().get();
+        Set<String> returnVars = new HashSet<>();
+        for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
+            returnVars.add(nameExpr.getNameAsString());
+        }
+        DataFlowAnalyzer postDfa = new DataFlowAnalyzer();
+        Set<String> sequenceDefinedVars = postDfa.findDefinedVariables(sequence);
+        for (String definedVar : sequenceDefinedVars) {
+            if (returnVars.contains(definedVar)) {
+                if (currentVarName == null || !isSimpleReturnOfVariable(returnExpr, currentVarName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String firstDefinedVariable(StatementSequence sequence) {
+        DataFlowAnalyzer dfa2 = new DataFlowAnalyzer();
+        Set<String> seqDefined = dfa2.findDefinedVariables(sequence);
+        if (!seqDefined.isEmpty()) {
+            return seqDefined.iterator().next();
+        }
+        return null;
+    }
+
+    private boolean canInlineReturn(MethodDeclaration containingMethod, BlockStmt block, int startIdx,
+                                    ReturnStmt originalReturnValues, boolean returnHasExternalVars, boolean nextIsReturn) {
+        if (returnHasExternalVars) return false;
+        boolean methodIsVoid = containingMethod.getType().asString().equals("void");
+        boolean blockEmptyAfterRemoval = block.getStatements().isEmpty();
+        return ((nextIsReturn && originalReturnValues != null) ||
+                (blockEmptyAfterRemoval && !methodIsVoid && originalReturnValues != null));
+    }
+
+    private void insertValueReplacement(BlockStmt block, int startIdx, RefactoringRecommendation recommendation,
+                                        MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
+                                        boolean shouldReturnDirectly, boolean nextIsReturn) {
+        if (varName != null && shouldReturnDirectly) {
+            if (nextIsReturn) {
+                block.getStatements().remove(startIdx);
+            }
+            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+            return;
+        }
+
+        if (varName != null) {
+            VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
+                    new ClassOrInterfaceType(null, recommendation.suggestedReturnType()), varName);
+            varDecl.getVariable(0).setInitializer(methodCall);
+            block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+            }
+            return;
+        }
+
+        // Fallback: no var name found
+        if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+        } else {
+            block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
         }
     }
 
@@ -888,7 +829,7 @@ public class ExtractMethodRefactorer {
         if (expr.isDoubleLiteralExpr() && ("double".equals(param.type()) || DOUBLE.equals(param.type()))) {
             return true;
         }
-        if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || "Boolean".equals(param.type()))) {
+        if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || Boolean.equals(param.type()))) {
             return true;
         }
         if (expr.isStringLiteralExpr() && (STRING.equals(param.type()))) {
