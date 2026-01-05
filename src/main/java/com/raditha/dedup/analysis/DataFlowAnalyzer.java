@@ -10,6 +10,9 @@ import com.raditha.dedup.model.StatementSequence;
 
 import java.util.*;
 
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+
 /**
  * Performs data flow analysis to determine which variables are live
  * after a sequence of statements.
@@ -221,10 +224,11 @@ public class DataFlowAnalyzer {
         // Prefer the first candidate whose type is not primitive-like
         for (String varName : candidates) {
             for (Statement stmt : sequence.statements()) {
-                if (stmt instanceof ExpressionStmt expr && expr.getExpression() instanceof VariableDeclarationExpr varDecl) {
+                if (stmt instanceof ExpressionStmt expr
+                        && expr.getExpression() instanceof VariableDeclarationExpr varDecl) {
                     for (var variable : varDecl.getVariables()) {
                         var type = variable.getType();
-                        if ( variable.getNameAsString().equals(varName) && !isPrimitiveLike(type)) {
+                        if (variable.getNameAsString().equals(varName) && !isPrimitiveLike(type)) {
                             return varName;
                         }
                     }
@@ -263,38 +267,105 @@ public class DataFlowAnalyzer {
 
     /**
      * Check if a variable's type is compatible with the expected return type.
+     * Uses AbstractCompiler and TypeWrapper for robust type checking.
      */
     private boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
+        // 1. Find the variable declaration to get its types
+
+        com.github.javaparser.ast.body.VariableDeclarator targetVar = null;
+
         for (Statement stmt : sequence.statements()) {
-            if (stmt.isExpressionStmt()) {
-                var expr = stmt.asExpressionStmt().getExpression();
-                if (expr.isVariableDeclarationExpr()) {
-                    VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
-                    for (var variable : varDecl.getVariables()) {
-                        if (variable.getNameAsString().equals(varName)) {
-                            String varType = variable.getType().asString();
-                            // Simple string matching for now (robust enough for simple cases)
-                            // "User" matches "User"
-                            // "java.lang.String" matches "String"
-                            // "List<User>" matches "List"
-                            if (varType.equals(expectedType))
-                                return true;
-                            if (varType.endsWith("." + expectedType))
-                                return true; // FQN match
-                            if (expectedType.endsWith("." + varType))
-                                return true;
-                            if (expectedType.contains(".")) {
-                                // removing package from expected
-                                String simpleExpected = expectedType.substring(expectedType.lastIndexOf('.') + 1);
-                                if (varType.equals(simpleExpected))
-                                    return true;
-                            }
-                            return false;
-                        }
+            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+                var decl = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
+                for (var v : decl.getVariables()) {
+                    if (v.getNameAsString().equals(varName)) {
+                        targetVar = v;
+                        break;
+                    }
+                }
+            }
+            if (targetVar != null)
+                break;
+        }
+
+        if (targetVar == null)
+            return false;
+
+        // 2. Resolve types for the variable
+        // findTypesInVariable returns list of wrappers. For generics like List<User>,
+        // it returns [User, List].
+        // We are interested in the main type (last one).
+        List<TypeWrapper> varTypes = AbstractCompiler.findTypesInVariable(targetVar);
+        if (varTypes.isEmpty())
+            return false;
+        TypeWrapper varWrapper = varTypes.getLast();
+
+        // 3. Resolve the expected type
+        TypeWrapper expectedWrapper;
+
+        String simpleType = expectedType;
+        if (simpleType.contains("<")) {
+            // Strip generics - AbstractCompiler.findType finds the raw type anyway
+            simpleType = simpleType.substring(0, simpleType.indexOf('<'));
+        }
+
+        expectedWrapper = AbstractCompiler.findType(sequence.compilationUnit(), simpleType);
+
+        if (expectedWrapper == null) {
+            // If we can't resolve expected type, fallback to basic string match to be safe
+            return varWrapper.getName() != null && (varWrapper.getName().equals(expectedType) ||
+                    varWrapper.getName().endsWith("." + expectedType));
+        }
+
+        // 4. Check compatibility
+        return checkCompatibility(varWrapper, expectedWrapper);
+    }
+
+    private boolean checkCompatibility(TypeWrapper varWrapper, TypeWrapper expectedWrapper) {
+        // Case 1: Both are Reflection types
+        if (varWrapper.getClazz() != null && expectedWrapper.getClazz() != null) {
+            return expectedWrapper.getClazz().isAssignableFrom(varWrapper.getClazz());
+        }
+
+        // Case 2: Both are AST Types or Mixed - Check FQN equality first
+        String varFQN = varWrapper.getFullyQualifiedName();
+        String expectedFQN = expectedWrapper.getFullyQualifiedName();
+
+        if (varFQN != null && varFQN.equals(expectedFQN)) {
+            return true;
+        }
+
+        // Case 3: AST Inheritance Check
+        // If the variable type is an AST type, we can check its ancestors
+        if (varWrapper.getType() != null && varWrapper.getType().isClassOrInterfaceDeclaration()) {
+            var typeDecl = varWrapper.getType().asClassOrInterfaceDeclaration();
+
+            // Check extended types (superclasses)
+            if (typeDecl.getExtendedTypes() != null) {
+                for (var extended : typeDecl.getExtendedTypes()) {
+                    String extendedFQN = AbstractCompiler.findFullyQualifiedName(
+                            varWrapper.getType().findCompilationUnit().orElse(null), extended);
+                    if (extendedFQN != null && extendedFQN.equals(expectedFQN)) {
+                        return true;
+                    }
+                    // Only deep check if we really need to (performance tradeoff)
+                    // Ideally we would recursively resolve, but 1-level up + FQN match catches most
+                    // direct inheritance
+                }
+            }
+
+            // Check implemented interfaces
+            if (typeDecl.getImplementedTypes() != null) {
+                for (var implemented : typeDecl.getImplementedTypes()) {
+                    String implFQN = AbstractCompiler.findFullyQualifiedName(
+                            varWrapper.getType().findCompilationUnit().orElse(null), implemented);
+                    if (implFQN != null && implFQN.equals(expectedFQN)) {
+                        return true;
                     }
                 }
             }
         }
-        return false; // Variable not found (shouldn't happen for candidates)
+
+        return false;
     }
 }
