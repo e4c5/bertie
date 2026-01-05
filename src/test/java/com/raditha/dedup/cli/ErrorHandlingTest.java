@@ -1,5 +1,6 @@
 package com.raditha.dedup.cli;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
@@ -30,6 +31,7 @@ class ErrorHandlingTest {
         System.setErr(new PrintStream(errContent));
     }
 
+    @AfterEach
     void tearDown() {
         System.setOut(originalOut);
         System.setErr(originalErr);

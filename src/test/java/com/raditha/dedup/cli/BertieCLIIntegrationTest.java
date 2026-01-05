@@ -1,5 +1,6 @@
 package com.raditha.dedup.cli;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,6 +48,7 @@ class BertieCLIIntegrationTest {
         createTestJavaFile();
     }
 
+    @AfterEach
     void tearDown() {
         System.setOut(originalOut);
         System.setErr(originalErr);
