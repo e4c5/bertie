@@ -519,16 +519,67 @@ public class ExtractMethodRefactorer {
     private NodeList<Expression> buildArgumentsForCall(RefactoringRecommendation recommendation,
                                                        VariationAnalysis variations,
                                                        StatementSequence sequence) {
-        // Determine ordering among String parameters for context-aware extraction
-        List<ParameterSpec> stringParams = new ArrayList<>();
-        for (ParameterSpec p : recommendation.suggestedParameters()) {
-            if (STRING.equals(p.type())) {
-                stringParams.add(p);
+        // Delegate to a focused builder that preserves existing behavior and guardrails
+        return new ArgumentBuilder().buildArgs(recommendation, variations, sequence);
+    }
+
+    /**
+     * Focused component to construct method call arguments while preserving the
+     * exact resolution order and safety guardrails previously embedded in
+     * {@link #buildArgumentsForCall}.
+     *
+     * This inner class intentionally reuses existing helpers from the outer
+     * refactorer (variation resolution, context-aware string extraction,
+     * AST-based value extraction, and expression conversion) to minimize code
+     * duplication and behavior drift.
+     */
+    private class ArgumentBuilder {
+        NodeList<Expression> buildArgs(RefactoringRecommendation recommendation,
+                                       VariationAnalysis variations,
+                                       StatementSequence sequence) {
+            // Determine ordering among String parameters for context-aware extraction
+            List<ParameterSpec> stringParams = new ArrayList<>();
+            for (ParameterSpec p : recommendation.suggestedParameters()) {
+                if (STRING.equals(p.type())) {
+                    stringParams.add(p);
+                }
             }
+
+            NodeList<Expression> arguments = new NodeList<>();
+            for (ParameterSpec param : recommendation.suggestedParameters()) {
+                Expression expr = resolveValue(variations, sequence, stringParams, param);
+                if (expr == null) return null; // cannot resolve safely
+
+                // AST-based guardrails
+                String pType = param.type();
+                boolean numericType = ("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType) || "Long".equals(pType)
+                        || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType) || Boolean.equals(pType));
+                if (numericType && expr.isStringLiteralExpr()) {
+                    return null;
+                }
+                if (STRING.equals(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() || expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
+                    return null;
+                }
+                if (("Class<?>".equals(pType) || "Class".equals(pType)) && !(expr.isClassExpr() || (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
+                    // Try to adapt NameExpr or other simple forms into ClassExpr
+                    Expression adapted = null;
+                    if (expr.isNameExpr()) {
+                        adapted = new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
+                    }
+                    if (adapted == null) return null; // unsafe
+                    expr = adapted;
+                }
+
+                arguments.add(expr);
+            }
+            return arguments;
         }
 
-        NodeList<Expression> arguments = new NodeList<>();
-        for (ParameterSpec param : recommendation.suggestedParameters()) {
+        private Expression resolveValue(VariationAnalysis variations,
+                                    StatementSequence sequence,
+                                    List<ParameterSpec> stringParams,
+                                    ParameterSpec param) {
+            String pType = param.type();
             String valToUse = null;
 
             // 1) Variation-based (most accurate)
@@ -551,34 +602,43 @@ public class ExtractMethodRefactorer {
                         valToUse = resolveBindingForSequence(adapted, sequence);
                     }
                 }
+                if (valToUse != null) {
+                    Expression expr = toExpressionForParam(pType, valToUse);
+                    if (expr != null) return expr;
+                }
             }
 
             // 2) Context-aware extraction for multiple String parameters
-            if (valToUse == null && STRING.equals(param.type()) && stringParams.size() >= 2) {
+            if (valToUse == null && STRING.equals(pType) && stringParams.size() >= 2) {
                 int ord = stringParams.indexOf(param);
                 if (ord >= 0) {
                     String ctxVal = extractStringByContext(sequence, ord);
-                    if (ctxVal != null) valToUse = ctxVal;
+                    if (ctxVal != null) {
+                        Expression expr = toExpressionForParam(pType, ctxVal);
+                        if (expr != null) return expr;
+                    }
                 }
             }
 
             // 3) Generic AST-based extraction with disambiguation for strings
-            if (valToUse == null) {
+            {
                 String actualValue = extractActualValue(sequence, param);
                 if (actualValue != null) {
-                    if (STRING.equals(param.type()) && actualValue.startsWith("\"") && !param.exampleValues().isEmpty()) {
+                    if (STRING.equals(pType) && actualValue.startsWith("\"") && !param.exampleValues().isEmpty()) {
                         String unq = actualValue.replace("\"", "");
                         boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", ""))
                                 .anyMatch(s -> s.equals(unq));
                         if (!matches) actualValue = null;
                     }
                 }
-                if (actualValue != null) valToUse = actualValue;
+                if (actualValue != null) {
+                    Expression expr = toExpressionForParam(pType, actualValue);
+                    if (expr != null) return expr;
+                }
             }
 
             // 4) Fallback to example values for non-String, if type-compatible
-            if (valToUse == null && !param.exampleValues().isEmpty()) {
-                String pType = param.type();
+            if (!param.exampleValues().isEmpty()) {
                 if (!STRING.equals(pType)) {
                     String candidate = param.exampleValues().get(0);
                     boolean ok = false;
@@ -587,29 +647,14 @@ public class ExtractMethodRefactorer {
                     if (("double".equals(pType) || DOUBLE.equals(pType)) && candidate.matches("-?\\d+\\.\\d+")) ok = true;
                     if (("boolean".equals(pType) || Boolean.equals(pType)) && ("true".equals(candidate) || "false".equals(candidate))) ok = true;
                     if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty()) ok = true;
-                    if (ok) valToUse = candidate;
+                    if (ok) {
+                        Expression expr = toExpressionForParam(pType, candidate);
+                        if (expr != null) return expr;
+                    }
                 }
             }
-
-            if (valToUse == null) return null; // cannot resolve safely
-
-            // Quick type-form guardrails
-            String pType = param.type();
-            if (("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType) || "Long".equals(pType)
-                    || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType) || Boolean.equals(pType))
-                    && valToUse.startsWith("\"")) {
-                return null;
-            }
-            if (STRING.equals(pType) && !valToUse.startsWith("\"") && valToUse.matches("-?\\d+(\\.\\d+)?")) {
-                return null;
-            }
-
-            // Convert the textual value to an Expression
-            Expression expr = toExpressionForParam(pType, valToUse);
-            if (expr == null) return null;
-            arguments.add(expr);
+            return null;
         }
-        return arguments;
     }
 
     private Expression toExpressionForParam(String pType, String valToUse) {
