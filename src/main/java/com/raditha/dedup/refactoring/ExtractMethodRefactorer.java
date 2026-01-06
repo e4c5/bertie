@@ -642,46 +642,33 @@ public class ExtractMethodRefactorer {
                 }
             }
 
-            // 3) Generic AST-based extraction with disambiguation for strings
-            {
-                String actualValue = extractActualValue(sequence, param);
-                if (actualValue != null) {
-                    if (STRING.equals(pType) && actualValue.startsWith("\"") && !param.getExampleValues().isEmpty()) {
-                        String unq = actualValue.replace("\"", "");
-                        boolean matches = param.getExampleValues().stream().map(s -> s.replace("\"", ""))
-                                .anyMatch(s -> s.equals(unq));
-                        if (!matches)
-                            actualValue = null;
+            // 3) Generic AST-based extraction
+            Expression actualValueExpr = extractActualValue(sequence, param);
+            if (actualValueExpr != null) {
+                // For String parameters, check against examples if present
+                if (STRING.equals(pType) && actualValueExpr.isStringLiteralExpr()
+                        && !param.getExampleValues().isEmpty()) {
+                    String lit = actualValueExpr.asStringLiteralExpr().getValue(); // unquoted value
+                    boolean matches = param.getExampleValues().stream()
+                            .map(s -> s.startsWith("\"") && s.endsWith("\"") ? s.substring(1, s.length() - 1) : s)
+                            .anyMatch(s -> s.equals(lit));
+                    if (!matches) {
+                        actualValueExpr = null;
                     }
                 }
-                if (actualValue != null) {
-                    Expression expr = toExpressionForParam(pType, actualValue);
-                    if (expr != null)
-                        return expr;
-                }
+            }
+            if (actualValueExpr != null) {
+                return actualValueExpr;
             }
 
             // 4) Fallback to example values for non-String, if type-compatible
             if (!param.getExampleValues().isEmpty()) {
                 if (!STRING.equals(pType)) {
                     String candidate = param.getExampleValues().get(0);
-                    boolean ok = false;
-                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+"))
-                        ok = true;
-                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?"))
-                        ok = true;
-                    if (("double".equals(pType) || DOUBLE.equals(pType)) && candidate.matches("-?\\d+\\.\\d+"))
-                        ok = true;
-                    if (("boolean".equals(pType) || Boolean.equals(pType))
-                            && ("true".equals(candidate) || "false".equals(candidate)))
-                        ok = true;
-                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty())
-                        ok = true;
-                    if (ok) {
-                        Expression expr = toExpressionForParam(pType, candidate);
-                        if (expr != null)
-                            return expr;
-                    }
+                    // Use robust parsing to check validity
+                    Expression expr = toExpressionForParam(pType, candidate);
+                    if (expr != null)
+                        return expr;
                 }
             }
             return null;
@@ -693,22 +680,8 @@ public class ExtractMethodRefactorer {
             if (("Class<?>".equals(pType) || "Class".equals(pType)) && !valToUse.endsWith(".class")) {
                 return new ClassExpr(new ClassOrInterfaceType(null, valToUse));
             }
-            if (valToUse.matches("-?\\d+")) {
-                if ("long".equals(pType) || "Long".equals(pType)) {
-                    return new LongLiteralExpr(valToUse + "L");
-                }
-                return new IntegerLiteralExpr(valToUse);
-            }
-            if (valToUse.matches("-?\\d+\\.\\d+")) {
-                return new DoubleLiteralExpr(valToUse);
-            }
-            if ("true".equals(valToUse) || "false".equals(valToUse)) {
-                return new BooleanLiteralExpr(java.lang.Boolean.parseBoolean(valToUse));
-            }
-            if (valToUse.startsWith("\"")) {
-                return new StringLiteralExpr(valToUse.replace("\"", ""));
-            }
-            return new NameExpr(valToUse);
+            // Robust AST parsing
+            return com.github.javaparser.StaticJavaParser.parseExpression(valToUse);
         } catch (Exception e) {
             return null;
         }
@@ -858,36 +831,33 @@ public class ExtractMethodRefactorer {
 
     /**
      * Extract the actual value used in this sequence for a parameter.
-     * FIXED Gap 1&2: Finds the ACTUAL value from the sequence AST.
+     * Returns the AST Expression found in the sequence, or a parsed Expression from
+     * examples.
      */
-    private String extractActualValue(StatementSequence sequence, ParameterSpec param) {
-        // Strategy: Search through sequence statements for expressions matching the
-        // parameter type
-        // and extract the actual variable/literal used
-
-        List<String> foundValues = new ArrayList<>();
+    private Expression extractActualValue(StatementSequence sequence, ParameterSpec param) {
+        List<Expression> foundValues = new ArrayList<>();
 
         for (Statement stmt : sequence.statements()) {
-            // Collect all expressions of the matching type from this statement
             stmt.findAll(Expression.class).forEach(expr -> {
-                String exprStr = expr.toString();
-                // Check if this expression could be a parameter value
                 if (couldBeParameterValue(expr, param)) {
-                    foundValues.add(exprStr);
+                    foundValues.add(expr);
                 }
             });
         }
 
-        // Return the first found value, or fall back to example
         if (!foundValues.isEmpty()) {
             return foundValues.get(0);
         }
 
-        // Fallback to example value only for non-String parameters; for Strings, return
-        // null to avoid wrong literals
+        // Fallback to example value
         if (!param.getExampleValues().isEmpty()
                 && (param.getType() == null || !STRING.equals(param.getType().asString()))) {
-            return param.getExampleValues().get(0);
+            try {
+                return com.github.javaparser.StaticJavaParser.parseExpression(param.getExampleValues().get(0));
+            } catch (Exception e) {
+                // If parsing fails (e.g. partial code), ignore
+                return null;
+            }
         }
 
         return null;
@@ -895,58 +865,12 @@ public class ExtractMethodRefactorer {
 
     /**
      * Check if an expression could be a parameter value based on type and pattern.
+     * Delegates to ParameterSpec's robust AST matching logic.
      */
     private boolean couldBeParameterValue(Expression expr, ParameterSpec param) {
-        String exprStr = expr.toString();
-
-        // Skip this/super references
-        if (exprStr.equals("this") || exprStr.equals("super")) {
-            return false;
-        }
-
-        // Accept basic literals based on declared param type
-        if (expr.isIntegerLiteralExpr()
-                && ("int".equals(param.getType().asString()) || "Integer".equals(param.getType().asString()))) {
-            return true;
-        }
-        if (expr.isLongLiteralExpr()
-                && ("long".equals(param.getType().asString()) || "Long".equals(param.getType().asString()))) {
-            return true;
-        }
-        if (expr.isDoubleLiteralExpr()
-                && ("double".equals(param.getType().asString()) || DOUBLE.equals(param.getType().asString()))) {
-            return true;
-        }
-        if (expr.isBooleanLiteralExpr()
-                && ("boolean".equals(param.getType().asString()) || Boolean.equals(param.getType().asString()))) {
-            return true;
-        }
-        if (expr.isStringLiteralExpr() && (STRING.equals(param.getType().asString()))) {
-            // If we have example values (e.g., two String params), only accept literals
-            // matching this param's examples
-            if (!param.getExampleValues().isEmpty()) {
-                String lit = expr.asStringLiteralExpr().asString();
-                return param.getExampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(lit));
-            }
-            return true;
-        }
-
-        // If we have example values, use them as hints for NON-literal expressions only
-        // This avoids accidentally accepting a String literal for a non-String
-        // parameter.
-        if (!param.getExampleValues().isEmpty()) {
-            // For variables or other non-literal expressions, check direct equality to any
-            // example
-            if (!expr.isLiteralExpr()) {
-                for (String example : param.getExampleValues()) {
-                    if (example.equals(exprStr)) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
+        return expr.findCompilationUnit()
+                .map(cu -> param.matches(expr, cu))
+                .orElse(false);
     }
 
     /**
@@ -1015,7 +939,7 @@ public class ExtractMethodRefactorer {
         if (param.getExampleValues().isEmpty()) {
             return;
         }
-        String primaryValue = extractActualValue(sequence, param);
+        Expression primaryValue = extractActualValue(sequence, param);
         if (primaryValue == null) {
             return;
         }
@@ -1028,40 +952,18 @@ public class ExtractMethodRefactorer {
 
     /**
      * Check if an expression should be replaced with a parameter.
+     * Uses AST equality.
      */
-    private boolean shouldReplaceExpression(Expression expr, String primaryValue, ParameterSpec param) {
-        String exprStr = expr.toString();
-
-        // String literals: compare the actual string value (without quotes)
-        if (expr.isStringLiteralExpr()) {
-            String literalValue = expr.asStringLiteralExpr().asString();
-            String primaryNoQuotes = primaryValue.replace("\"", "");
-            return literalValue.equals(primaryNoQuotes);
+    private boolean shouldReplaceExpression(Expression expr, Expression primaryValue, ParameterSpec param) {
+        // Semantic equality check via AST
+        if (expr.equals(primaryValue)) {
+            // For variable names, ensure robustness by checking against known examples
+            if (expr.isNameExpr()) {
+                // We rely on string representation for this specific cross-validation
+                return param.getExampleValues().contains(expr.toString());
+            }
+            return true;
         }
-
-        // Integer literals
-        if (expr.isIntegerLiteralExpr() && primaryValue.matches("-?\\d+")) {
-            return expr.toString().equals(primaryValue);
-        }
-
-        // Long literals
-        if (expr.isLongLiteralExpr() && primaryValue.matches("-?\\d+L?")) {
-            String exprValue = expr.toString().replace("L", "").replace("l", "");
-            String primaryNoL = primaryValue.replace("L", "").replace("l", "");
-            return exprValue.equals(primaryNoL);
-        }
-
-        // Boolean literals
-        if (expr.isBooleanLiteralExpr()) {
-            return expr.toString().equals(primaryValue);
-        }
-
-        // Variable names - only replace if it exactly matches the primary value
-        // and is in the list of example values (to avoid false positives)
-        if (expr.isNameExpr() && exprStr.equals(primaryValue)) {
-            return param.getExampleValues().contains(primaryValue);
-        }
-
         return false;
     }
 
@@ -1123,6 +1025,7 @@ public class ExtractMethodRefactorer {
 
     // Produce a canonical representation of the method body with parameter names
     // normalized (p0, p1, ...)
+    @SuppressWarnings("deprecation")
     private String normalizeMethodBody(MethodDeclaration method) {
         if (method.getBody().isEmpty())
             return null;

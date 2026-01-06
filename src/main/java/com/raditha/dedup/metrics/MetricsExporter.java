@@ -11,7 +11,6 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Exports duplication metrics to CSV and JSON formats for dashboard integration

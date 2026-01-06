@@ -173,17 +173,35 @@ public class ExtractUtilityClassRefactorer {
     }
 
     // Heuristic checking if import is relevant to the method
+    // Check if import is relevant to the method using AST analysis
     private boolean isImportNeeded(ImportDeclaration imp, MethodDeclaration method) {
+        if (imp.isAsterisk())
+            return false;
+
         String importName = imp.getNameAsString();
         String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
 
-        // Check if simpleName appears in the method string
-        // This is a rough heuristic but effective enough for handling dependencies.
-        // Also check if it's a static import (*)
-        if (imp.isAsterisk())
-            return false; // Avoid pollution, risky to ignore but safer for now.
+        // Check explicit types (e.g., return types, parameters, variable declarations)
+        for (ClassOrInterfaceType type : method.findAll(ClassOrInterfaceType.class)) {
+            if (type.getNameAsString().equals(simpleName))
+                return true;
+        }
 
-        return method.toString().contains(simpleName);
+        // Check annotations
+        for (com.github.javaparser.ast.expr.AnnotationExpr annotation : method
+                .findAll(com.github.javaparser.ast.expr.AnnotationExpr.class)) {
+            if (annotation.getNameAsString().equals(simpleName))
+                return true;
+        }
+
+        // Check Name expressions (e.g. static access like Status.ACTIVE)
+        // We only care if the first part of the name matches our import
+        for (NameExpr name : method.findAll(NameExpr.class)) {
+            if (name.getNameAsString().equals(simpleName))
+                return true;
+        }
+
+        return false;
     }
 
     /**
