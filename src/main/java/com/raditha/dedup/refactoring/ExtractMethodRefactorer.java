@@ -59,7 +59,7 @@ public class ExtractMethodRefactorer {
                 .findAncestor(ClassOrInterfaceDeclaration.class)
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
-        String methodNameToUse = recommendation.suggestedMethodName();
+        String methodNameToUse = recommendation.getSuggestedMethodName();
         MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, primary.containingMethod());
         if (equivalent == null) {
             // No equivalent helper exists; add our newly created one
@@ -87,7 +87,7 @@ public class ExtractMethodRefactorer {
         // Create result with ALL modified files
         return new RefactoringResult(
                 modifiedFiles,
-                recommendation.strategy(),
+                recommendation.getStrategy(),
                 "Extracted method: " + methodNameToUse);
     }
 
@@ -103,8 +103,9 @@ public class ExtractMethodRefactorer {
 
         // Parameters with collision handling
         Set<String> declaredVars = collectDeclaredVariableNames(sequence);
-        Map<String, String> paramNameOverrides = computeParamNameOverrides(declaredVars, recommendation.suggestedParameters());
-        addParameters(method, recommendation.suggestedParameters(), paramNameOverrides);
+        Map<String, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
+                recommendation.getSuggestedParameters());
+        addParameters(method, recommendation.getSuggestedParameters(), paramNameOverrides);
 
         // Copy thrown exceptions
         copyThrownExceptions(method, sequence);
@@ -119,7 +120,7 @@ public class ExtractMethodRefactorer {
 
     private MethodDeclaration initializeHelperMethod(RefactoringRecommendation recommendation) {
         MethodDeclaration method = new MethodDeclaration();
-        method.setName(recommendation.suggestedMethodName());
+        method.setName(recommendation.getSuggestedMethodName());
         return method;
     }
 
@@ -132,8 +133,8 @@ public class ExtractMethodRefactorer {
     }
 
     private void setReturnType(MethodDeclaration method, RefactoringRecommendation recommendation) {
-        String returnType = recommendation.suggestedReturnType();
-        method.setType(returnType != null ? returnType : "void");
+        com.github.javaparser.ast.type.Type returnType = recommendation.getSuggestedReturnType();
+        method.setType(returnType != null ? returnType : new com.github.javaparser.ast.type.VoidType());
     }
 
     private Set<String> collectDeclaredVariableNames(StatementSequence sequence) {
@@ -148,7 +149,7 @@ public class ExtractMethodRefactorer {
     private Map<String, String> computeParamNameOverrides(Set<String> declaredVars, List<ParameterSpec> params) {
         Map<String, String> overrides = new java.util.HashMap<>();
         for (ParameterSpec param : params) {
-            String name = param.name();
+            String name = param.getName();
             if (declaredVars.contains(name)) {
                 String newName = name + "Param";
                 int counter = 2;
@@ -163,8 +164,8 @@ public class ExtractMethodRefactorer {
 
     private void addParameters(MethodDeclaration method, List<ParameterSpec> params, Map<String, String> overrides) {
         for (ParameterSpec param : params) {
-            String targetName = overrides.getOrDefault(param.name(), param.name());
-            method.addParameter(new Parameter(new ClassOrInterfaceType(null, param.type()), targetName));
+            String targetName = overrides.getOrDefault(param.getName(), param.getName());
+            method.addParameter(new Parameter(param.getType().clone(), targetName));
         }
     }
 
@@ -185,13 +186,14 @@ public class ExtractMethodRefactorer {
     }
 
     private BlockStmt buildHelperMethodBody(StatementSequence sequence,
-                                            RefactoringRecommendation recommendation,
-                                            String targetReturnVar,
-                                            Map<String, String> paramNameOverrides) {
+            RefactoringRecommendation recommendation,
+            String targetReturnVar,
+            Map<String, String> paramNameOverrides) {
         BlockStmt body = new BlockStmt();
 
         boolean hasExternalVars = hasExternalVariablesInReturn(sequence);
-        List<Statement> statements = buildBodyStatements(sequence, recommendation, targetReturnVar, paramNameOverrides, hasExternalVars);
+        List<Statement> statements = buildBodyStatements(sequence, recommendation, targetReturnVar, paramNameOverrides,
+                hasExternalVars);
         for (Statement s : statements) {
             body.addStatement(s);
         }
@@ -211,10 +213,10 @@ public class ExtractMethodRefactorer {
      * - Normalizes return statements to a simple variable return when needed
      */
     private List<Statement> buildBodyStatements(StatementSequence sequence,
-                                                RefactoringRecommendation recommendation,
-                                                String targetReturnVar,
-                                                Map<String, String> paramNameOverrides,
-                                                boolean hasExternalVars) {
+            RefactoringRecommendation recommendation,
+            String targetReturnVar,
+            Map<String, String> paramNameOverrides,
+            boolean hasExternalVars) {
         List<Statement> result = new ArrayList<>();
         for (Statement original : sequence.statements()) {
             Statement stmt = substituteParameters(original.clone(), sequence, recommendation, paramNameOverrides);
@@ -230,16 +232,20 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * When the original return statement uses external variables that won't exist in the helper,
-     * we skip that return and add a simple return of the target variable at the end.
+     * When the original return statement uses external variables that won't exist
+     * in the helper,
+     * we skip that return and add a simple return of the target variable at the
+     * end.
      */
     private boolean shouldSkipReturnForExternalVars(Statement stmt, boolean hasExternalVars) {
         return hasExternalVars && stmt.isReturnStmt();
     }
 
     /**
-     * If a return statement returns a complex expression that uses the target variable,
-     * replace it with a simple `return <targetVar>;`. Otherwise, leave it unchanged.
+     * If a return statement returns a complex expression that uses the target
+     * variable,
+     * replace it with a simple `return <targetVar>;`. Otherwise, leave it
+     * unchanged.
      */
     private Statement normalizeReturnIfTargetsVariable(Statement stmt, String targetReturnVar) {
         if (targetReturnVar == null || !stmt.isReturnStmt()) {
@@ -263,10 +269,12 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Decide whether we must add a final `return <targetVar>;` at the end of the body.
+     * Decide whether we must add a final `return <targetVar>;` at the end of the
+     * body.
      */
     private boolean needsFinalReturn(BlockStmt body, String targetReturnVar) {
-        if (targetReturnVar == null) return false;
+        if (targetReturnVar == null)
+            return false;
         return body.getStatements().isEmpty() || !body.getStatements().getLast().get().isReturnStmt();
     }
 
@@ -404,18 +412,18 @@ public class ExtractMethodRefactorer {
         }
         // Fallback 1: match by exact source range (start/end lines)
 
-            int start = target.range().startLine();
-            int end = target.range().endLine();
-            for (Map.Entry<StatementSequence, com.raditha.dedup.model.ExprInfo> entry : bindings.entrySet()) {
-                StatementSequence seq = entry.getKey();
-                if (seq == null)
-                    continue;
+        int start = target.range().startLine();
+        int end = target.range().endLine();
+        for (Map.Entry<StatementSequence, com.raditha.dedup.model.ExprInfo> entry : bindings.entrySet()) {
+            StatementSequence seq = entry.getKey();
+            if (seq == null)
+                continue;
 
-                    if (seq.range().startLine() == start && seq.range().endLine() == end) {
-                        return asText.apply(entry.getValue());
-                    }
-
+            if (seq.range().startLine() == start && seq.range().endLine() == end) {
+                return asText.apply(entry.getValue());
             }
+
+        }
 
         return null;
     }
@@ -472,7 +480,8 @@ public class ExtractMethodRefactorer {
 
         // 4) Locate sequence in the block and replace
         int startIdx = findStatementIndex(block, sequence);
-        if (startIdx < 0) return;
+        if (startIdx < 0)
+            return;
 
         // Remove the old statements belonging to the sequence
         int removeCount = sequence.statements().size();
@@ -481,14 +490,16 @@ public class ExtractMethodRefactorer {
         }
 
         // 5) Insert new statements depending on return type
-        if ("void".equals(recommendation.suggestedReturnType())) {
+        if (recommendation.getSuggestedReturnType() != null && recommendation.getSuggestedReturnType().isVoidType()) {
             insertVoidReplacement(block, startIdx, methodCall, originalReturnValues);
             return;
         }
 
-        // For non-void: compute a good target var name and decide if we can inline return
+        // For non-void: compute a good target var name and decide if we can inline
+        // return
         String varName = inferReturnVariable(sequence, recommendation);
-        boolean nextIsReturn = startIdx < block.getStatements().size() && block.getStatements().get(startIdx).isReturnStmt();
+        boolean nextIsReturn = startIdx < block.getStatements().size()
+                && block.getStatements().get(startIdx).isReturnStmt();
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
         if (nextIsReturn) {
             ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
@@ -499,16 +510,19 @@ public class ExtractMethodRefactorer {
             varName = firstDefinedVariable(sequence);
         }
 
-        boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, startIdx, originalReturnValues, returnHasExternalVars, nextIsReturn);
+        boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, startIdx, originalReturnValues,
+                returnHasExternalVars, nextIsReturn);
 
-        insertValueReplacement(block, startIdx, recommendation, methodCall, originalReturnValues, varName, shouldReturnDirectly, nextIsReturn);
+        insertValueReplacement(block, startIdx, recommendation, methodCall, originalReturnValues, varName,
+                shouldReturnDirectly, nextIsReturn);
     }
 
-    private static void debugReplaceWithMethodCall(RefactoringRecommendation recommendation, VariationAnalysis variations, String methodNameToUse) {
+    private static void debugReplaceWithMethodCall(RefactoringRecommendation recommendation,
+            VariationAnalysis variations, String methodNameToUse) {
         var log = LoggerFactory.getLogger(VariationTracker.class);
         if (log.isDebugEnabled()) {
             log.debug("DEBUG replaceWithMethodCall: method = {}, variations = {}, params = {}", methodNameToUse,
-                    (variations != null), recommendation.suggestedParameters().size());
+                    (variations != null), recommendation.getSuggestedParameters().size());
             if (variations != null) {
                 log.debug("DEBUG replaceWithMethodCall: exprBindings = {}",
                         variations.exprBindings() != null ? variations.exprBindings().size() : "null");
@@ -517,8 +531,8 @@ public class ExtractMethodRefactorer {
     }
 
     private NodeList<Expression> buildArgumentsForCall(RefactoringRecommendation recommendation,
-                                                       VariationAnalysis variations,
-                                                       StatementSequence sequence) {
+            VariationAnalysis variations,
+            StatementSequence sequence) {
         // Delegate to a focused builder that preserves existing behavior and guardrails
         return new ArgumentBuilder().buildArgs(recommendation, variations, sequence);
     }
@@ -535,38 +549,44 @@ public class ExtractMethodRefactorer {
      */
     private class ArgumentBuilder {
         NodeList<Expression> buildArgs(RefactoringRecommendation recommendation,
-                                       VariationAnalysis variations,
-                                       StatementSequence sequence) {
+                VariationAnalysis variations,
+                StatementSequence sequence) {
             // Determine ordering among String parameters for context-aware extraction
             List<ParameterSpec> stringParams = new ArrayList<>();
-            for (ParameterSpec p : recommendation.suggestedParameters()) {
-                if (STRING.equals(p.type())) {
+            for (ParameterSpec p : recommendation.getSuggestedParameters()) {
+                if (STRING.equals(p.getType().asString())) {
                     stringParams.add(p);
                 }
             }
 
             NodeList<Expression> arguments = new NodeList<>();
-            for (ParameterSpec param : recommendation.suggestedParameters()) {
+            for (ParameterSpec param : recommendation.getSuggestedParameters()) {
                 Expression expr = resolveValue(variations, sequence, stringParams, param);
-                if (expr == null) return null; // cannot resolve safely
+                if (expr == null)
+                    return null; // cannot resolve safely
 
                 // AST-based guardrails
-                String pType = param.type();
-                boolean numericType = ("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType) || "Long".equals(pType)
-                        || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType) || Boolean.equals(pType));
+                String pType = param.getType().asString();
+                boolean numericType = ("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType)
+                        || "Long".equals(pType)
+                        || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType)
+                        || Boolean.equals(pType));
                 if (numericType && expr.isStringLiteralExpr()) {
                     return null;
                 }
-                if (STRING.equals(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() || expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
+                if (STRING.equals(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr()
+                        || expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
                     return null;
                 }
-                if (("Class<?>".equals(pType) || "Class".equals(pType)) && !(expr.isClassExpr() || (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
+                if (("Class<?>".equals(pType) || "Class".equals(pType)) && !(expr.isClassExpr()
+                        || (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
                     // Try to adapt NameExpr or other simple forms into ClassExpr
                     Expression adapted = null;
                     if (expr.isNameExpr()) {
                         adapted = new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
                     }
-                    if (adapted == null) return null; // unsafe
+                    if (adapted == null)
+                        return null; // unsafe
                     expr = adapted;
                 }
 
@@ -576,23 +596,23 @@ public class ExtractMethodRefactorer {
         }
 
         private Expression resolveValue(VariationAnalysis variations,
-                                    StatementSequence sequence,
-                                    List<ParameterSpec> stringParams,
-                                    ParameterSpec param) {
-            String pType = param.type();
+                StatementSequence sequence,
+                List<ParameterSpec> stringParams,
+                ParameterSpec param) {
+            String pType = param.getType().asString();
             String valToUse = null;
 
             // 1) Variation-based (most accurate)
-            if (variations != null && param.variationIndex() != null) {
+            if (variations != null && param.getVariationIndex() != null) {
                 var exprBindings = variations.exprBindings() != null
-                        ? variations.exprBindings().get(param.variationIndex())
+                        ? variations.exprBindings().get(param.getVariationIndex())
                         : null;
                 if (exprBindings != null) {
                     valToUse = resolveBindingForSequence(exprBindings, sequence);
                 }
                 if (valToUse == null) {
                     var legacyBindings = variations.valueBindings() != null
-                            ? variations.valueBindings().get(param.variationIndex())
+                            ? variations.valueBindings().get(param.getVariationIndex())
                             : null;
                     if (legacyBindings != null) {
                         Map<StatementSequence, ExprInfo> adapted = new java.util.HashMap<>();
@@ -604,7 +624,8 @@ public class ExtractMethodRefactorer {
                 }
                 if (valToUse != null) {
                     Expression expr = toExpressionForParam(pType, valToUse);
-                    if (expr != null) return expr;
+                    if (expr != null)
+                        return expr;
                 }
             }
 
@@ -615,7 +636,8 @@ public class ExtractMethodRefactorer {
                     String ctxVal = extractStringByContext(sequence, ord);
                     if (ctxVal != null) {
                         Expression expr = toExpressionForParam(pType, ctxVal);
-                        if (expr != null) return expr;
+                        if (expr != null)
+                            return expr;
                     }
                 }
             }
@@ -624,32 +646,41 @@ public class ExtractMethodRefactorer {
             {
                 String actualValue = extractActualValue(sequence, param);
                 if (actualValue != null) {
-                    if (STRING.equals(pType) && actualValue.startsWith("\"") && !param.exampleValues().isEmpty()) {
+                    if (STRING.equals(pType) && actualValue.startsWith("\"") && !param.getExampleValues().isEmpty()) {
                         String unq = actualValue.replace("\"", "");
-                        boolean matches = param.exampleValues().stream().map(s -> s.replace("\"", ""))
+                        boolean matches = param.getExampleValues().stream().map(s -> s.replace("\"", ""))
                                 .anyMatch(s -> s.equals(unq));
-                        if (!matches) actualValue = null;
+                        if (!matches)
+                            actualValue = null;
                     }
                 }
                 if (actualValue != null) {
                     Expression expr = toExpressionForParam(pType, actualValue);
-                    if (expr != null) return expr;
+                    if (expr != null)
+                        return expr;
                 }
             }
 
             // 4) Fallback to example values for non-String, if type-compatible
-            if (!param.exampleValues().isEmpty()) {
+            if (!param.getExampleValues().isEmpty()) {
                 if (!STRING.equals(pType)) {
-                    String candidate = param.exampleValues().get(0);
+                    String candidate = param.getExampleValues().get(0);
                     boolean ok = false;
-                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+")) ok = true;
-                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?")) ok = true;
-                    if (("double".equals(pType) || DOUBLE.equals(pType)) && candidate.matches("-?\\d+\\.\\d+")) ok = true;
-                    if (("boolean".equals(pType) || Boolean.equals(pType)) && ("true".equals(candidate) || "false".equals(candidate))) ok = true;
-                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty()) ok = true;
+                    if (("int".equals(pType) || "Integer".equals(pType)) && candidate.matches("-?\\d+"))
+                        ok = true;
+                    if (("long".equals(pType) || "Long".equals(pType)) && candidate.matches("-?\\d+L?"))
+                        ok = true;
+                    if (("double".equals(pType) || DOUBLE.equals(pType)) && candidate.matches("-?\\d+\\.\\d+"))
+                        ok = true;
+                    if (("boolean".equals(pType) || Boolean.equals(pType))
+                            && ("true".equals(candidate) || "false".equals(candidate)))
+                        ok = true;
+                    if (("Class<?>".equals(pType) || "Class".equals(pType)) && !candidate.isEmpty())
+                        ok = true;
                     if (ok) {
                         Expression expr = toExpressionForParam(pType, candidate);
-                        if (expr != null) return expr;
+                        if (expr != null)
+                            return expr;
                     }
                 }
             }
@@ -692,7 +723,8 @@ public class ExtractMethodRefactorer {
         return null;
     }
 
-    private void insertVoidReplacement(BlockStmt block, int startIdx, MethodCallExpr methodCall, ReturnStmt originalReturnValues) {
+    private void insertVoidReplacement(BlockStmt block, int startIdx, MethodCallExpr methodCall,
+            ReturnStmt originalReturnValues) {
         block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
         if (originalReturnValues != null) {
             block.getStatements().add(startIdx + 1, new ReturnStmt());
@@ -700,12 +732,14 @@ public class ExtractMethodRefactorer {
     }
 
     private String inferReturnVariable(StatementSequence sequence, RefactoringRecommendation recommendation) {
-        String varName = findReturnVariable(sequence, recommendation.suggestedReturnType());
+        String varName = findReturnVariable(sequence,
+                recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
+                        : "void");
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
         Set<String> defined = dfa.findDefinedVariables(sequence);
-        if (varName == null && recommendation.primaryReturnVariable() != null) {
-            if (defined.contains(recommendation.primaryReturnVariable())) {
-                varName = recommendation.primaryReturnVariable();
+        if (varName == null && recommendation.getPrimaryReturnVariable() != null) {
+            if (defined.contains(recommendation.getPrimaryReturnVariable())) {
+                varName = recommendation.getPrimaryReturnVariable();
             }
         }
         if (varName == null) {
@@ -713,7 +747,10 @@ public class ExtractMethodRefactorer {
             for (Statement stmt : sequence.statements()) {
                 stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
                     vde.getVariables().forEach(v -> {
-                        if (v.getType().asString().equals(recommendation.suggestedReturnType())) {
+                        if (v.getType().asString()
+                                .equals(recommendation.getSuggestedReturnType() != null
+                                        ? recommendation.getSuggestedReturnType().asString()
+                                        : "")) {
                             typedCandidates.add(v.getNameAsString());
                         }
                     });
@@ -727,7 +764,8 @@ public class ExtractMethodRefactorer {
     }
 
     private boolean affectsNextReturn(StatementSequence sequence, String currentVarName, ReturnStmt nextReturn) {
-        if (!nextReturn.getExpression().isPresent()) return false;
+        if (!nextReturn.getExpression().isPresent())
+            return false;
         Expression returnExpr = nextReturn.getExpression().get();
         Set<String> returnVars = new HashSet<>();
         for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
@@ -755,8 +793,9 @@ public class ExtractMethodRefactorer {
     }
 
     private boolean canInlineReturn(MethodDeclaration containingMethod, BlockStmt block, int startIdx,
-                                    ReturnStmt originalReturnValues, boolean returnHasExternalVars, boolean nextIsReturn) {
-        if (returnHasExternalVars) return false;
+            ReturnStmt originalReturnValues, boolean returnHasExternalVars, boolean nextIsReturn) {
+        if (returnHasExternalVars)
+            return false;
         boolean methodIsVoid = containingMethod.getType().asString().equals("void");
         boolean blockEmptyAfterRemoval = block.getStatements().isEmpty();
         return ((nextIsReturn && originalReturnValues != null) ||
@@ -764,8 +803,8 @@ public class ExtractMethodRefactorer {
     }
 
     private void insertValueReplacement(BlockStmt block, int startIdx, RefactoringRecommendation recommendation,
-                                        MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
-                                        boolean shouldReturnDirectly, boolean nextIsReturn) {
+            MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
+            boolean shouldReturnDirectly, boolean nextIsReturn) {
         if (varName != null && shouldReturnDirectly) {
             if (nextIsReturn) {
                 block.getStatements().remove(startIdx);
@@ -776,7 +815,7 @@ public class ExtractMethodRefactorer {
 
         if (varName != null) {
             VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                    new ClassOrInterfaceType(null, recommendation.suggestedReturnType()), varName);
+                    recommendation.getSuggestedReturnType().clone(), varName);
             varDecl.getVariable(0).setInitializer(methodCall);
             block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
             if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
@@ -846,8 +885,9 @@ public class ExtractMethodRefactorer {
 
         // Fallback to example value only for non-String parameters; for Strings, return
         // null to avoid wrong literals
-        if (!param.exampleValues().isEmpty() && (param.type() == null || !STRING.equals(param.type()))) {
-            return param.exampleValues().get(0);
+        if (!param.getExampleValues().isEmpty()
+                && (param.getType() == null || !STRING.equals(param.getType().asString()))) {
+            return param.getExampleValues().get(0);
         }
 
         return null;
@@ -865,24 +905,28 @@ public class ExtractMethodRefactorer {
         }
 
         // Accept basic literals based on declared param type
-        if (expr.isIntegerLiteralExpr() && ("int".equals(param.type()) || "Integer".equals(param.type()))) {
+        if (expr.isIntegerLiteralExpr()
+                && ("int".equals(param.getType().asString()) || "Integer".equals(param.getType().asString()))) {
             return true;
         }
-        if (expr.isLongLiteralExpr() && ("long".equals(param.type()) || "Long".equals(param.type()))) {
+        if (expr.isLongLiteralExpr()
+                && ("long".equals(param.getType().asString()) || "Long".equals(param.getType().asString()))) {
             return true;
         }
-        if (expr.isDoubleLiteralExpr() && ("double".equals(param.type()) || DOUBLE.equals(param.type()))) {
+        if (expr.isDoubleLiteralExpr()
+                && ("double".equals(param.getType().asString()) || DOUBLE.equals(param.getType().asString()))) {
             return true;
         }
-        if (expr.isBooleanLiteralExpr() && ("boolean".equals(param.type()) || Boolean.equals(param.type()))) {
+        if (expr.isBooleanLiteralExpr()
+                && ("boolean".equals(param.getType().asString()) || Boolean.equals(param.getType().asString()))) {
             return true;
         }
-        if (expr.isStringLiteralExpr() && (STRING.equals(param.type()))) {
+        if (expr.isStringLiteralExpr() && (STRING.equals(param.getType().asString()))) {
             // If we have example values (e.g., two String params), only accept literals
             // matching this param's examples
-            if (!param.exampleValues().isEmpty()) {
+            if (!param.getExampleValues().isEmpty()) {
                 String lit = expr.asStringLiteralExpr().asString();
-                return param.exampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(lit));
+                return param.getExampleValues().stream().map(s -> s.replace("\"", "")).anyMatch(s -> s.equals(lit));
             }
             return true;
         }
@@ -890,11 +934,11 @@ public class ExtractMethodRefactorer {
         // If we have example values, use them as hints for NON-literal expressions only
         // This avoids accidentally accepting a String literal for a non-String
         // parameter.
-        if (!param.exampleValues().isEmpty()) {
+        if (!param.getExampleValues().isEmpty()) {
             // For variables or other non-literal expressions, check direct equality to any
             // example
             if (!expr.isLiteralExpr()) {
-                for (String example : param.exampleValues()) {
+                for (String example : param.getExampleValues()) {
                     if (example.equals(exprStr)) {
                         return true;
                     }
@@ -914,7 +958,7 @@ public class ExtractMethodRefactorer {
     private Statement substituteParameters(Statement stmt, StatementSequence sequence,
             RefactoringRecommendation recommendation, Map<String, String> nameOverrides) {
         // Orchestrate substitution per parameter
-        for (ParameterSpec param : recommendation.suggestedParameters()) {
+        for (ParameterSpec param : recommendation.getSuggestedParameters()) {
             String paramName = resolveParamName(param, nameOverrides);
 
             // 1) Prefer exact location-based replacement to avoid accidental collisions
@@ -932,21 +976,23 @@ public class ExtractMethodRefactorer {
      * Resolve the final parameter name, applying any collision-driven overrides.
      */
     private String resolveParamName(ParameterSpec param, Map<String, String> nameOverrides) {
-        return nameOverrides.getOrDefault(param.name(), param.name());
+        return nameOverrides.getOrDefault(param.getName(), param.getName());
     }
 
     /**
-     * Try to replace a specific expression occurrence using the original source location
+     * Try to replace a specific expression occurrence using the original source
+     * location
      * recorded on the parameter. Returns true if a replacement was made.
      */
     private boolean tryLocationBasedReplace(Statement stmt, ParameterSpec param, String paramName) {
-        Integer line = param.startLine();
-        Integer col = param.startColumn();
+        Integer line = param.getStartLine();
+        Integer col = param.getStartColumn();
         if (line == null || col == null) {
             return false;
         }
         for (Expression expr : stmt.findAll(Expression.class)) {
-            if (expr.getRange().isEmpty()) continue;
+            if (expr.getRange().isEmpty())
+                continue;
             var begin = expr.getRange().get().begin;
             if (begin.line == line && begin.column == col) {
                 if (expr.getParentNode().isPresent()) {
@@ -959,11 +1005,14 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Apply value-based fallback substitution when location-based replacement is not possible.
-     * Relies on `extractActualValue` and `shouldReplaceExpression` to decide replacements.
+     * Apply value-based fallback substitution when location-based replacement is
+     * not possible.
+     * Relies on `extractActualValue` and `shouldReplaceExpression` to decide
+     * replacements.
      */
-    private void applyValueBasedReplace(Statement stmt, StatementSequence sequence, ParameterSpec param, String paramName) {
-        if (param.exampleValues().isEmpty()) {
+    private void applyValueBasedReplace(Statement stmt, StatementSequence sequence, ParameterSpec param,
+            String paramName) {
+        if (param.getExampleValues().isEmpty()) {
             return;
         }
         String primaryValue = extractActualValue(sequence, param);
@@ -1010,7 +1059,7 @@ public class ExtractMethodRefactorer {
         // Variable names - only replace if it exactly matches the primary value
         // and is in the list of example values (to avoid false positives)
         if (expr.isNameExpr() && exprStr.equals(primaryValue)) {
-            return param.exampleValues().contains(primaryValue);
+            return param.getExampleValues().contains(primaryValue);
         }
 
         return false;
@@ -1077,19 +1126,22 @@ public class ExtractMethodRefactorer {
     private String normalizeMethodBody(MethodDeclaration method) {
         if (method.getBody().isEmpty())
             return null;
-        String body = method.getBody().get().toString();
-        // Map parameter names to placeholders
-        for (int i = 0; i < method.getParameters().size(); i++) {
-            String name = method.getParameter(i).getNameAsString();
-            String placeholder = "p" + i;
-            // Replace as whole-word occurrences only
-            body = body.replaceAll("\\b" + java.util.regex.Pattern.quote(name) + "\\b", placeholder);
+
+        MethodDeclaration clone = method.clone();
+        java.util.Map<String, String> renames = new java.util.HashMap<>();
+        for (int i = 0; i < clone.getParameters().size(); i++) {
+            renames.put(clone.getParameter(i).getNameAsString(), "p" + i);
         }
-        // Strip comments-like patterns and whitespace differences
-        body = body.replaceAll("/\\*.*?\\*/", ""); // block comments (best effort)
-        body = body.replaceAll("//.*", ""); // line comments (best effort)
-        body = body.replaceAll("\\s+", "");
-        return body;
+
+        // Apply visitor to rename variables securely
+        new NormalizationVisitor().visit(clone, renames);
+
+        // Canonical string representation without comments
+        com.github.javaparser.printer.configuration.PrettyPrinterConfiguration config = new com.github.javaparser.printer.configuration.PrettyPrinterConfiguration();
+        config.setPrintComments(false);
+
+        // Strip whitespace to ignore formatting differences completely
+        return clone.getBody().get().toString(config).replaceAll("\\s+", "");
     }
 
     /**

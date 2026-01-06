@@ -66,7 +66,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("User", rec.suggestedReturnType(),
+        assertEquals("User", rec.getSuggestedReturnType().asString(),
                 "Should return User type as 'user' is used after duplicate code");
     }
 
@@ -87,7 +87,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("void", rec.suggestedReturnType(),
+        assertEquals("void", rec.getSuggestedReturnType().asString(),
                 "Should return void as no variable is used after");
     }
 
@@ -114,7 +114,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = intCluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("int", rec.suggestedReturnType(),
+        assertEquals("int", rec.getSuggestedReturnType().asString(),
                 "Should return int as 'total' is used after duplicate code");
     }
 
@@ -138,7 +138,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertTrue(rec.suggestedReturnType().contains("List"),
+        assertTrue(rec.getSuggestedReturnType().asString().contains("List"),
                 "Should return List type as 'filtered' is used after duplicate code");
     }
 
@@ -154,7 +154,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("User", rec.suggestedReturnType(),
+        assertEquals("User", rec.getSuggestedReturnType().asString(),
                 "Should return User and select finalUser (used after), not tempUser");
     }
 }

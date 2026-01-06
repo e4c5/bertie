@@ -75,7 +75,15 @@ public class ParameterExtractor {
             }
 
             // Get type from compatibility analysis
-            String type = typeCompatibility.getOrDefault("param" + position, "Object");
+            String typeStr = typeCompatibility.getOrDefault("param" + position, "Object");
+
+            com.github.javaparser.ast.type.Type type;
+            try {
+                type = com.github.javaparser.StaticJavaParser.parseType(typeStr);
+            } catch (Exception e) {
+                // Fallback for types that might not parse easily or are simple names
+                type = new com.github.javaparser.ast.type.ClassOrInterfaceType(null, typeStr);
+            }
 
             // Infer parameter name
             String baseName = inferParameterName(positionVars, position);

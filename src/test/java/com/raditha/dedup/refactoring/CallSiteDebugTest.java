@@ -62,9 +62,9 @@ class CallSiteDebugTest {
                 System.out.println("    " + (j + 1) + ". " + stmtStr.substring(0, Math.min(100, stmtStr.length())));
             }
             System.out.println("\nRecommendation:");
-            System.out.println("  Method name: " + rec.suggestedMethodName());
-            System.out.println("  Return type: " + rec.suggestedReturnType());
-            System.out.println("  Parameters: " + rec.suggestedParameters().size());
+            System.out.println("  Method name: " + rec.getSuggestedMethodName());
+            System.out.println("  Return type: " + rec.getSuggestedReturnType());
+            System.out.println("  Parameters: " + rec.getSuggestedParameters().size());
         }
     }
 }

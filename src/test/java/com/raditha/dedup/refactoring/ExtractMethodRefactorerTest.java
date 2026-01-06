@@ -71,11 +71,11 @@ class ExtractMethodRefactorerTest {
                 // Verify parameters
                 var recommendation = report.clusters().get(0).recommendation();
                 System.out.println("DEBUG: Recommendations:");
-                recommendation.suggestedParameters().forEach(p -> System.out
-                                .println("Param: " + p.name() + " Type: " + p.type() + " Examples: "
-                                                + p.exampleValues()));
+                recommendation.getSuggestedParameters().forEach(p -> System.out
+                                .println("Param: " + p.getName() + " Type: " + p.getType() + " Examples: "
+                                                + p.getExampleValues()));
 
-                assertTrue(recommendation.suggestedParameters().size() >= 3,
+                assertTrue(recommendation.getSuggestedParameters().size() >= 3,
                                 "Should have at least name, email, age parameters");
 
                 // Use INTERACTIVE mode to force application regardless of confidence
@@ -112,7 +112,7 @@ class ExtractMethodRefactorerTest {
                 assertTrue(refactoredCode.contains("processAlice()"), "Should preserve processAlice");
                 assertTrue(refactoredCode.contains("processBob()"), "Should preserve processBob");
 
-                String methodName = recommendation.suggestedMethodName();
+                String methodName = recommendation.getSuggestedMethodName();
                 assertTrue(refactoredCode.contains(methodName + "("), "Should call the extracted method");
         }
 }

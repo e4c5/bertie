@@ -49,7 +49,7 @@ public class ExtractUtilityClassRefactorer {
         validateCanBeStatic(methodToExtract);
 
         // Determine utility class name
-        String utilityClassName = determineUtilityClassName(recommendation.suggestedMethodName());
+        String utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
         String packageName = getPackageName(cu);
 
         // Create the new Utility Class AST
@@ -115,7 +115,7 @@ public class ExtractUtilityClassRefactorer {
 
         return new ExtractMethodRefactorer.RefactoringResult(
                 modifiedFiles,
-                recommendation.strategy(),
+                recommendation.getStrategy(),
                 "Extracted to utility class: " + utilityClassName);
     }
 
@@ -187,12 +187,12 @@ public class ExtractUtilityClassRefactorer {
     }
 
     /**
-     * Check if a method call is either unqualified (e.g., methodName(...)) or 
+     * Check if a method call is either unqualified (e.g., methodName(...)) or
      * qualified with 'this' (e.g., this.methodName(...)).
      */
     private boolean isUnqualifiedOrThisScoped(MethodCallExpr call) {
-        return call.getScope().isEmpty() || 
-               call.getScope().map(s -> s instanceof ThisExpr).orElse(false);
+        return call.getScope().isEmpty() ||
+                call.getScope().map(s -> s instanceof ThisExpr).orElse(false);
     }
 
     private void updateCallSitesAndImports(CompilationUnit cu, MethodDeclaration originalMethod,

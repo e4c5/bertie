@@ -57,7 +57,7 @@ public class ExtractParameterizedTestRefactorer {
         // Create the parameterized test method
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
                 cluster.primary().containingMethod(),
-                recommendation.suggestedMethodName(),
+                recommendation.getSuggestedMethodName(),
                 parameters,
                 testInstances);
 

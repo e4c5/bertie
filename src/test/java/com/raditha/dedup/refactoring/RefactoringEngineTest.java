@@ -113,7 +113,7 @@ class RefactoringEngineTest {
             var cluster = report.clusters().get(0);
             assertNotNull(cluster.recommendation());
             assertEquals(com.raditha.dedup.model.RefactoringStrategy.EXTRACT_HELPER_METHOD,
-                    cluster.recommendation().strategy(),
+                    cluster.recommendation().getStrategy(),
                     "Default strategy should be EXTRACT_HELPER_METHOD");
         }
     }

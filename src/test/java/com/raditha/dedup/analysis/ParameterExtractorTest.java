@@ -52,11 +52,11 @@ class ParameterExtractorTest {
         List<ParameterSpec> params = extractor.extractParameters(analysis, types);
 
         assertEquals(2, params.size());
-        assertTrue(params.stream().allMatch(p -> p.type().equals("String")));
+        assertTrue(params.stream().allMatch(p -> p.getType().asString().equals("String")));
 
         // Check example values are captured
         ParameterSpec first = params.get(0);
-        assertTrue(first.exampleValues().contains("\"John\"") || first.exampleValues().contains("\"Jane\""));
+        assertTrue(first.getExampleValues().contains("\"John\"") || first.getExampleValues().contains("\"Jane\""));
     }
 
     @Test
@@ -78,8 +78,8 @@ class ParameterExtractorTest {
         assertEquals(2, params.size());
 
         // Primitives should come first
-        assertEquals("int", params.get(0).type());
-        assertEquals("boolean", params.get(1).type());
+        assertEquals("int", params.get(0).getType().asString());
+        assertEquals("boolean", params.get(1).getType().asString());
     }
 
     @Test
@@ -102,8 +102,8 @@ class ParameterExtractorTest {
 
         // Names should reflect the pattern (Id, Name)
         // Note: The actual name inference is heuristic-based
-        assertNotNull(params.get(0).name());
-        assertNotNull(params.get(1).name());
+        assertNotNull(params.get(0).getName());
+        assertNotNull(params.get(1).getName());
     }
 
     @Test
@@ -154,7 +154,7 @@ class ParameterExtractorTest {
 
         // Should only extract non-control-flow parameters
         assertEquals(1, params.size());
-        assertEquals("int", params.get(0).type());
+        assertEquals("int", params.get(0).getType().asString());
     }
 
     @Test
@@ -180,13 +180,13 @@ class ParameterExtractorTest {
         ParameterSpec p2 = params.get(1);
 
         // Both should be valid identifiers and UNIQUE
-        assertNotNull(p1.name());
-        assertNotNull(p2.name());
-        assertNotEquals(p1.name(), p2.name(), "Parameter names must be unique");
+        assertNotNull(p1.getName());
+        assertNotNull(p2.getName());
+        assertNotEquals(p1.getName(), p2.getName(), "Parameter names must be unique");
 
         // Verify the renaming strategy (e.g., id, id2)
         // Note: The order depends on pattern matching success. Both are ints -> "id".
-        assertTrue(p1.name().equals("id") || p1.name().equals("id2"));
-        assertTrue(p2.name().equals("id") || p2.name().equals("id2"));
+        assertTrue(p1.getName().equals("id") || p1.getName().equals("id2"));
+        assertTrue(p2.getName().equals("id") || p2.getName().equals("id2"));
     }
 }

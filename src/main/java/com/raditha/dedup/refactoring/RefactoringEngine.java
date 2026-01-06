@@ -28,7 +28,7 @@ public class RefactoringEngine {
     }
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
-                             RefactoringVerifier.VerificationLevel verificationLevel) {
+            RefactoringVerifier.VerificationLevel verificationLevel) {
         this.projectRoot = projectRoot;
         this.mode = mode;
         this.validator = new SafetyValidator();
@@ -72,7 +72,7 @@ public class RefactoringEngine {
             }
 
             System.out.printf("Processing cluster #%d (Strategy: %s, Confidence: %.0f%%)%n",
-                    i + 1, recommendation.strategy(), recommendation.confidenceScore() * 100);
+                    i + 1, recommendation.getStrategy(), recommendation.getConfidenceScore() * 100);
 
             // Safety validation
             SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
@@ -102,7 +102,6 @@ public class RefactoringEngine {
                 session.addSkipped(cluster, "Low confidence for batch mode");
                 continue;
             }
-
 
             ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
@@ -158,7 +157,7 @@ public class RefactoringEngine {
     private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) throws IOException {
 
-        return switch (recommendation.strategy()) {
+        return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
                 ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
                 yield refactorer.refactor(cluster, recommendation);
@@ -170,8 +169,8 @@ public class RefactoringEngine {
                 yield new ExtractMethodRefactorer.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to @BeforeEach: " + recommendation.suggestedMethodName());
+                        recommendation.getStrategy(),
+                        "Extracted to @BeforeEach: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
                 ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
@@ -180,8 +179,8 @@ public class RefactoringEngine {
                 yield new ExtractMethodRefactorer.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to @ParameterizedTest: " + recommendation.suggestedMethodName());
+                        recommendation.getStrategy(),
+                        "Extracted to @ParameterizedTest: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_UTILITY_CLASS -> {
                 ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
@@ -189,7 +188,7 @@ public class RefactoringEngine {
                 yield result;
             }
             default -> throw new UnsupportedOperationException(
-                    "Refactoring strategy not yet implemented: " + recommendation.strategy());
+                    "Refactoring strategy not yet implemented: " + recommendation.getStrategy());
         };
     }
 
@@ -198,7 +197,7 @@ public class RefactoringEngine {
      */
     private boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         System.out.println("%n  === PROPOSED REFACTORING ===");
-        System.out.println("  Strategy: " + recommendation.strategy());
+        System.out.println("  Strategy: " + recommendation.getStrategy());
         System.out.println("  Method: " + recommendation.generateMethodSignature());
         System.out.println("  Confidence: " + recommendation.formatConfidence());
         System.out.println("  LOC Reduction: " + cluster.estimatedLOCReduction());
@@ -239,11 +238,11 @@ public class RefactoringEngine {
      * Collect diff for dry-run summary report.
      */
     private void collectDryRunDiff(RefactoringRecommendation recommendation,
-                                   ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
+            ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
         try {
             StringBuilder entry = new StringBuilder();
-            entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.strategy()));
-            entry.append(String.format("Confidence: %.0f%%%n", recommendation.confidenceScore() * 100));
+            entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.getStrategy()));
+            entry.append(String.format("Confidence: %.0f%%%n", recommendation.getConfidenceScore() * 100));
             entry.append(String.format("Files modified: %d%n", result.modifiedFiles().size()));
             entry.append(String.format("Method: %s%n", recommendation.generateMethodSignature()));
 

@@ -21,7 +21,7 @@ public class SafetyValidator {
         // 1. Check for method name conflicts
         if (hasMethodNameConflict(cluster, recommendation)) {
             issues.add(ValidationIssue.error(
-                    "Method name '" + recommendation.suggestedMethodName() + "' already exists in class"));
+                    "Method name '" + recommendation.getSuggestedMethodName() + "' already exists in class"));
         }
 
         // 2. Check for variable scope issues
@@ -44,9 +44,9 @@ public class SafetyValidator {
         }
 
         // 5. Check parameter count
-        if (recommendation.suggestedParameters().size() > 5) {
+        if (recommendation.getSuggestedParameters().size() > 5) {
             issues.add(ValidationIssue.warning(
-                    "More than 5 parameters (" + recommendation.suggestedParameters().size() +
+                    "More than 5 parameters (" + recommendation.getSuggestedParameters().size() +
                             ") - consider refactoring to use a parameter object"));
         }
 
@@ -67,7 +67,7 @@ public class SafetyValidator {
 
         // Check if method with same name exists
         return containingClass.getMethods().stream()
-                .anyMatch(m -> m.getNameAsString().equals(recommendation.suggestedMethodName()));
+                .anyMatch(m -> m.getNameAsString().equals(recommendation.getSuggestedMethodName()));
     }
 
     /**

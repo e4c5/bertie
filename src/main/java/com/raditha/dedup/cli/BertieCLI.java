@@ -34,12 +34,7 @@ import java.util.concurrent.Callable;
  * <p>
  * Configuration priority: CLI arguments > generator.yml > defaults
  */
-@Command(
-    name = "bertie",
-    mixinStandardHelpOptions = true,
-    version = "Bertie v1.0.0",
-    description = "Duplicate Code Detector and Refactoring Tool"
-)
+@Command(name = "bertie", mixinStandardHelpOptions = true, version = "Bertie v1.0.0", description = "Duplicate Code Detector and Refactoring Tool")
 @SuppressWarnings("java:S106")
 public class BertieCLI implements Callable<Integer> {
 
@@ -78,12 +73,10 @@ public class BertieCLI implements Callable<Integer> {
     private boolean refactorCommand = false;
 
     // Refactor Options
-    @Option(names = "--mode", description = "Refactoring mode: ${COMPLETION-CANDIDATES}", paramLabel = "<mode>", 
-            converter = RefactorModeConverter.class)
+    @Option(names = "--mode", description = "Refactoring mode: ${COMPLETION-CANDIDATES}", paramLabel = "<mode>", converter = RefactorModeConverter.class)
     private RefactorMode refactorMode = RefactorMode.INTERACTIVE;
 
-    @Option(names = "--verify", description = "Verification level: ${COMPLETION-CANDIDATES}", paramLabel = "<level>",
-            converter = VerifyModeConverter.class)
+    @Option(names = "--verify", description = "Verification level: ${COMPLETION-CANDIDATES}", paramLabel = "<level>", converter = VerifyModeConverter.class)
     private VerifyMode verifyMode = VerifyMode.COMPILE;
 
     /**
@@ -96,7 +89,7 @@ public class BertieCLI implements Callable<Integer> {
         try {
             // Validate configuration before proceeding
             validateConfiguration();
-            
+
             // Initialize Settings once, optionally from custom config file
             if (configFile != null) {
                 Settings.loadConfigMap(new java.io.File(configFile));
@@ -119,7 +112,7 @@ public class BertieCLI implements Callable<Integer> {
             } else {
                 runAnalysis();
             }
-            
+
             return 0; // Success
         } catch (IllegalArgumentException e) {
             // Configuration or validation errors
@@ -146,7 +139,7 @@ public class BertieCLI implements Callable<Integer> {
 
     public static void main(String[] args) throws Exception {
         CommandLine cmd = new CommandLine(new BertieCLI());
-        
+
         // Configure error handling
         cmd.setExecutionExceptionHandler((ex, commandLine, parseResult) -> {
             // Handle execution exceptions with appropriate exit codes
@@ -164,7 +157,7 @@ public class BertieCLI implements Callable<Integer> {
                 return 1;
             }
         });
-        
+
         // Configure parameter exception handler for better error messages
         cmd.setParameterExceptionHandler((ex, args1) -> {
             CommandLine.Help.ColorScheme colorScheme = CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.AUTO);
@@ -173,7 +166,7 @@ public class BertieCLI implements Callable<Integer> {
             cmd.getErr().print(cmd.getUsageMessage(colorScheme));
             return 2; // Invalid command line arguments
         });
-        
+
         int exitCode = cmd.execute(args);
         System.exit(exitCode);
     }
@@ -188,35 +181,36 @@ public class BertieCLI implements Callable<Integer> {
         if (threshold != 0 && (threshold < 0 || threshold > 100)) {
             throw new IllegalArgumentException("Threshold must be between 0 and 100, got: " + threshold);
         }
-        
+
         // Validate min-lines
         if (minLines != 0 && minLines < 1) {
             throw new IllegalArgumentException("Min-lines must be positive, got: " + minLines);
         }
-        
+
         // Validate export format
         if (exportFormat != null && !exportFormat.isEmpty()) {
             String format = exportFormat.toLowerCase();
             if (!format.equals("csv") && !format.equals("json") && !format.equals("both")) {
-                throw new IllegalArgumentException("Export format must be 'csv', 'json', or 'both', got: " + exportFormat);
+                throw new IllegalArgumentException(
+                        "Export format must be 'csv', 'json', or 'both', got: " + exportFormat);
             }
         }
-        
+
         // Validate mutually exclusive presets
         if (strict && lenient) {
             throw new IllegalArgumentException("Cannot use both --strict and --lenient presets simultaneously");
         }
-        
+
         // Validate config file exists if specified
         if (configFile != null && !new java.io.File(configFile).exists()) {
             throw new IllegalArgumentException("Config file not found: " + configFile);
         }
-        
+
         // Validate base path exists if specified
         if (basePath != null && !new java.io.File(basePath).exists()) {
             throw new IllegalArgumentException("Base path not found: " + basePath);
         }
-        
+
         // Validate output path is writable if specified
         if (outputPath != null) {
             java.io.File outputDir = new java.io.File(outputPath);
@@ -241,7 +235,7 @@ public class BertieCLI implements Callable<Integer> {
         } else if (lenient) {
             preset = "lenient";
         }
-        
+
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
                 minLines,
                 threshold,
@@ -281,7 +275,7 @@ public class BertieCLI implements Callable<Integer> {
         } else if (lenient) {
             preset = "lenient";
         }
-        
+
         DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
                 minLines,
                 threshold,
@@ -527,10 +521,10 @@ public class BertieCLI implements Callable<Integer> {
 
                     if (cluster.recommendation() != null) {
                         var rec = cluster.recommendation();
-                        System.out.printf("    → Strategy: %s%n", rec.strategy());
+                        System.out.printf("    → Strategy: %s%n", rec.getStrategy());
                         System.out.printf("    → Confidence: %s%n", rec.formatConfidence());
-                        if (rec.suggestedMethodName() != null) {
-                            System.out.printf("    → Suggested method: %s%n", rec.suggestedMethodName());
+                        if (rec.getSuggestedMethodName() != null) {
+                            System.out.printf("    → Suggested method: %s%n", rec.getSuggestedMethodName());
                         }
                     }
                 }

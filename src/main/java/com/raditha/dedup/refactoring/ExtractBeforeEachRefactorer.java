@@ -51,7 +51,7 @@ public class ExtractBeforeEachRefactorer {
 
         // Create or get existing @BeforeEach method
         MethodDeclaration beforeEachMethod = getOrCreateBeforeEachMethod(testClass,
-                recommendation.suggestedMethodName());
+                recommendation.getSuggestedMethodName());
 
         // Add the setup code to @BeforeEach
         addSetupCode(beforeEachMethod, cluster.primary(), variablesToPromote);

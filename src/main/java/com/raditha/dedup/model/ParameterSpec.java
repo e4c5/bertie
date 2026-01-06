@@ -9,18 +9,53 @@ import java.util.List;
  * @param type          Java type for the parameter
  * @param exampleValues Example values from the duplicate code
  */
-public record ParameterSpec(
-        String name,
-        String type,
-        List<String> exampleValues,
-        Integer variationIndex,
-        Integer startLine,
-        Integer startColumn) {
+public class ParameterSpec {
+    private final String name;
+    private final transient com.github.javaparser.ast.type.Type type;
+    private final List<String> exampleValues;
+    private final Integer variationIndex;
+    private final Integer startLine;
+    private final Integer startColumn;
+
+    public ParameterSpec(String name, com.github.javaparser.ast.type.Type type, List<String> exampleValues,
+            Integer variationIndex, Integer startLine, Integer startColumn) {
+        this.name = name;
+        this.type = type;
+        this.exampleValues = exampleValues;
+        this.variationIndex = variationIndex;
+        this.startLine = startLine;
+        this.startColumn = startColumn;
+    }
+
     /**
      * Create a parameter spec without example values.
      */
-    public ParameterSpec(String name, String type) {
+    public ParameterSpec(String name, com.github.javaparser.ast.type.Type type) {
         this(name, type, List.of(), null, null, null);
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public com.github.javaparser.ast.type.Type getType() {
+        return type;
+    }
+
+    public List<String> getExampleValues() {
+        return exampleValues;
+    }
+
+    public Integer getVariationIndex() {
+        return variationIndex;
+    }
+
+    public Integer getStartLine() {
+        return startLine;
+    }
+
+    public Integer getStartColumn() {
+        return startColumn;
     }
 
     /**
@@ -28,6 +63,6 @@ public record ParameterSpec(
      * Example: "String userId"
      */
     public String toParameterDeclaration() {
-        return type + " " + name;
+        return type.asString() + " " + name;
     }
 }

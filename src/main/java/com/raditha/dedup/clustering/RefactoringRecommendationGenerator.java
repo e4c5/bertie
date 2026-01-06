@@ -94,8 +94,8 @@ public class RefactoringRecommendationGenerator {
         // values
         List<ParameterSpec> refinedParameters = new java.util.ArrayList<>();
         for (ParameterSpec p : parameters) {
-            if ("Object".equals(p.type()) && !p.exampleValues().isEmpty()) {
-                String val = p.exampleValues().get(0);
+            if ("Object".equals(p.getType().asString()) && !p.getExampleValues().isEmpty()) {
+                String val = p.getExampleValues().get(0);
                 String inferred = null;
                 try {
                     inferred = findTypeInContext(cluster.primary(), val);
@@ -105,12 +105,12 @@ public class RefactoringRecommendationGenerator {
 
                 if (inferred != null && !inferred.equals("Object")) {
                     refinedParameters.add(new ParameterSpec(
-                            p.name(),
-                            inferred,
-                            p.exampleValues(),
-                            p.variationIndex(),
-                            p.startLine(),
-                            p.startColumn()));
+                            p.getName(),
+                            StaticJavaParser.parseType(inferred),
+                            p.getExampleValues(),
+                            p.getVariationIndex(),
+                            p.getStartLine(),
+                            p.getStartColumn()));
                 } else {
                     refinedParameters.add(p);
                 }
@@ -142,8 +142,8 @@ public class RefactoringRecommendationGenerator {
                 strategy,
                 methodName,
                 parameters,
-                returnType,
-                "", // targetLocation
+                StaticJavaParser.parseType(returnType != null ? returnType : "void"),
+                "",
                 confidence,
                 cluster.estimatedLOCReduction(),
                 primaryReturnVariable);
@@ -463,7 +463,7 @@ public class RefactoringRecommendationGenerator {
 
         // Remove variables that are already parameters (from variation analysis)
         Set<String> existingParamNames = new HashSet<>();
-        existingParams.forEach(p -> existingParamNames.add(p.name()));
+        existingParams.forEach(p -> existingParamNames.add(p.getName()));
 
         List<ParameterSpec> capturedParams = new java.util.ArrayList<>();
 
@@ -525,7 +525,8 @@ public class RefactoringRecommendationGenerator {
                 if (!containingMethodIsStatic && fi.isStatic) {
                     // non-static field needed for static helper; will pass as parameter
                     String type = fi.type != null ? fi.type : "Object";
-                    capturedParams.add(new ParameterSpec(varName, type, List.of(varName), null, null, null));
+                    capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type), List.of(varName),
+                            null, null, null));
                 }
                 continue; // skip adding as parameter
             }
@@ -537,7 +538,8 @@ public class RefactoringRecommendationGenerator {
             }
 
             capturedParams.add(
-                    new ParameterSpec(varName, type != null ? type : "Object", List.of(varName), null, null, null));
+                    new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : "Object"),
+                            List.of(varName), null, null, null));
         }
 
         return capturedParams;
@@ -775,7 +777,7 @@ public class RefactoringRecommendationGenerator {
         for (var p : params) {
             boolean isInternal = false;
             // Check if any example value utilizes a defined variable
-            for (String val : p.exampleValues()) {
+            for (String val : p.getExampleValues()) {
                 // 1. Check local variables
                 for (String def : defined) {
                     if (val.equals(def) || val.startsWith(def + ".") || val.contains("(" + def + ")")) {
