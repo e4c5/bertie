@@ -4,15 +4,11 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.config.DuplicationConfig;
-import com.raditha.dedup.detection.TokenNormalizer;
-import com.raditha.dedup.analysis.VariationTracker;
-import com.raditha.dedup.analysis.TypeAnalyzer;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
 import com.raditha.dedup.clustering.DuplicateClusterer;
 import com.raditha.dedup.clustering.RefactoringRecommendationGenerator;
 import com.raditha.dedup.model.*;
-import com.raditha.dedup.similarity.SimilarityCalculator;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -29,10 +25,8 @@ public class DuplicationAnalyzer {
     private final DuplicationConfig config;
     private final StatementExtractor extractor;
     private final PreFilterChain preFilter;
-    private final TokenNormalizer normalizer;
-    private final VariationTracker variationTracker;
-    private final SimilarityCalculator similarityCalculator;
-    private final TypeAnalyzer typeAnalyzer;
+    private final com.raditha.dedup.normalization.ASTNormalizer astNormalizer; // NEW: AST-based
+    private final com.raditha.dedup.similarity.ASTSimilarityCalculator astSimilarityCalculator; // NEW: AST-based
     private final DuplicateClusterer clusterer;
     private final RefactoringRecommendationGenerator recommendationGenerator;
     private final BoundaryRefiner boundaryRefiner;
@@ -55,10 +49,8 @@ public class DuplicationAnalyzer {
         this.config = config;
         this.extractor = new StatementExtractor(config.minLines(), config.maxWindowGrowth(), config.maximalOnly());
         this.preFilter = new PreFilterChain();
-        this.normalizer = new TokenNormalizer();
-        this.variationTracker = new VariationTracker();
-        this.similarityCalculator = new SimilarityCalculator();
-        this.typeAnalyzer = new TypeAnalyzer();
+        this.astNormalizer = new com.raditha.dedup.normalization.ASTNormalizer(); // NEW
+        this.astSimilarityCalculator = new com.raditha.dedup.similarity.ASTSimilarityCalculator(); // NEW
         this.clusterer = new DuplicateClusterer(config.threshold());
         this.recommendationGenerator = new RefactoringRecommendationGenerator(allCUs);
         this.boundaryRefiner = new BoundaryRefiner(
@@ -84,7 +76,7 @@ public class DuplicationAnalyzer {
         List<NormalizedSequence> normalizedSequences = sequences.stream()
                 .map(seq -> new NormalizedSequence(
                         seq,
-                        normalizer.normalizeStatements(seq.statements())))
+                        astNormalizer.normalize(seq.statements()))) // NEW: AST normalization
                 .toList();
 
         // Step 2: Compare all pairs (with pre-filtering)
@@ -136,10 +128,13 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Helper record to hold a sequence with its pre-computed token list.
+     * Helper record to hold a sequence with its pre-computed normalized AST.
      * Avoids redundant normalization during comparisons.
      */
-    private record NormalizedSequence(StatementSequence sequence, List<Token> tokens) {
+    private record NormalizedSequence(
+            StatementSequence sequence,
+            java.util.List<com.raditha.dedup.normalization.NormalizedNode> normalizedNodes // NEW: AST nodes
+    ) {
     }
 
     /**
@@ -179,27 +174,18 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Analyze a pair of sequences for similarity using pre-computed tokens.
+     * Analyze a pair of sequences for similarity using pre-computed normalized AST.
      */
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
-        // Use PRE-COMPUTED tokens (no normalization needed!)
-        List<Token> tokens1 = norm1.tokens();
-        List<Token> tokens2 = norm2.tokens();
+        // Use PRE-COMPUTED normalized nodes (no normalization needed!)
+        var nodes1 = norm1.normalizedNodes();
+        var nodes2 = norm2.normalizedNodes();
 
-        // Track variations
-        VariationAnalysis variations = variationTracker.trackVariations(
-                tokens1, norm1.sequence(),
-                tokens2, norm2.sequence());
-
-        // Analyze type compatibility (Phase 7 implementation)
-        TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(variations);
-
-        SimilarityResult similarity = similarityCalculator.calculate(
-                tokens1,
-                tokens2,
-                config.weights(),
-                variations,
-                typeCompat);
+        // Calculate similarity using AST-based calculator
+        SimilarityResult similarity = astSimilarityCalculator.calculate(
+                nodes1,
+                nodes2,
+                config.weights());
 
         return new SimilarityPair(norm1.sequence(), norm2.sequence(), similarity);
     }

@@ -45,14 +45,17 @@ public class ASTParameterExtractor {
                     variation.expr1().toString(),
                     variation.expr2().toString());
 
+            // Get location if available
+            Integer line = variation.expr1().getRange().map(r -> r.begin.line).orElse(null);
+            Integer column = variation.expr1().getRange().map(r -> r.begin.column).orElse(null);
+
             parameters.add(new ParameterSpec(
                     name,
                     type,
                     examples,
                     variation.position(),
-                    null, // line
-                    null // column
-            ));
+                    line,
+                    column));
 
             logger.debug("[ASTParameterExtractor] Created parameter: {} (type: {})", name, type);
         }

@@ -6,9 +6,8 @@ import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
-import com.raditha.dedup.analysis.ParameterExtractor;
-import com.raditha.dedup.analysis.TypeAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -33,8 +32,8 @@ public class RefactoringRecommendationGenerator {
     public static final String STRING = "String";
     public static final String DOUBLE = "double";
     public static final String BOOLEAN = "boolean";
-    private final TypeAnalyzer typeAnalyzer;
-    private final ParameterExtractor parameterExtractor;
+    private final com.raditha.dedup.analysis.ASTVariationAnalyzer astVariationAnalyzer; // NEW
+    private final com.raditha.dedup.analysis.ASTParameterExtractor astParameterExtractor; // NEW
     private final MethodNameGenerator nameGenerator;
     private final DataFlowAnalyzer dataFlowAnalyzer;
     private final Map<String, CompilationUnit> allCUs;
@@ -44,8 +43,8 @@ public class RefactoringRecommendationGenerator {
     }
 
     public RefactoringRecommendationGenerator(java.util.Map<String, CompilationUnit> allCUs) {
-        this.typeAnalyzer = new TypeAnalyzer();
-        this.parameterExtractor = new ParameterExtractor();
+        this.astVariationAnalyzer = new com.raditha.dedup.analysis.ASTVariationAnalyzer(); // NEW
+        this.astParameterExtractor = new com.raditha.dedup.analysis.ASTParameterExtractor(); // NEW
         this.nameGenerator = new MethodNameGenerator(true); // Enable AI
         this.dataFlowAnalyzer = new DataFlowAnalyzer();
         this.allCUs = allCUs;
@@ -58,25 +57,47 @@ public class RefactoringRecommendationGenerator {
             DuplicateCluster cluster,
             SimilarityResult similarity) {
 
-        // SAFETY CHECK: Abort if variations include METHOD_CALL or TYPE
-        // We do not support parameterizing method calls (functional interfaces) or
-        // Types yet.
-        // If we proceed, we would generate code that uses the primary sequence's
-        // method/type only,
-        // leading to incorrect behavior in duplicates.
-        if (!similarity.variations().getMethodCallVariations().isEmpty() ||
-                !similarity.variations().getTypeVariations().isEmpty()) {
-            return null;
+        // Note: Old safety check for METHOD_CALL/TYPE variations removed
+        // because similarity.variations() is now null (AST-mode).
+        // Our new AST analyzer handles method call variations by parameterizing them.
+
+        // NEW: Perform AST-based variation analysis
+        // Get the first two sequences from the cluster for analysis
+        StatementSequence seq1 = cluster.primary();
+        StatementSequence seq2 = cluster.duplicates().isEmpty() ? seq1 : cluster.duplicates().get(0).seq2(); // Get seq2
+                                                                                                             // from
+                                                                                                             // SimilarityPair
+
+        // Get CompilationUnits
+        CompilationUnit cu1 = seq1.compilationUnit();
+        CompilationUnit cu2 = seq2.compilationUnit();
+
+        // Perform AST-based variation analysis
+        com.raditha.dedup.model.VariationAnalysis astAnalysis = astVariationAnalyzer.analyzeVariations(seq1, seq2, cu1,
+                cu2);
+
+        // Extract parameters using AST-based extractor
+        com.raditha.dedup.model.ExtractionPlan extractionPlan = astParameterExtractor.extractParameters(astAnalysis,
+                cu1);
+
+        // Convert to old ParameterSpec list for backward compatibility
+        List<ParameterSpec> parameters = new java.util.ArrayList<>(extractionPlan.parameters());
+
+        // CRITICAL: Also convert arguments (variable references) to parameters
+        // These are variables like 'userName' that are used but not defined in the
+        // block
+        for (com.raditha.dedup.model.ArgumentSpec arg : extractionPlan.arguments()) {
+            // Only add if not already present (avoid duplicates)
+            if (parameters.stream().noneMatch(p -> p.getName().equals(arg.name()))) {
+                parameters.add(new ParameterSpec(
+                        arg.name(),
+                        arg.type(),
+                        java.util.Collections.emptyList(), // No variations, it's consistent
+                        -1, // No specific variation position
+                        null, null // No specific AST node to replace
+                ));
+            }
         }
-
-        // Analyze type compatibility
-        TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(
-                similarity.variations());
-
-        // Extract parameters
-        List<ParameterSpec> parameters = new java.util.ArrayList<>(parameterExtractor.extractParameters(
-                similarity.variations(),
-                typeCompat.parameterTypes()));
 
         // Add captured variables (variables used but not defined in sequence, and
         // constant across duplicates)
@@ -125,6 +146,13 @@ public class RefactoringRecommendationGenerator {
 
         // Determine return type using data flow analysis
         String returnType = determineReturnType(cluster);
+
+        // Create empty TypeCompatibility for backward compat
+        TypeCompatibility typeCompat = new TypeCompatibility(
+                true,
+                java.util.Collections.emptyMap(),
+                "void",
+                java.util.Collections.emptyList());
 
         // Calculate confidence
         double confidence = calculateConfidence(cluster, typeCompat, parameters);

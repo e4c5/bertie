@@ -664,8 +664,21 @@ public class ExtractMethodRefactorer {
                 ParameterSpec param) {
             Expression exprToUse = null;
 
-            // 1) Variation-based (most accurate)
-            if (variations != null && param.getVariationIndex() != null) {
+            // NEW: Handle AST-based arguments (index -1)
+            // These are variable references like 'userName' that are consistent across
+            // duplicates
+            if (param.getVariationIndex() != null && param.getVariationIndex() == -1) {
+                return new NameExpr(param.getName());
+            }
+
+            // NEW: Handle AST-based varying expressions
+            if (variations != null && !variations.varyingExpressions().isEmpty()) {
+                // Reliance on fallback via extractActualValue is sufficient for now
+                // as we populated examples in ASTParameterExtractor
+            }
+
+            // 1) Variation-based (most accurate) - Legacy Support
+            if (variations != null && param.getVariationIndex() != null && param.getVariationIndex() >= 0) {
                 var exprBindings = variations.exprBindings() != null
                         ? variations.exprBindings().get(param.getVariationIndex())
                         : null;
@@ -688,9 +701,10 @@ public class ExtractMethodRefactorer {
                 if (exprToUse != null && !isExpressionCompatibleWithType(exprToUse, param.getType())) {
                     exprToUse = null; // Reject incompatible expression, try next strategy
                 }
-                if (exprToUse != null) {
-                    return exprToUse;
-                }
+            }
+
+            if (exprToUse != null) {
+                return exprToUse;
             }
 
             // 2) Generic AST-based extraction
