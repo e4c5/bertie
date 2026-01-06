@@ -77,7 +77,9 @@ public class VariationTracker {
                     false,
                     new java.util.HashMap<>(),
                     java.util.Collections.emptyList(),
-                    new java.util.HashMap<>());
+                    new java.util.HashMap<>(),
+                    java.util.Collections.emptyList(), // varyingExpressions
+                    java.util.Collections.emptySet()); // variableReferences
         }
 
         // Find all variations
@@ -96,7 +98,9 @@ public class VariationTracker {
                     valueBindings, exprBindings);
         }
 
-        return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1, exprBindings);
+        return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1, exprBindings,
+                java.util.Collections.emptyList(), // varyingExpressions - will be populated by ASTVariationAnalyzer
+                java.util.Collections.emptySet()); // variableReferences - will be populated by ASTVariationAnalyzer
     }
 
     private boolean isHasControlFlowDifferences(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2,

@@ -23,24 +23,31 @@ public record VariationAnalysis(
         boolean hasControlFlowDifferences,
         Map<Integer, Map<StatementSequence, String>> valueBindings, // BACK-COMPAT for tests
         List<Token> primaryTokens,
-        Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings // New AST-first bindings
-        ) {
+        Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings, // New AST-first bindings
+
+        // NEW: AST-based variation analysis
+        List<VaryingExpression> varyingExpressions, // Expressions that differ between duplicates
+        java.util.Set<VariableReference> variableReferences // Variables referenced in the code
+) {
 
     /**
-     * Backward-compatibility constructor: no tokens, no exprBindings
+     * Backward-compatibility constructor: no tokens, no exprBindings, no AST
+     * analysis
      */
     public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
             Map<Integer, Map<StatementSequence, String>> valueBindings) {
-        this(variations, hasControlFlowDifferences, valueBindings, Collections.emptyList(), Collections.emptyMap());
+        this(variations, hasControlFlowDifferences, valueBindings, Collections.emptyList(),
+                Collections.emptyMap(), Collections.emptyList(), Collections.emptySet());
     }
 
     /**
-     * Convenience constructor without exprBindings
+     * Convenience constructor without exprBindings or AST analysis
      */
     public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
             Map<Integer, Map<StatementSequence, String>> valueBindings,
             List<Token> primaryTokens) {
-        this(variations, hasControlFlowDifferences, valueBindings, primaryTokens, Collections.emptyMap());
+        this(variations, hasControlFlowDifferences, valueBindings, primaryTokens,
+                Collections.emptyMap(), Collections.emptyList(), Collections.emptySet());
     }
 
     /**
