@@ -554,7 +554,7 @@ public class ExtractMethodRefactorer {
             // Determine ordering among String parameters for context-aware extraction
             List<ParameterSpec> stringParams = new ArrayList<>();
             for (ParameterSpec p : recommendation.getSuggestedParameters()) {
-                if (STRING.equals(p.getType().asString())) {
+                if (isStringType(p.getType())) {
                     stringParams.add(p);
                 }
             }
@@ -565,21 +565,20 @@ public class ExtractMethodRefactorer {
                 if (expr == null)
                     return null; // cannot resolve safely
 
-                // AST-based guardrails
-                String pType = param.getType().asString();
-                boolean numericType = ("int".equals(pType) || "Integer".equals(pType) || "long".equals(pType)
-                        || "Long".equals(pType)
-                        || "double".equals(pType) || DOUBLE.equals(pType) || "boolean".equals(pType)
-                        || Boolean.equals(pType));
-                if (numericType && expr.isStringLiteralExpr()) {
+                // AST-based type guardrails
+                com.github.javaparser.ast.type.Type pType = param.getType();
+
+                if (isNumericType(pType) && expr.isStringLiteralExpr()) {
                     return null;
                 }
-                if (STRING.equals(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr()
-                        || expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
+
+                if (isStringType(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() ||
+                        expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
                     return null;
                 }
-                if (("Class<?>".equals(pType) || "Class".equals(pType)) && !(expr.isClassExpr()
-                        || (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
+
+                if (isClassType(pType) && !(expr.isClassExpr() ||
+                        (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
                     // Try to adapt NameExpr or other simple forms into ClassExpr
                     Expression adapted = null;
                     if (expr.isNameExpr()) {
@@ -593,6 +592,52 @@ public class ExtractMethodRefactorer {
                 arguments.add(expr);
             }
             return arguments;
+        }
+
+        /**
+         * Check if the given AST Type represents a String type.
+         */
+        private boolean isStringType(com.github.javaparser.ast.type.Type type) {
+            if (!type.isClassOrInterfaceType()) {
+                return false;
+            }
+            String name = type.asClassOrInterfaceType().getNameAsString();
+            return sa.com.cloudsolutions.antikythera.evaluator.Reflect.STRING.equals(name) ||
+                    sa.com.cloudsolutions.antikythera.evaluator.Reflect.JAVA_LANG_STRING.equals(name);
+        }
+
+        /**
+         * Check if the given AST Type represents a numeric type (primitive or wrapper).
+         * Includes: int, Integer, long, Long, double, Double, boolean, Boolean
+         */
+        private boolean isNumericType(com.github.javaparser.ast.type.Type type) {
+            // Check primitive types first
+            if (type.isPrimitiveType()) {
+                return true;
+            }
+
+            // Check wrapper types
+            if (type.isClassOrInterfaceType()) {
+                String name = type.asClassOrInterfaceType().getNameAsString();
+                return sa.com.cloudsolutions.antikythera.evaluator.Reflect.INTEGER.equals(name) ||
+                        sa.com.cloudsolutions.antikythera.evaluator.Reflect.LONG.equals(name) ||
+                        sa.com.cloudsolutions.antikythera.evaluator.Reflect.DOUBLE.equals(name) ||
+                        sa.com.cloudsolutions.antikythera.evaluator.Reflect.BOOLEAN.equals(name);
+            }
+
+            return false;
+        }
+
+        /**
+         * Check if the given AST Type represents a Class<?> type.
+         */
+        private boolean isClassType(com.github.javaparser.ast.type.Type type) {
+            if (!type.isClassOrInterfaceType()) {
+                return false;
+            }
+            String name = type.asClassOrInterfaceType().getNameAsString();
+            // Match "Class" or "Class<?>" or "Class<SomeType>"
+            return name.equals("Class") || name.startsWith("Class<");
         }
 
         private Expression resolveValue(VariationAnalysis variations,
@@ -657,21 +702,7 @@ public class ExtractMethodRefactorer {
                     }
                 }
             }
-            if (actualValueExpr != null) {
-                return actualValueExpr;
-            }
-
-            // 4) Fallback to example values for non-String, if type-compatible
-            if (!param.getExampleValues().isEmpty()) {
-                if (!STRING.equals(pType)) {
-                    String candidate = param.getExampleValues().get(0);
-                    // Use robust parsing to check validity
-                    Expression expr = toExpressionForParam(pType, candidate);
-                    if (expr != null)
-                        return expr;
-                }
-            }
-            return null;
+            return actualValueExpr;
         }
     }
 
