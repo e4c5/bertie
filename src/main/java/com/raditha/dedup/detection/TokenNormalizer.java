@@ -282,7 +282,10 @@ public class TokenNormalizer {
             inferredType = "String";
         }
 
-        return new Token(type, normalizedValue, originalValue, inferredType, line, column);
+        // Capture the Expression node if available
+        Expression expr = (node instanceof Expression) ? (Expression) node : null;
+
+        return new Token(type, normalizedValue, originalValue, inferredType, line, column, expr);
     }
 
     /**

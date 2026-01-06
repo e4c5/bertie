@@ -34,6 +34,28 @@ public class VariationTracker {
     }
 
     /**
+     * Compare two tokens by their AST expressions if available, falling back to
+     * text comparison.
+     * This ensures that complex expressions like concatenations are compared as a
+     * whole.
+     */
+    private boolean expressionsMatch(Token t1, Token t2) {
+        // If both have expressions, compare them structurally
+        if (t1.expr() != null && t2.expr() != null) {
+            // Use toString() for structural comparison - this compares the entire AST tree
+            return t1.expr().toString().equals(t2.expr().toString());
+        }
+
+        // If one has expression and other doesn't, they don't match
+        if (t1.expr() != null || t2.expr() != null) {
+            return false;
+        }
+
+        // Both null - fall back to text comparison
+        return t1.originalValue().equals(t2.originalValue());
+    }
+
+    /**
      * Track all variations between two token sequences.
      */
     public VariationAnalysis trackVariations(List<Token> tokens1, List<Token> tokens2) {
@@ -67,15 +89,20 @@ public class VariationTracker {
         // For simplicity in Phase 1: use positional alignment if same length
         // For different lengths: use LCS alignment
         if (tokens1.size() == tokens2.size()) {
-            hasControlFlowDifferences = isPositionalAligned(tokens1, seq1, tokens2, seq2, variations, valueBindings, exprBindings);
+            hasControlFlowDifferences = isPositionalAligned(tokens1, seq1, tokens2, seq2, variations, valueBindings,
+                    exprBindings);
         } else {
-            hasControlFlowDifferences = isHasControlFlowDifferences(tokens1, seq1, tokens2, seq2, variations, valueBindings, exprBindings);
+            hasControlFlowDifferences = isHasControlFlowDifferences(tokens1, seq1, tokens2, seq2, variations,
+                    valueBindings, exprBindings);
         }
 
         return new VariationAnalysis(variations, hasControlFlowDifferences, valueBindings, tokens1, exprBindings);
     }
 
-    private boolean isHasControlFlowDifferences(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2, StatementSequence seq2, List<Variation> variations, Map<Integer, Map<StatementSequence, String>> valueBindings, Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
+    private boolean isHasControlFlowDifferences(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2,
+            StatementSequence seq2, List<Variation> variations,
+            Map<Integer, Map<StatementSequence, String>> valueBindings,
+            Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
         // Use LCS alignment for different-length sequences
         boolean hasControlFlowDifferences = false;
         List<TokenAlignment> alignments = computeLCSAlignment(tokens1, tokens2);
@@ -95,9 +122,9 @@ public class VariationTracker {
                 boolean semanticallyMatches = token1.semanticallyMatches(token2);
                 boolean isValueMismatch = semanticallyMatches
                         && (token1.type() == TokenType.VAR || isLiteral(token1.type())
-                        || token1.type() == TokenType.METHOD_CALL
-                        || token1.type() == TokenType.TYPE)
-                        && !token1.originalValue().equals(token2.originalValue());
+                                || token1.type() == TokenType.METHOD_CALL
+                                || token1.type() == TokenType.TYPE)
+                        && !expressionsMatch(token1, token2);
 
                 if (!semanticallyMatches || isValueMismatch) {
                     Variation variation = createVariation(
@@ -120,8 +147,7 @@ public class VariationTracker {
             } else {
                 // Gap in one sequence - potential control flow difference
                 if ((token1 != null && token1.type() == TokenType.CONTROL_FLOW)
-                        || token2 != null && token2.type() == TokenType.CONTROL_FLOW
-                ) {
+                        || token2 != null && token2.type() == TokenType.CONTROL_FLOW) {
                     hasControlFlowDifferences = true;
                 }
             }
@@ -129,7 +155,10 @@ public class VariationTracker {
         return hasControlFlowDifferences;
     }
 
-    private boolean isPositionalAligned(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2, StatementSequence seq2, List<Variation> variations, Map<Integer, Map<StatementSequence, String>> valueBindings, Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
+    private boolean isPositionalAligned(List<Token> tokens1, StatementSequence seq1, List<Token> tokens2,
+            StatementSequence seq2, List<Variation> variations,
+            Map<Integer, Map<StatementSequence, String>> valueBindings,
+            Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
         // Positional alignment - compare token by token
         boolean hasControlFlowDifferences = false;
         for (int i = 0; i < tokens1.size(); i++) {
@@ -139,7 +168,7 @@ public class VariationTracker {
             boolean semanticallyMatches = t1.semanticallyMatches(t2);
             boolean isValueMismatch = semanticallyMatches && (t1.type() == TokenType.VAR || isLiteral(t1.type())
                     || t1.type() == TokenType.METHOD_CALL || t1.type() == TokenType.TYPE)
-                    && !t1.originalValue().equals(t2.originalValue());
+                    && !expressionsMatch(t1, t2);
 
             if (!semanticallyMatches || isValueMismatch) {
                 Variation variation = createVariation(i, i, t1, t2);
@@ -221,11 +250,14 @@ public class VariationTracker {
         strBinding.put(seq2, t2.originalValue());
         valueBindings.put(paramIndex, strBinding);
 
-        // New AST-first bindings (ExprInfo) — currently text-backed; later we can
-        // attach real nodes
+        // New AST-first bindings (ExprInfo) — use actual Expression nodes from tokens
         Map<StatementSequence, com.raditha.dedup.model.ExprInfo> exprBinding = new HashMap<>();
-        exprBinding.put(seq1, com.raditha.dedup.model.ExprInfo.fromText(t1.originalValue()));
-        exprBinding.put(seq2, com.raditha.dedup.model.ExprInfo.fromText(t2.originalValue()));
+        exprBinding.put(seq1, t1.expr() != null
+                ? com.raditha.dedup.model.ExprInfo.fromExpression(t1.expr())
+                : com.raditha.dedup.model.ExprInfo.fromText(t1.originalValue()));
+        exprBinding.put(seq2, t2.expr() != null
+                ? com.raditha.dedup.model.ExprInfo.fromExpression(t2.expr())
+                : com.raditha.dedup.model.ExprInfo.fromText(t2.originalValue()));
         exprBindings.put(paramIndex, exprBinding);
     }
 

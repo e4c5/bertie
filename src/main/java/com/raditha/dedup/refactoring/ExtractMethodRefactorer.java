@@ -394,19 +394,23 @@ public class ExtractMethodRefactorer {
         return true;
     }
 
-    private String resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings,
+    private Expression resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings,
             StatementSequence target) {
-        // Helper to extract text from ExprInfo
-        java.util.function.Function<com.raditha.dedup.model.ExprInfo, String> asText = ei -> {
+        // Helper to extract Expression from ExprInfo
+        java.util.function.Function<com.raditha.dedup.model.ExprInfo, Expression> asExpr = ei -> {
             if (ei == null)
                 return null;
-            if (ei.expr() != null)
-                return ei.expr().toString();
-            return ei.text();
+            // Use the actual Expression node if available
+            if (ei.expr() != null) {
+                return ei.expr();
+            }
+            // No fallback to text parsing - return null to allow extractActualValue to be
+            // used
+            return null;
         };
 
         // Direct identity match first
-        String v = asText.apply(bindings.get(target));
+        Expression v = asExpr.apply(bindings.get(target));
         if (v != null) {
             return v;
         }
@@ -420,36 +424,12 @@ public class ExtractMethodRefactorer {
                 continue;
 
             if (seq.range().startLine() == start && seq.range().endLine() == end) {
-                return asText.apply(entry.getValue());
+                Expression result = asExpr.apply(entry.getValue());
+                return result;
             }
 
         }
 
-        return null;
-    }
-
-    // Context-aware extraction for ambiguous multiple-String parameters
-    private String extractStringArgFromCall(StatementSequence sequence, String methodName) {
-        for (Statement stmt : sequence.statements()) {
-            for (MethodCallExpr call : stmt.findAll(MethodCallExpr.class)) {
-                if (call.getNameAsString().equals(methodName) && call.getArguments().size() >= 1) {
-                    Expression arg = call.getArgument(0);
-                    if (arg.isStringLiteralExpr() || arg.isNameExpr()) {
-                        return arg.toString(); // includes quotes
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private String extractStringByContext(StatementSequence sequence, int stringParamOrder) {
-        // Heuristic mapping: first String param → setName(...), second → equals(...)
-        if (stringParamOrder == 0) {
-            return extractStringArgFromCall(sequence, "setName");
-        } else if (stringParamOrder == 1) {
-            return extractStringArgFromCall(sequence, "equals");
-        }
         return null;
     }
 
@@ -551,17 +531,9 @@ public class ExtractMethodRefactorer {
         NodeList<Expression> buildArgs(RefactoringRecommendation recommendation,
                 VariationAnalysis variations,
                 StatementSequence sequence) {
-            // Determine ordering among String parameters for context-aware extraction
-            List<ParameterSpec> stringParams = new ArrayList<>();
-            for (ParameterSpec p : recommendation.getSuggestedParameters()) {
-                if (isStringType(p.getType())) {
-                    stringParams.add(p);
-                }
-            }
-
             NodeList<Expression> arguments = new NodeList<>();
             for (ParameterSpec param : recommendation.getSuggestedParameters()) {
-                Expression expr = resolveValue(variations, sequence, stringParams, param);
+                Expression expr = resolveValue(variations, sequence, param);
                 if (expr == null)
                     return null; // cannot resolve safely
 
@@ -640,12 +612,57 @@ public class ExtractMethodRefactorer {
             return name.equals("Class") || name.startsWith("Class<");
         }
 
+        /**
+         * Check if an expression is compatible with the expected parameter type.
+         * Uses type resolution to compare the expression's actual type with the
+         * expected type.
+         */
+        private boolean isExpressionCompatibleWithType(Expression expr,
+                com.github.javaparser.ast.type.Type expectedType) {
+            if (expr == null || expectedType == null) {
+                return false;
+            }
+
+            try {
+                // Resolve the expression's type
+                String exprTypeName = expr.calculateResolvedType().describe();
+                String expectedTypeName = expectedType.asString();
+
+                // Direct match
+                if (exprTypeName.equals(expectedTypeName)) {
+                    return true;
+                }
+
+                // Handle common aliases (String vs java.lang.String, etc.)
+                String exprSimple = exprTypeName.contains(".")
+                        ? exprTypeName.substring(exprTypeName.lastIndexOf('.') + 1)
+                        : exprTypeName;
+                String expectedSimple = expectedTypeName.contains(".")
+                        ? expectedTypeName.substring(expectedTypeName.lastIndexOf('.') + 1)
+                        : expectedTypeName;
+
+                return exprSimple.equals(expectedSimple);
+            } catch (Exception e) {
+                // Type resolution failed - be conservative based on expression type
+                // Literals should only match their corresponding types
+                if (expr.isStringLiteralExpr()) {
+                    return isStringType(expectedType);
+                }
+                if (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() || expr.isDoubleLiteralExpr()) {
+                    return isNumericType(expectedType);
+                }
+                if (expr.isBooleanLiteralExpr()) {
+                    return expectedType.asString().contains("boolean") || expectedType.asString().contains("Boolean");
+                }
+                // For other expressions where we can't resolve type, reject to be safe
+                return false;
+            }
+        }
+
         private Expression resolveValue(VariationAnalysis variations,
                 StatementSequence sequence,
-                List<ParameterSpec> stringParams,
                 ParameterSpec param) {
-            String pType = param.getType().asString();
-            String valToUse = null;
+            Expression exprToUse = null;
 
             // 1) Variation-based (most accurate)
             if (variations != null && param.getVariationIndex() != null) {
@@ -653,9 +670,9 @@ public class ExtractMethodRefactorer {
                         ? variations.exprBindings().get(param.getVariationIndex())
                         : null;
                 if (exprBindings != null) {
-                    valToUse = resolveBindingForSequence(exprBindings, sequence);
+                    exprToUse = resolveBindingForSequence(exprBindings, sequence);
                 }
-                if (valToUse == null) {
+                if (exprToUse == null) {
                     var legacyBindings = variations.valueBindings() != null
                             ? variations.valueBindings().get(param.getVariationIndex())
                             : null;
@@ -664,57 +681,20 @@ public class ExtractMethodRefactorer {
                         for (var entry : legacyBindings.entrySet()) {
                             adapted.put(entry.getKey(), ExprInfo.fromText(entry.getValue()));
                         }
-                        valToUse = resolveBindingForSequence(adapted, sequence);
+                        exprToUse = resolveBindingForSequence(adapted, sequence);
                     }
                 }
-                if (valToUse != null) {
-                    Expression expr = toExpressionForParam(pType, valToUse);
-                    if (expr != null)
-                        return expr;
+                // Type compatibility check: ensure expression matches expected parameter type
+                if (exprToUse != null && !isExpressionCompatibleWithType(exprToUse, param.getType())) {
+                    exprToUse = null; // Reject incompatible expression, try next strategy
+                }
+                if (exprToUse != null) {
+                    return exprToUse;
                 }
             }
 
-            // 2) Context-aware extraction for multiple String parameters
-            if (valToUse == null && STRING.equals(pType) && stringParams.size() >= 2) {
-                int ord = stringParams.indexOf(param);
-                if (ord >= 0) {
-                    String ctxVal = extractStringByContext(sequence, ord);
-                    if (ctxVal != null) {
-                        Expression expr = toExpressionForParam(pType, ctxVal);
-                        if (expr != null)
-                            return expr;
-                    }
-                }
-            }
-
-            // 3) Generic AST-based extraction
-            Expression actualValueExpr = extractActualValue(sequence, param);
-            if (actualValueExpr != null) {
-                // For String parameters, check against examples if present
-                if (STRING.equals(pType) && actualValueExpr.isStringLiteralExpr()
-                        && !param.getExampleValues().isEmpty()) {
-                    String lit = actualValueExpr.asStringLiteralExpr().getValue(); // unquoted value
-                    boolean matches = param.getExampleValues().stream()
-                            .map(s -> s.startsWith("\"") && s.endsWith("\"") ? s.substring(1, s.length() - 1) : s)
-                            .anyMatch(s -> s.equals(lit));
-                    if (!matches) {
-                        actualValueExpr = null;
-                    }
-                }
-            }
-            return actualValueExpr;
-        }
-    }
-
-    private Expression toExpressionForParam(String pType, String valToUse) {
-        try {
-            if (("Class<?>".equals(pType) || "Class".equals(pType)) && !valToUse.endsWith(".class")) {
-                return new ClassExpr(new ClassOrInterfaceType(null, valToUse));
-            }
-            // Robust AST parsing
-            return com.github.javaparser.StaticJavaParser.parseExpression(valToUse);
-        } catch (Exception e) {
-            return null;
+            // 2) Generic AST-based extraction
+            return extractActualValue(sequence, param);
         }
     }
 

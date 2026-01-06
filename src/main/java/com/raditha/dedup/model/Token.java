@@ -1,5 +1,7 @@
 package com.raditha.dedup.model;
 
+import com.github.javaparser.ast.expr.Expression;
+
 /**
  * Represents a normalized token in a code sequence.
  * Preserves semantic meaning (method names, types) while normalizing
@@ -13,6 +15,8 @@ package com.raditha.dedup.model;
  * @param inferredType    Inferred Java type (e.g., "String", "void", "User")
  * @param lineNumber      Source line number
  * @param columnNumber    Source column number
+ * @param expr            The original AST Expression node (null for
+ *                        non-expression nodes)
  */
 public record Token(
         TokenType type,
@@ -20,12 +24,21 @@ public record Token(
         String originalValue,
         String inferredType,
         int lineNumber,
-        int columnNumber) {
+        int columnNumber,
+        Expression expr) {
     /**
      * Create a token with minimal information.
      */
     public Token(TokenType type, String normalizedValue, String originalValue) {
-        this(type, normalizedValue, originalValue, null, 0, 0);
+        this(type, normalizedValue, originalValue, null, 0, 0, null);
+    }
+
+    /**
+     * Create a token without Expression (backward compatibility).
+     */
+    public Token(TokenType type, String normalizedValue, String originalValue,
+            String inferredType, int lineNumber, int columnNumber) {
+        this(type, normalizedValue, originalValue, inferredType, lineNumber, columnNumber, null);
     }
 
     /**
