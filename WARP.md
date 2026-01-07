@@ -97,159 +97,129 @@ export GEMINI_API_KEY="your-api-key"
 
 The system follows a **pipeline architecture** with distinct phases:
 
-1. **Extraction** → Extract statement sequences from Java AST using JavaParser
-2. **Normalization** → Convert statements to normalized tokens (done once, cached)
-3. **Pre-filtering** → Fast structural filtering to eliminate unlikely pairs (94%+ reduction)
-4. **Similarity Analysis** → Multi-algorithm comparison (LCS, Levenshtein, Structural)
-5. **Clustering** → Group related duplicates by primary sequence
-6. **Recommendation** → Select refactoring strategy based on context
-7. **Refactoring** → Apply transformations with backup/rollback safety
-
-### Core Components
+0. **Extraction** → Extract statement sequences from Java AST using JavaParser
+101: 2. **Normalization** → Convert statements to normalized AST nodes (fuzzy matching)
+102: 3. **Pre-filtering** → Fast structural filtering to eliminate unlikely pairs
+103: 4. **Similarity Analysis** → Multi-algorithm comparison using AST-based metrics
+104: 5. **Clustering** → Group related duplicates by primary sequence
+105: 6. **Analysis** → Variation analysis on original AST to identify parameters
+106: 7. **Refactoring** → Apply transformations with backup/rollback safety
+107: 
+108: ### System Architecture
+109: 
+110: ```mermaid
+111: graph TD
+112:     Source[Java Source] --> Parser[JavaParser]
+113:     Parser --> AST[StatementSequences]
+114:     AST --> Normalizer[ASTNormalizer]
+115:     Normalizer --> NormNodes[NormalizedNodes]
+116:     
+117:     NormNodes --> Filter[StructuralPreFilter]
+118:     Filter --> Similarity[SimilarityCalculator]
+119:     Similarity --> Clusters[DuplicateClusterer]
+120:     
+121:     Clusters --> Analyzer[ASTVariationAnalyzer]
+122:     AST --> Analyzer
+123:     Analyzer --> Params[ASTParameterExtractor]
+124:     
+125:     Params --> Plan[ExtractionPlan]
+126:     Plan --> Engine[RefactoringEngine]
+127:     Engine --> Output[Refactored Code]
+128:     
+129:     subgraph Analysis Phase
+130:     Analyzer
+131:     Params
+132:     end
+133:     
+134:     subgraph Detection Phase
+135:     Normalizer
+136:     Filter
+137:     Similarity
+138:     end
+139: ```
+140: 
+141: ### Core Components
 
 #### 1. Detection Pipeline (com.raditha.dedup.analyzer)
 
 **DuplicationAnalyzer**: Main orchestrator that coordinates the entire detection process
-- Pre-normalizes all sequences once for performance
-- Applies pre-filtering before expensive similarity calculations
+- Normalizes sequences using `ASTNormalizer` for fuzzy comparison
+- Applies pre-filtering (`StructuralPreFilter`) before expensive calculations
 - Clusters results and generates recommendations
 - Returns DuplicationReport with all findings
 
-**Key Design**: Pre-normalization optimization - tokens are computed once and cached in NormalizedSequence records, avoiding redundant normalization during pairwise comparisons.
-
-#### 2. Extraction & Tokenization (com.raditha.dedup.extraction, detection)
+#### 2. Extraction & Normalization (com.raditha.dedup.extraction, normalization)
 
 **StatementExtractor**: Extracts statement sequences from JavaParser AST using sliding window
 - Uses sliding window to find all possible sequence combinations
-- Attaches context (containing method, compilation unit, source file)
-- Respects minimum line count threshold
+- Attaches context (method, compilation unit, source file)
 
-**TokenNormalizer**: Converts JavaParser statements to normalized tokens
-- Normalizes identifiers (e.g., "userRepo.save(user)" → "METHOD_CALL(save)")
-- Tracks original values for variation analysis
-- Enables structural comparison while preserving semantics
-
-**Key Design**: Uses JavaParser AST directly - no custom wrappers. StatementSequence holds direct references to MethodDeclaration and CompilationUnit from JavaParser.
+**ASTNormalizer**: Converts statements to `NormalizedNode` for fuzzy comparison
+- Anonymizes identifiers ("user", "customer" → "VAR")
+- Replaces literals with type placeholders ("Alice" → "STRING_LIT")
+- Preserves AST structure for accurate similarity calculation
+- Supports "Fuzzy" mode for structural pre-filtering
 
 #### 3. Similarity Analysis (com.raditha.dedup.similarity)
 
-**SimilarityCalculator**: Combines three algorithms with configurable weights
-- **LCSSimilarity**: Longest Common Subsequence - token-level matching
-- **LevenshteinSimilarity**: Edit distance between token sequences
-- **StructuralSimilarity**: AST structure pattern matching
-
-**PreFilterChain**: Fast structural filters that eliminate unlikely pairs before expensive similarity calculation
-- SizeFilter: Rejects sequences with vastly different lengths
-- StructuralPreFilter: Checks token type distribution
-- Same-method filter: Skips overlapping windows in same method
-
-**Key Design**: Similarity weights are configurable (default: 0.4 LCS, 0.3 Levenshtein, 0.3 Structural).
+**ASTSimilarityCalculator**: Combines algorithms on normalized AST nodes
+- **ASTLCSSimilarity**: Longest Common Subsequence on normalized AST
+- **ASTLevenshteinSimilarity**: Edit distance on normalized AST
+- **ASTStructuralSimilarity**: Jaccard similarity of structural features
 
 #### 4. Analysis & Clustering (com.raditha.dedup.analysis, clustering)
 
-**VariationTracker**: Identifies differences between similar sequences
-- Tracks variations (literals, identifiers, method calls)
-- Detects control flow differences (break refactorability)
-- Used for parameter extraction in refactoring
+**ASTVariationAnalyzer**: Identifies semantic differences between duplicates
+- Compares ORIGINAL ASTs to find varying expressions
+- Identifies variable references and their scopes (Local, Field, Parameter)
+- Resolves types using Antikythera's `Resolver` and `TypeWrapper`
 
-**TypeAnalyzer**: Performs type compatibility analysis
-- Infers types for variations using JavaParser's resolved types
-- Checks if variations can be unified into method parameters
-- Guards against unsafe refactorings
+**ASTParameterExtractor**: Generates extraction plans
+- Converts varying expressions to parameters
+- Converts variable references to arguments
+- Handles type conversions and signature generation
 
-**DuplicateClusterer**: Groups duplicates by primary (earliest) sequence
-- Groups all pairs sharing the same primary sequence
-- Calculates LOC reduction potential per cluster
-- Sorts clusters by refactoring value
-
-**RefactoringRecommendationGenerator**: Selects optimal refactoring strategy
-- Analyzes code context (test vs source, setup vs logic)
-- Calculates confidence scores based on similarity and type safety
-- Suggests method names (uses AI if configured)
+**DuplicateClusterer**: Groups duplicates by primary sequence
+- Groups pairs sharing the same primary sequence
+- Calculates LOC reduction potential
 
 #### 5. Refactoring Engine (com.raditha.dedup.refactoring)
 
 **RefactoringEngine**: Orchestrates safe refactoring application
-- Three modes: interactive, batch, dry-run
-- Validates safety before applying changes
+- Validates safety using `SafetyValidator`
 - Creates backups and rolls back on failure
-- Verifies compilation (optionally tests) after changes
-
-**Four Refactoring Strategies:**
-1. **ExtractMethodRefactorer**: Generic helper method extraction
-2. **ExtractBeforeEachRefactorer**: Test setup code → @BeforeEach
-3. **ExtractParameterizedTestRefactorer**: Similar tests → @ParameterizedTest
-4. **ExtractUtilityClassRefactorer**: Cross-class duplicates → utility class
-
-**SafetyValidator**: Guards against unsafe refactorings
-- Checks for overlapping duplicates
-- Validates parameter count and complexity
-- Ensures scope compatibility
-
-**RefactoringVerifier**: Post-refactoring verification
-- COMPILE: Verifies code compiles (default)
-- TEST: Runs full test suite
-- NONE: Skip verification
-
-**Key Design**: Backup/rollback pattern - creates .backup files before modifications, rolls back on verification failure.
-
-#### 6. Integration with Antikythera
-
-**DuplicationDetectorSettings**: Loads configuration from generator.yml
-- Uses Antikythera's Settings class for configuration
-- Supports variable substitution (${HOME}, ${GEMINI_API_KEY})
-- Provides configuration presets (strict, moderate, lenient)
-
-**BertieCLI**: Main entry point
-- Calls AbstractCompiler.preProcess() once to parse all source files
-- Uses AntikytheraRunTime.getResolvedCompilationUnits() to get parsed AST
-- Respects Antikythera's Settings.BASE_PATH and Settings.OUTPUT_PATH
-
-**Key Design**: Leverages Antikythera infrastructure - doesn't re-parse files, uses existing Settings system, integrates with project's compilation context.
+- Verifies compilation and tests
 
 ### Important Architectural Patterns
 
-**1. Pre-Normalization Optimization**
-All sequences are normalized once at the start, cached in NormalizedSequence records, and reused across all comparisons. This is critical for performance.
+**1. Dual AST Representation**
+Used `NormalizedNode` for detection (fuzzy, anonymized) and `StatementSequence` (original AST) for precise variation analysis and parameter extraction.
 
-**2. Record-Based Data Model**
-Heavy use of Java records for immutable data structures (StatementSequence, SimilarityResult, Token, etc.). No custom context wrappers - uses JavaParser classes directly.
+**2. Type-Safe Parameter Extraction**
+Uses resolved AST types rather than string inference to ensure correct parameter types in extracted methods.
 
-**3. Pipeline with Pre-Filtering**
-Expensive operations (similarity calculation) are deferred until after cheap filters eliminate most pairs. This achieves 94%+ reduction in comparisons.
-
-**4. Variation Tracking During Normalization**
-Tokens store both normalized and original values. During comparison, VariationTracker identifies differences that become method parameters.
-
-**5. Safety-First Refactoring**
-All refactorings follow: validate → backup → apply → verify → commit or rollback. No destructive operations without backups.
+**3. Safety-First Refactoring**
+All refactorings follow: validate → backup → extract → apply → verify.
 
 ## Key Files and Their Roles
 
 ### Entry Points
-- `BertieCLI.java` - Main CLI entry, argument parsing, command dispatch
-- `DuplicationAnalyzer.java` - Core detection orchestrator
-- `RefactoringEngine.java` - Refactoring orchestrator
+- `BertieCLI.java`
+- `DuplicationAnalyzer.java`
+- `RefactoringEngine.java`
 
-### Configuration
-- `src/main/resources/generator.yml` - Project configuration (must be edited for target project)
-- `DuplicationDetectorSettings.java` - Configuration loader
-- `DuplicationConfig.java` - Detection parameters (thresholds, weights)
-
-### Models (Immutable Records)
+### Models
 - `StatementSequence.java` - Code sequence with AST references
-- `Token.java` - Normalized token with original value
-- `SimilarityResult.java` - Similarity scores + variation analysis
+- `NormalizedNode.java` - Normalized AST for comparison
+- `VariationAnalysis.java` - Results of AST variation analysis
 - `DuplicateCluster.java` - Group of related duplicates
-- `RefactoringRecommendation.java` - Strategy + confidence + suggested name
+- `RefactoringRecommendation.java` - Strategy + confidence
 
 ### Critical Implementation Details
 
-**Token Normalization**: The TokenNormalizer preserves both normalized values (for comparison) and original values (for variation tracking). This dual representation is fundamental to the system.
+**AST Normalization**: `ASTNormalizer` produced `NormalizedNode`s which are used ONLY for detection. Refactoring uses the original AST from `StatementSequence`.
 
-**Sliding Window**: StatementExtractor uses sliding window to generate all sequences of length >= minLines. Each window becomes a StatementSequence with full AST context.
-
-**Type Resolution**: Uses JavaParser's type resolution when antikythera does not have
+**Type Resolution**: Relies heavily on Antikythera's `Resolver` to handle complex type inference (generics, inheritance) which is crucial for correct method signatures.
 the required functionality.
 
 **Cluster Primary Selection**: The "primary" sequence in a cluster is the one with the lowest line number (appears first in file). All duplicates are grouped by their shared primary.

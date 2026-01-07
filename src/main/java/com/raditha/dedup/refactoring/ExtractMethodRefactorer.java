@@ -210,8 +210,17 @@ public class ExtractMethodRefactorer {
             body.addStatement(s);
         }
 
-        if (needsFinalReturn(body, targetReturnVar)) {
-            body.addStatement(new ReturnStmt(new NameExpr(targetReturnVar)));
+        if (needsFinalReturn(body, targetReturnVar, recommendation)) {
+            // If targetReturnVar is null but return type is non-void, try to find ANY
+            // variable to return
+            String varToReturn = targetReturnVar;
+            if (varToReturn == null && !"void".equals(recommendation.getSuggestedReturnType().asString())) {
+                // Find the first declared variable in the body as a fallback
+                varToReturn = findAnyDeclaredVariable(body);
+            }
+            if (varToReturn != null) {
+                body.addStatement(new ReturnStmt(new NameExpr(varToReturn)));
+            }
         }
 
         return body;
@@ -287,10 +296,34 @@ public class ExtractMethodRefactorer {
      * Decide whether we must add a final `return <targetVar>;` at the end of the
      * body.
      */
-    private boolean needsFinalReturn(BlockStmt body, String targetReturnVar) {
-        if (targetReturnVar == null)
+    private boolean needsFinalReturn(BlockStmt body, String targetReturnVar, RefactoringRecommendation recommendation) {
+        // If return type is void, no return needed
+        if ("void".equals(recommendation.getSuggestedReturnType().asString())) {
             return false;
+        }
+        // If body is empty or doesn't end with return, we need one
         return body.getStatements().isEmpty() || !body.getStatements().getLast().get().isReturnStmt();
+    }
+
+    /**
+     * Find any declared variable in the method body as a fallback return value.
+     * Returns the LAST variable declaration found (most likely to be the return
+     * value).
+     */
+    private String findAnyDeclaredVariable(BlockStmt body) {
+        String lastVar = null;
+        for (Statement stmt : body.getStatements()) {
+            if (stmt.isExpressionStmt()) {
+                var expr = stmt.asExpressionStmt().getExpression();
+                if (expr.isVariableDeclarationExpr()) {
+                    var varDecl = expr.asVariableDeclarationExpr();
+                    if (!varDecl.getVariables().isEmpty()) {
+                        lastVar = varDecl.getVariables().get(0).getNameAsString();
+                    }
+                }
+            }
+        }
+        return lastVar;
     }
 
     /**

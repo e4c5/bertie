@@ -73,18 +73,18 @@ public class RefactoringVerifier {
      * Run maven compile.
      */
     private CompilationResult runMavenCompile() throws IOException, InterruptedException {
-            ProcessBuilder pb = new ProcessBuilder("mvn", "compile", "-q");
-            pb.directory(projectRoot.toFile());
-            pb.redirectErrorStream(true);
+        ProcessBuilder pb = new ProcessBuilder("mvn", "test-compile", "-q");
+        pb.directory(projectRoot.toFile());
+        pb.redirectErrorStream(true);
 
-            Process process = pb.start();
-            String output = readOutput(process);
+        Process process = pb.start();
+        String output = readOutput(process);
 
-            boolean success = process.waitFor(60, TimeUnit.SECONDS) &&
-                    process.exitValue() == 0;
+        boolean success = process.waitFor(60, TimeUnit.SECONDS) &&
+                process.exitValue() == 0;
 
-            List<String> errors = success ? List.of() : extractErrors(output);
-            return new CompilationResult(success, errors, output);
+        List<String> errors = success ? List.of() : extractErrors(output);
+        return new CompilationResult(success, errors, output);
 
     }
 
