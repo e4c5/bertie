@@ -56,16 +56,10 @@ public class ASTVariationAnalyzer {
                 variations.size(), varRefs.size());
 
         // Create VariationAnalysis with AST-based data
-        // Keep old fields empty for backward compatibility
-        return new VariationAnalysis(
-                Collections.emptyList(), // old variations
-                false, // hasControlFlowDifferences
-                Collections.emptyMap(), // valueBindings
-                Collections.emptyList(), // primaryTokens
-                Collections.emptyMap(), // exprBindings
-                variations, // NEW: varyingExpressions
-                varRefs // NEW: variableReferences
-        );
+        return VariationAnalysis.builder()
+                .varyingExpressions(variations)
+                .variableReferences(varRefs)
+                .build();
     }
 
     /**

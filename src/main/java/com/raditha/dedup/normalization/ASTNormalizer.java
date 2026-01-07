@@ -87,9 +87,58 @@ public class ASTNormalizer {
             lit.replace(new NameExpr("NULL_LIT"));
         });
 
-        // Character literals → CHAR_LIT
         node.findAll(CharLiteralExpr.class).forEach(lit -> {
             lit.replace(new NameExpr("CHAR_LIT"));
         });
+    }
+
+    /**
+     * Normalize a list of statements for fuzzy comparison (anonymizing
+     * identifiers).
+     * 
+     * @param statements Statements to normalize
+     * @return List of normalized nodes with anonymized identifiers and literals
+     */
+    public List<NormalizedNode> normalizeFuzzy(List<Statement> statements) {
+        List<NormalizedNode> result = new ArrayList<>();
+
+        for (Statement stmt : statements) {
+            Statement clone = stmt.clone();
+            replaceLiterals(clone);
+            replaceIdentifiers(clone);
+            result.add(new NormalizedNode(clone, stmt));
+        }
+
+        return result;
+    }
+
+    /**
+     * Replace identifiers with generic placeholders for structural comparison.
+     */
+    private void replaceIdentifiers(Node node) {
+        // Variable names -> VAR
+        node.findAll(NameExpr.class).forEach(n -> {
+            // Skip if it's a replacement placeholder already (e.g. STRING_LIT)
+            if (!isPlaceholder(n.getNameAsString())) {
+                n.replace(new NameExpr("VAR"));
+            }
+        });
+
+        // Method calls -> METHOD
+        node.findAll(MethodCallExpr.class).forEach(m -> m.setName(new SimpleName("METHOD")));
+
+        // Field access -> FIELD
+        node.findAll(FieldAccessExpr.class).forEach(f -> f.setName(new SimpleName("FIELD")));
+
+        // Variable declarations -> VAR
+        node.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .forEach(v -> v.setName(new SimpleName("VAR")));
+
+        // Parameters -> VAR
+        node.findAll(com.github.javaparser.ast.body.Parameter.class).forEach(p -> p.setName(new SimpleName("VAR")));
+    }
+
+    private boolean isPlaceholder(String name) {
+        return name.endsWith("_LIT") || name.equals("VAR") || name.equals("METHOD") || name.equals("FIELD");
     }
 }

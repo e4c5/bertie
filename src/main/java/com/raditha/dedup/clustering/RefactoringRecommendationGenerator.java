@@ -6,7 +6,7 @@ import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
-import com.github.javaparser.ast.stmt.Statement;
+
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
@@ -77,8 +77,7 @@ public class RefactoringRecommendationGenerator {
                 cu2);
 
         // Extract parameters using AST-based extractor
-        com.raditha.dedup.model.ExtractionPlan extractionPlan = astParameterExtractor.extractParameters(astAnalysis,
-                cu1);
+        com.raditha.dedup.model.ExtractionPlan extractionPlan = astParameterExtractor.extractParameters(astAnalysis);
 
         // Convert to old ParameterSpec list for backward compatibility
         List<ParameterSpec> parameters = new java.util.ArrayList<>(extractionPlan.parameters());
@@ -678,7 +677,7 @@ public class RefactoringRecommendationGenerator {
             }
         }
 
-        throw new TypeInferenceException("Unable to infer type for variable: " + varName);
+        return null;
     }
 
     private String resolveType(com.github.javaparser.ast.type.Type type, com.github.javaparser.ast.Node contextNode,

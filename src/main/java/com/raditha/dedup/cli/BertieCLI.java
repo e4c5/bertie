@@ -495,10 +495,9 @@ public class BertieCLI implements Callable<Integer> {
                         similarity.levenshteinScore() * 100,
                         similarity.structuralScore() * 100);
 
-                // Refactoring hint
                 if (similarity.canRefactor()) {
                     System.out.println("  ✓ Can be refactored - extract to helper method");
-                    if (!similarity.variations().variations().isEmpty()) {
+                    if (similarity.variations().hasVariations()) {
                         System.out.println("  Parameters needed: " +
                                 similarity.variations().getVariationCount());
                     }

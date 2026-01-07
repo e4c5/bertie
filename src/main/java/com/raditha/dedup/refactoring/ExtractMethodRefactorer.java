@@ -11,7 +11,7 @@ import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.ReferenceType;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
-import com.raditha.dedup.analysis.VariationTracker;
+
 import com.raditha.dedup.model.*;
 import org.slf4j.LoggerFactory;
 
@@ -499,7 +499,7 @@ public class ExtractMethodRefactorer {
 
     private static void debugReplaceWithMethodCall(RefactoringRecommendation recommendation,
             VariationAnalysis variations, String methodNameToUse) {
-        var log = LoggerFactory.getLogger(VariationTracker.class);
+        var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
         if (log.isDebugEnabled()) {
             log.debug("DEBUG replaceWithMethodCall: method = {}, variations = {}, params = {}", methodNameToUse,
                     (variations != null), recommendation.getSuggestedParameters().size());

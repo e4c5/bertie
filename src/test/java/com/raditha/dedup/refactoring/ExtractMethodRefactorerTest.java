@@ -1,6 +1,5 @@
 package com.raditha.dedup.refactoring;
 
-import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
@@ -49,7 +48,8 @@ class ExtractMethodRefactorerTest {
 
     @Test
     void testMultipleSameTypeParameters() throws IOException, InterruptedException {
-        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.MultipleStringParams");
+        CompilationUnit cu = AntikytheraRunTime
+                .getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.MultipleStringParams");
         Path sourceFile = tempDir.resolve("SimpleTest.java");
         Files.writeString(sourceFile, cu.toString());
 

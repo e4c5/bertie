@@ -99,7 +99,7 @@ public record DuplicationReport(
                         pair.similarity().structuralScore() * 100));
 
                 sb.append(String.format("  Variations: %d detected%n",
-                        pair.similarity().variations().variations().size()));
+                        pair.similarity().variations().getVariationCount()));
 
                 sb.append("%n");
             }

@@ -6,12 +6,11 @@ import com.github.javaparser.ast.stmt.*;
 import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.Range;
-import com.raditha.dedup.similarity.SimilarityCalculator;
+import com.raditha.dedup.similarity.ASTSimilarityCalculator;
 import com.raditha.dedup.model.SimilarityResult;
-import com.raditha.dedup.detection.TokenNormalizer;
-import com.raditha.dedup.model.Token;
+import com.raditha.dedup.normalization.ASTNormalizer;
+import com.raditha.dedup.normalization.NormalizedNode;
 import com.raditha.dedup.config.SimilarityWeights;
-import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.model.TypeCompatibility;
 
 import java.util.*;
@@ -40,8 +39,8 @@ import java.util.*;
 public class BoundaryRefiner {
 
     private final DataFlowAnalyzer dataFlowAnalyzer;
-    private final TokenNormalizer normalizer;
-    private final SimilarityCalculator similarityCalculator;
+    private final ASTNormalizer normalizer;
+    private final ASTSimilarityCalculator similarityCalculator;
     private final int minStatements;
     private final double threshold;
 
@@ -54,8 +53,8 @@ public class BoundaryRefiner {
      */
     public BoundaryRefiner(DataFlowAnalyzer dataFlowAnalyzer, int minStatements, double threshold) {
         this.dataFlowAnalyzer = dataFlowAnalyzer;
-        this.normalizer = new TokenNormalizer();
-        this.similarityCalculator = new SimilarityCalculator();
+        this.normalizer = new ASTNormalizer();
+        this.similarityCalculator = new ASTSimilarityCalculator();
         this.minStatements = minStatements;
         this.threshold = threshold;
     }
@@ -123,34 +122,20 @@ public class BoundaryRefiner {
     }
 
     private boolean areSimilar(Statement s1, Statement s2) {
-        List<Token> t1 = normalizer.normalizeStatements(Collections.singletonList(s1));
-        List<Token> t2 = normalizer.normalizeStatements(Collections.singletonList(s2));
-        if (t1.size() != t2.size())
+        // Use AST normalizer which handles fuzzy matching
+        List<NormalizedNode> n1 = normalizer.normalize(Collections.singletonList(s1));
+        List<NormalizedNode> n2 = normalizer.normalize(Collections.singletonList(s2));
+
+        if (n1.size() != n2.size())
             return false;
-        for (int i = 0; i < t1.size(); i++) {
-            Token tok1 = t1.get(i);
-            Token tok2 = t2.get(i);
-            if (tok1.type() != tok2.type())
-                return false;
-            // For keywords/operators, values must match
-            // VAR (variables) are allowed to differ (parameterization)
-            // Literals are allowed to differ (parameterization)
-            if (tok1.type() != com.raditha.dedup.model.TokenType.VAR &&
-                    !isLiteral(tok1.type()) &&
-                    !tok1.normalizedValue().equals(tok2.normalizedValue())) {
+
+        for (int i = 0; i < n1.size(); i++) {
+            // Compare normalized nodes for structural equality
+            if (!n1.get(i).structurallyEquals(n2.get(i))) {
                 return false;
             }
         }
         return true;
-    }
-
-    private boolean isLiteral(com.raditha.dedup.model.TokenType type) {
-        return type == com.raditha.dedup.model.TokenType.STRING_LIT ||
-                type == com.raditha.dedup.model.TokenType.INT_LIT ||
-                type == com.raditha.dedup.model.TokenType.LONG_LIT ||
-                type == com.raditha.dedup.model.TokenType.DOUBLE_LIT ||
-                type == com.raditha.dedup.model.TokenType.BOOLEAN_LIT ||
-                type == com.raditha.dedup.model.TokenType.NULL_LIT;
     }
 
     /**
@@ -416,25 +401,18 @@ public class BoundaryRefiner {
     /**
      * Recalculate similarity for trimmed sequences.
      */
+    /**
+     * Recalculate similarity for trimmed sequences.
+     */
     private SimilarityResult recalculateSimilarity(StatementSequence seq1, StatementSequence seq2) {
-        // Normalize both sequences
-        List<Token> tokens1 = normalizer.normalizeStatements(seq1.statements());
-        List<Token> tokens2 = normalizer.normalizeStatements(seq2.statements());
+        // Normalize both sequences using AST normalization
+        List<NormalizedNode> n1 = normalizer.normalize(seq1.statements());
+        List<NormalizedNode> n2 = normalizer.normalize(seq2.statements());
 
-        // Track variations (simplified - full tracking not needed for threshold check)
-        VariationTracker tracker = new VariationTracker();
-        VariationAnalysis variations = tracker.trackVariations(tokens1, tokens2);
-
-        // Analyze type compatibility
-        TypeAnalyzer typeAnalyzer = new TypeAnalyzer();
-        TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(variations);
-
-        // Calculate similarity with balanced weights
-        return similarityCalculator.calculate(
-                tokens1,
-                tokens2,
-                SimilarityWeights.balanced(),
-                variations,
-                typeCompat);
+        // Calculate similarity using AST-based calculator
+        // Note: ASTSimilarityCalculator calculates variations internally if needed,
+        // or returns a result without detailed variations if they aren't required for
+        // the score.
+        return similarityCalculator.calculate(n1, n2, SimilarityWeights.balanced());
     }
 }

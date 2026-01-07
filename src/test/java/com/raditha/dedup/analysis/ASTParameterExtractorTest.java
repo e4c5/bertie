@@ -48,7 +48,7 @@ class ASTParameterExtractorTest {
         StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
 
         VariationAnalysis analysis = analyzer.analyzeVariations(seq1, seq2, cu1, cu2);
-        ExtractionPlan plan = extractor.extractParameters(analysis, cu1);
+        ExtractionPlan plan = extractor.extractParameters(analysis);
 
         // Should have parameters from varying expressions
         assertTrue(plan.parameters().size() > 0);
@@ -74,7 +74,7 @@ class ASTParameterExtractorTest {
         StatementSequence seq = new StatementSequence(m.getBody().get().getStatements(), null, 0, m, cu, null);
 
         VariationAnalysis analysis = analyzer.analyzeVariations(seq, seq, cu, cu);
-        ExtractionPlan plan = extractor.extractParameters(analysis, cu);
+        ExtractionPlan plan = extractor.extractParameters(analysis);
 
         // Should have arguments from variable references
         assertTrue(plan.arguments().size() > 0);
@@ -114,7 +114,7 @@ class ASTParameterExtractorTest {
         StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
 
         VariationAnalysis analysis = analyzer.analyzeVariations(seq1, seq2, cu1, cu2);
-        ExtractionPlan plan = extractor.extractParameters(analysis, cu1);
+        ExtractionPlan plan = extractor.extractParameters(analysis);
 
         // Should have both parameters and arguments
         assertTrue(plan.hasParameters());

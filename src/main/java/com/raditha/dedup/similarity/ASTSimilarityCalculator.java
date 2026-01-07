@@ -52,7 +52,7 @@ public class ASTSimilarityCalculator {
                 structuralScore,
                 nodes1.size(),
                 nodes2.size(),
-                null, // variations - will be added later
+                com.raditha.dedup.model.VariationAnalysis.builder().build(), // variations - initialized empty
                 null, // typeCompatibility - will be added later
                 overallScore >= 0.70 // canRefactor threshold
         );

@@ -1,7 +1,6 @@
 package com.raditha.dedup.analysis;
 
 import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
@@ -26,12 +25,10 @@ public class ASTParameterExtractor {
      * Extract parameters and arguments from variation analysis.
      * 
      * @param analysis Variation analysis result
-     * @param cu       CompilationUnit for type resolution
      * @return Extraction plan with parameters and arguments
      */
     public ExtractionPlan extractParameters(
-            VariationAnalysis analysis,
-            CompilationUnit cu) {
+            VariationAnalysis analysis) {
         List<ParameterSpec> parameters = new ArrayList<>();
         List<ArgumentSpec> arguments = new ArrayList<>();
 
