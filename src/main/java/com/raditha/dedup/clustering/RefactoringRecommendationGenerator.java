@@ -153,9 +153,18 @@ public class RefactoringRecommendationGenerator {
         // Calculate valid statement count (truncate if internal dependencies found)
         int validStatementCount = -1;
         Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
+        boolean isUnsafe = false;
 
-        // Check varying expressions for internal dependency
+        // Check varying expressions for internal dependency or void type
         for (VaryingExpression var : astAnalysis.getVaryingExpressions()) {
+            // Check for void type (cannot parameterize a void expression)
+            if (var.type() != null && var.type().isVoid()) {
+                System.out.println("SAFETY WARNING: Reducing confidence to 0.0 for " + methodName +
+                        " because it attempts to parameterize a void expression: " + var.expr1());
+                isUnsafe = true;
+                break;
+            }
+
             // Check if expression uses any internal variable
             Set<String> usedInternalVars = new HashSet<>();
             var.expr1().findAll(com.github.javaparser.ast.expr.NameExpr.class).forEach(n -> {
@@ -194,6 +203,15 @@ public class RefactoringRecommendationGenerator {
                     returnType = typeStr != null ? typeStr : "Object";
                 } else {
                     returnType = "void";
+                    // IMPORTANT: If we infer void, we MUST ensure no local variables escape!
+                    // findReturnVariable returns null if unsafe (multiple live outs) OR if safe (no
+                    // live outs).
+                    // We must disambiguate.
+                    if (!dataFlowAnalyzer.isSafeToExtract(prefix, "void")) {
+                        System.out.println("SAFETY WARNING: Reducing confidence to 0.0 for " + methodName +
+                                " because void extraction is unsafe (local variables escape)");
+                        isUnsafe = true;
+                    }
                 }
             }
         } else {
@@ -209,6 +227,47 @@ public class RefactoringRecommendationGenerator {
 
         // Calculate confidence
         double confidence = calculateConfidence(cluster, typeCompat, parameters);
+        if (isUnsafe) {
+            confidence = 0.0;
+        }
+
+        // CRITICAL SAFETY CHECK: Validate that extraction is safe
+        // This catches cases where multiple local variables are live-out
+        StatementSequence seqToValidate = cluster.primary();
+        if (validStatementCount != -1) {
+            seqToValidate = createPrefixSequence(seqToValidate, validStatementCount);
+        }
+
+        if (!dataFlowAnalyzer.isSafeToExtract(seqToValidate, returnType)) {
+            System.out.println("SAFETY WARNING: Reducing confidence to 0.0 for " + methodName +
+                    " because extraction would leave local variables undefined (multiple live-outs)");
+            confidence = 0.0;
+        }
+
+        // SAFETY CHECK: If the sequence contains explicit return statements, it MUST
+        // end with an unconditional exit.
+        // This handles cases like "if (check) return x;" (conditional return) which are
+        // unsafe if the fall-through
+        // is not caught within the extracted block.
+        // However, if there are NO return statements (just calculating a live-out
+        // variable), it is SAFE.
+        if (containsExplicitReturn(cluster.primary())) {
+            StatementSequence seq = cluster.primary();
+            if (validStatementCount != -1) {
+                // If truncated, use the truncated sequence
+                seq = createPrefixSequence(seq, validStatementCount);
+            }
+
+            if (!seq.statements().isEmpty()) {
+                Statement lastStmt = seq.statements().get(seq.statements().size() - 1);
+                if (!isUnconditionalExit(lastStmt)) {
+                    // Unsafe refactoring: Missing return on some paths
+                    confidence = 0.0;
+                    System.out.println("SAFETY WARNING: Reducing confidence to 0.0 for " + methodName +
+                            " because it contains explicit returns but does not end with an unconditional exit.");
+                }
+            }
+        }
 
         // Find the return variable in the primary sequence to use as a fallback for
         // duplicates
@@ -627,6 +686,77 @@ public class RefactoringRecommendationGenerator {
         }
 
         return capturedParams;
+    }
+
+    /**
+     * Check if a statement represents an unconditional exit (return or throw).
+     * Handles blocks and if/else structures recursively.
+     */
+    private boolean isUnconditionalExit(Statement stmt) {
+        if (stmt.isReturnStmt() || stmt.isThrowStmt()) {
+            return true;
+        }
+
+        if (stmt.isBlockStmt()) {
+            var stmts = stmt.asBlockStmt().getStatements();
+            if (stmts.isEmpty())
+                return false;
+            // Check the last statement of the block
+            return isUnconditionalExit(stmts.get(stmts.size() - 1));
+        }
+
+        if (stmt.isIfStmt()) {
+            var ifStmt = stmt.asIfStmt();
+            // Must have both then and else parts, and both must be unconditional exits
+            if (ifStmt.getElseStmt().isPresent()) {
+                return isUnconditionalExit(ifStmt.getThenStmt()) &&
+                        isUnconditionalExit(ifStmt.getElseStmt().get());
+            }
+            return false;
+        }
+
+        // Other control structures (Try, Switch, etc.) could be added here
+        // For now, assume they are not unconditional exits
+        return false;
+    }
+
+    /**
+     * Check if the sequence contains any explicit return statements.
+     * Care must be taken to not count returns inside lambdas or anonymous classes.
+     */
+    private boolean containsExplicitReturn(StatementSequence sequence) {
+        for (Statement stmt : sequence.statements()) {
+            // We use a visitor or a manual finder that stops at scope boundaries
+            // Simple finder fails because it goes into lambdas.
+            // Using a stream with filtering:
+
+            // Fast check: does string contain "return"?
+            if (!stmt.toString().contains("return"))
+                continue;
+
+            // Detailed check: Visit nodes
+            if (hasReturnInScope(stmt))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean hasReturnInScope(com.github.javaparser.ast.Node node) {
+        if (node instanceof com.github.javaparser.ast.stmt.ReturnStmt) {
+            return true;
+        }
+        // STOP traversal at new scopes
+        if (node instanceof com.github.javaparser.ast.expr.LambdaExpr ||
+                node instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration ||
+                node instanceof com.github.javaparser.ast.expr.ObjectCreationExpr) { // Anonymous class
+            return false;
+        }
+
+        for (com.github.javaparser.ast.Node child : node.getChildNodes()) {
+            if (hasReturnInScope(child))
+                return true;
+        }
+        return false;
     }
 
     private String findTypeInContext(StatementSequence sequence, String varName) {

@@ -169,6 +169,9 @@ public class DataFlowAnalyzer {
 
         List<String> candidates = findCandidates(sequence, liveOut);
 
+        // Filter out fields (they don't need to be returned)
+        candidates.removeIf(varName -> isField(sequence, varName));
+
         // Filter candidates by type compatibility
         if (returnType != null && !"void".equals(returnType)) {
             candidates.removeIf(candidate -> !isTypeCompatible(sequence, candidate, returnType));
@@ -177,6 +180,12 @@ public class DataFlowAnalyzer {
         // Only return if there's exactly ONE candidate
         if (candidates.size() == 1) {
             return candidates.getFirst();
+        }
+
+        // If multiple candidates remain (and they are locals), it's UNSAFE to extract
+        // because we can't return multiple values.
+        if (candidates.size() > 1) {
+            return null;
         }
 
         // If multiple candidates, prefer the one with richest type (non-primitive)
@@ -250,19 +259,48 @@ public class DataFlowAnalyzer {
      * Check if it's safe to extract the sequence.
      * 
      * Unsafe if:
-     * - Multiple variables are live out (can't return multiple values)
+     * - Multiple local variables are live out (can't return multiple values)
      * - Live-out variable of wrong type
      */
     public boolean isSafeToExtract(StatementSequence sequence, String expectedReturnType) {
-        String returnVar = findReturnVariable(sequence, expectedReturnType);
+        Set<String> liveOut = findLiveOutVariables(sequence);
 
-        // If "void" is expected, just check no important variables escape
+        // Filter out fields (updates to fields persist, so they don't need to be
+        // returned)
+        liveOut.removeIf(varName -> isField(sequence, varName));
+
+        // If "void" is expected, ensure no important local variables escape
         if ("void".equals(expectedReturnType)) {
-            return findLiveOutVariables(sequence).isEmpty();
+            return liveOut.isEmpty();
         }
 
-        // Otherwise, must have exactly one return variable
-        return returnVar != null;
+        // If non-void, we expect exactly ONE live-out variable that matches the type
+        if (liveOut.isEmpty()) {
+            return false; // Should return something but nothing live out?
+                          // (Unless it returns a literal/expression directly, handled by
+                          // findReturnVariable logic?)
+                          // Actually findReturnVariable handles the "return logic".
+                          // But if there are OTHER live out vars, it's unsafe.
+            // Wait, if liveOut is empty, maybe it returns a calculated value?
+            // Safe if findReturnVariable finds something.
+        } else if (liveOut.size() > 1) {
+            return false; // Too many live outs
+        }
+
+        // Exactly one live out. Check if it matches the expected return type.
+        String varName = liveOut.iterator().next();
+        return isTypeCompatible(sequence, varName, expectedReturnType);
+    }
+
+    private boolean isField(StatementSequence sequence, String varName) {
+        var method = sequence.containingMethod();
+        if (method == null)
+            return false;
+        var classDecl = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (classDecl.isPresent()) {
+            return classDecl.get().getFieldByName(varName).isPresent();
+        }
+        return false;
     }
 
     /**

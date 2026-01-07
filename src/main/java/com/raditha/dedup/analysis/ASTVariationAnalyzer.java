@@ -63,11 +63,40 @@ public class ASTVariationAnalyzer {
                 variations.size(), varRefs.size());
 
         // Create VariationAnalysis with AST-based data
+        // Filter out parent variations (e.g. if 'assertEquals("a", b)' varies because
+        // '"a"' varies,
+        // we only want to parameterize '"a"', not the whole call)
+        List<VaryingExpression> filteredVariations = filterParentVariations(variations);
+
         return VariationAnalysis.builder()
-                .varyingExpressions(variations)
+                .varyingExpressions(filteredVariations)
                 .variableReferences(varRefs)
                 .declaredInternalVariables(declaredInternalVars)
                 .build();
+    }
+
+    /**
+     * Filter out variations that are ancestors of other variations.
+     * We prefer the most specific variation.
+     */
+    private List<VaryingExpression> filterParentVariations(List<VaryingExpression> variations) {
+        List<VaryingExpression> result = new ArrayList<>();
+        for (VaryingExpression v1 : variations) {
+            boolean isParent = false;
+            for (VaryingExpression v2 : variations) {
+                if (v1 == v2)
+                    continue;
+                // If v1 contains v2, then v1 is a parent
+                if (v1.expr1().isAncestorOf(v2.expr1())) {
+                    isParent = true;
+                    break;
+                }
+            }
+            if (!isParent) {
+                result.add(v1);
+            }
+        }
+        return result;
     }
 
     /**
@@ -76,6 +105,13 @@ public class ASTVariationAnalyzer {
     private void findDeclarations(Statement stmt, Set<String> declaredVars) {
         stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).forEach(vd -> {
             declaredVars.add(vd.getNameAsString());
+        });
+
+        // Also find lambda parameters!
+        stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).forEach(lambda -> {
+            lambda.getParameters().forEach(param -> {
+                declaredVars.add(param.getNameAsString());
+            });
         });
     }
 
