@@ -102,8 +102,8 @@ public class ExtractMethodRefactorer {
         setReturnType(method, recommendation);
 
         // Parameters with collision handling
-        Set<String> declaredVars = collectDeclaredVariableNames(sequence);
-        Map<String, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
+        Set<String> declaredVars = collectDeclaredVariableNames(sequence, recommendation);
+        Map<ParameterSpec, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
                 recommendation.getSuggestedParameters());
         addParameters(method, recommendation.getSuggestedParameters(), paramNameOverrides);
 
@@ -137,34 +137,46 @@ public class ExtractMethodRefactorer {
         method.setType(returnType != null ? returnType : new com.github.javaparser.ast.type.VoidType());
     }
 
-    private Set<String> collectDeclaredVariableNames(StatementSequence sequence) {
+    private Set<String> collectDeclaredVariableNames(StatementSequence sequence,
+            RefactoringRecommendation recommendation) {
         Set<String> declaredVars = new HashSet<>();
-        for (Statement stmt : sequence.statements()) {
+        int limit = getEffectiveLimit(sequence, recommendation);
+        List<Statement> stmts = sequence.statements();
+        for (int i = 0; i < limit; i++) {
+            Statement stmt = stmts.get(i);
             stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                     .forEach(v -> declaredVars.add(v.getNameAsString()));
         }
         return declaredVars;
     }
 
-    private Map<String, String> computeParamNameOverrides(Set<String> declaredVars, List<ParameterSpec> params) {
-        Map<String, String> overrides = new java.util.HashMap<>();
+    private Map<ParameterSpec, String> computeParamNameOverrides(Set<String> declaredVars, List<ParameterSpec> params) {
+        Map<ParameterSpec, String> overrides = new java.util.HashMap<>();
+        Set<String> usedNames = new HashSet<>(declaredVars);
+
         for (ParameterSpec param : params) {
-            String name = param.getName();
-            if (declaredVars.contains(name)) {
-                String newName = name + "Param";
+            String originalName = param.getName();
+            String targetName = originalName;
+
+            if (usedNames.contains(targetName)) {
+                String baseName = targetName;
                 int counter = 2;
-                while (declaredVars.contains(newName)) {
-                    newName = name + "Param" + counter++;
+                while (usedNames.contains(baseName + counter)) {
+                    counter++;
                 }
-                overrides.put(name, newName);
+                targetName = baseName + counter;
             }
+
+            overrides.put(param, targetName);
+            usedNames.add(targetName);
         }
         return overrides;
     }
 
-    private void addParameters(MethodDeclaration method, List<ParameterSpec> params, Map<String, String> overrides) {
+    private void addParameters(MethodDeclaration method, List<ParameterSpec> params,
+            Map<ParameterSpec, String> overrides) {
         for (ParameterSpec param : params) {
-            String targetName = overrides.getOrDefault(param.getName(), param.getName());
+            String targetName = overrides.getOrDefault(param, param.getName());
             method.addParameter(new Parameter(param.getType().clone(), targetName));
         }
     }
@@ -188,7 +200,7 @@ public class ExtractMethodRefactorer {
     private BlockStmt buildHelperMethodBody(StatementSequence sequence,
             RefactoringRecommendation recommendation,
             String targetReturnVar,
-            Map<String, String> paramNameOverrides) {
+            Map<ParameterSpec, String> paramNameOverrides) {
         BlockStmt body = new BlockStmt();
 
         boolean hasExternalVars = hasExternalVariablesInReturn(sequence);
@@ -215,10 +227,13 @@ public class ExtractMethodRefactorer {
     private List<Statement> buildBodyStatements(StatementSequence sequence,
             RefactoringRecommendation recommendation,
             String targetReturnVar,
-            Map<String, String> paramNameOverrides,
+            Map<ParameterSpec, String> paramNameOverrides,
             boolean hasExternalVars) {
         List<Statement> result = new ArrayList<>();
-        for (Statement original : sequence.statements()) {
+        int limit = getEffectiveLimit(sequence, recommendation);
+        List<Statement> stmts = sequence.statements();
+        for (int i = 0; i < limit; i++) {
+            Statement original = stmts.get(i);
             Statement stmt = substituteParameters(original.clone(), sequence, recommendation, paramNameOverrides);
 
             if (shouldSkipReturnForExternalVars(stmt, hasExternalVars)) {
@@ -456,7 +471,8 @@ public class ExtractMethodRefactorer {
         MethodCallExpr methodCall = new MethodCallExpr(methodNameToUse, arguments.toArray(new Expression[0]));
 
         // 3) Remember any original return inside the duplicate sequence
-        ReturnStmt originalReturnValues = findOriginalReturnInSequence(sequence);
+        int limit = getEffectiveLimit(sequence, recommendation);
+        ReturnStmt originalReturnValues = findOriginalReturnInSequence(sequence, limit);
 
         // 4) Locate sequence in the block and replace
         int startIdx = findStatementIndex(block, sequence);
@@ -464,7 +480,7 @@ public class ExtractMethodRefactorer {
             return;
 
         // Remove the old statements belonging to the sequence
-        int removeCount = sequence.statements().size();
+        int removeCount = getEffectiveLimit(sequence, recommendation);
         for (int i = 0; i < removeCount && startIdx < block.getStatements().size(); i++) {
             block.getStatements().remove(startIdx);
         }
@@ -712,8 +728,10 @@ public class ExtractMethodRefactorer {
         }
     }
 
-    private ReturnStmt findOriginalReturnInSequence(StatementSequence sequence) {
-        for (Statement stmt : sequence.statements()) {
+    private ReturnStmt findOriginalReturnInSequence(StatementSequence sequence, int limit) {
+        List<Statement> stmts = sequence.statements();
+        for (int i = 0; i < limit; i++) {
+            Statement stmt = stmts.get(i);
             if (stmt.isReturnStmt()) {
                 return stmt.asReturnStmt();
             }
@@ -730,15 +748,38 @@ public class ExtractMethodRefactorer {
     }
 
     private String inferReturnVariable(StatementSequence sequence, RefactoringRecommendation recommendation) {
-        String varName = findReturnVariable(sequence,
-                recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
-                        : "void");
+        int limit = getEffectiveLimit(sequence, recommendation);
+        // Create a prefix sequence for analysis if needed
+        List<Statement> stmts = sequence.statements();
+        StatementSequence analyzeSeq = sequence;
+        if (limit < stmts.size()) {
+            analyzeSeq = new StatementSequence(
+                    stmts.subList(0, limit),
+                    new Range(sequence.range().startLine(), sequence.range().startColumn(),
+                            stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
+                            stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
+                    sequence.startOffset(), sequence.containingMethod(), sequence.compilationUnit(),
+                    sequence.sourceFilePath());
+        }
+
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-        Set<String> defined = dfa.findDefinedVariables(sequence);
-        if (varName == null && recommendation.getPrimaryReturnVariable() != null) {
-            if (defined.contains(recommendation.getPrimaryReturnVariable())) {
-                varName = recommendation.getPrimaryReturnVariable();
+        Set<String> defined = dfa.findDefinedVariables(analyzeSeq);
+
+        String varName = null;
+        // PRIORITY: Trust the recommendation generator's analysis if applicable
+        if (recommendation.getPrimaryReturnVariable() != null) {
+            String primaryVar = recommendation.getPrimaryReturnVariable();
+            if (defined.contains(primaryVar)) {
+                varName = primaryVar;
             }
+        }
+
+        // Fallback or if primary var not found in this sequence (shouldn't happen for
+        // clones)
+        if (varName == null) {
+            varName = findReturnVariable(analyzeSeq,
+                    recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
+                            : "void");
         }
         if (varName == null) {
             List<String> typedCandidates = new ArrayList<>();
@@ -905,7 +946,7 @@ public class ExtractMethodRefactorer {
      * values.
      */
     private Statement substituteParameters(Statement stmt, StatementSequence sequence,
-            RefactoringRecommendation recommendation, Map<String, String> nameOverrides) {
+            RefactoringRecommendation recommendation, Map<ParameterSpec, String> nameOverrides) {
         // Orchestrate substitution per parameter
         for (ParameterSpec param : recommendation.getSuggestedParameters()) {
             String paramName = resolveParamName(param, nameOverrides);
@@ -924,8 +965,8 @@ public class ExtractMethodRefactorer {
     /**
      * Resolve the final parameter name, applying any collision-driven overrides.
      */
-    private String resolveParamName(ParameterSpec param, Map<String, String> nameOverrides) {
-        return nameOverrides.getOrDefault(param.getName(), param.getName());
+    private String resolveParamName(ParameterSpec param, Map<ParameterSpec, String> nameOverrides) {
+        return nameOverrides.getOrDefault(param, param.getName());
     }
 
     /**
@@ -1070,6 +1111,18 @@ public class ExtractMethodRefactorer {
 
         // Strip whitespace to ignore formatting differences completely
         return clone.getBody().get().toString(config).replaceAll("\\s+", "");
+    }
+
+    /**
+     * Determine the number of statements to process.
+     * Respects truncation limit if valid.
+     */
+    private int getEffectiveLimit(StatementSequence sequence, RefactoringRecommendation recommendation) {
+        int limit = sequence.statements().size();
+        if (recommendation.getValidStatementCount() > 0 && recommendation.getValidStatementCount() < limit) {
+            limit = recommendation.getValidStatementCount();
+        }
+        return limit;
     }
 
     /**

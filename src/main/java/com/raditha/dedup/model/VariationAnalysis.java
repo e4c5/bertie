@@ -15,6 +15,7 @@ public class VariationAnalysis {
     // AST-based fields (New)
     private final List<VaryingExpression> varyingExpressions;
     private final Set<VariableReference> variableReferences;
+    private final Set<String> declaredInternalVariables; // NEW
 
     // Legacy fields (Token-based)
     private final List<Variation> variations;
@@ -27,6 +28,8 @@ public class VariationAnalysis {
         this.varyingExpressions = builder.varyingExpressions != null ? builder.varyingExpressions
                 : Collections.emptyList();
         this.variableReferences = builder.variableReferences != null ? builder.variableReferences
+                : Collections.emptySet();
+        this.declaredInternalVariables = builder.declaredInternalVariables != null ? builder.declaredInternalVariables
                 : Collections.emptySet();
 
         this.variations = builder.variations != null ? builder.variations : Collections.emptyList();
@@ -57,6 +60,10 @@ public class VariationAnalysis {
 
     public Set<VariableReference> variableReferences() {
         return variableReferences;
+    }
+
+    public Set<String> getDeclaredInternalVariables() {
+        return declaredInternalVariables;
     }
 
     public List<Variation> getVariations() {
@@ -131,6 +138,7 @@ public class VariationAnalysis {
     public static class Builder {
         private List<VaryingExpression> varyingExpressions;
         private Set<VariableReference> variableReferences;
+        private Set<String> declaredInternalVariables;
         private List<Variation> variations;
         private boolean hasControlFlowDifferences;
         private Map<Integer, Map<StatementSequence, String>> valueBindings;
@@ -143,6 +151,11 @@ public class VariationAnalysis {
 
         public Builder variableReferences(Set<VariableReference> variableReferences) {
             this.variableReferences = variableReferences;
+            return this;
+        }
+
+        public Builder declaredInternalVariables(Set<String> declaredInternalVariables) {
+            this.declaredInternalVariables = declaredInternalVariables;
             return this;
         }
 

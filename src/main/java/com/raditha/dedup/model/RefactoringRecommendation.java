@@ -18,6 +18,28 @@ public class RefactoringRecommendation {
     private final double confidenceScore;
     private final long estimatedLOCReduction;
     private final String primaryReturnVariable;
+    private final int validStatementCount; // NEW: Truncate sequence after N statements if < size
+
+    public RefactoringRecommendation(
+            RefactoringStrategy strategy,
+            String suggestedMethodName,
+            List<ParameterSpec> suggestedParameters,
+            Type suggestedReturnType,
+            String targetLocation,
+            double confidenceScore,
+            long estimatedLOCReduction,
+            String primaryReturnVariable,
+            int validStatementCount) {
+        this.strategy = strategy;
+        this.suggestedMethodName = suggestedMethodName;
+        this.suggestedParameters = suggestedParameters;
+        this.suggestedReturnType = suggestedReturnType;
+        this.targetLocation = targetLocation;
+        this.confidenceScore = confidenceScore;
+        this.estimatedLOCReduction = estimatedLOCReduction;
+        this.primaryReturnVariable = primaryReturnVariable;
+        this.validStatementCount = validStatementCount;
+    }
 
     public RefactoringRecommendation(
             RefactoringStrategy strategy,
@@ -28,14 +50,8 @@ public class RefactoringRecommendation {
             double confidenceScore,
             long estimatedLOCReduction,
             String primaryReturnVariable) {
-        this.strategy = strategy;
-        this.suggestedMethodName = suggestedMethodName;
-        this.suggestedParameters = suggestedParameters;
-        this.suggestedReturnType = suggestedReturnType;
-        this.targetLocation = targetLocation;
-        this.confidenceScore = confidenceScore;
-        this.estimatedLOCReduction = estimatedLOCReduction;
-        this.primaryReturnVariable = primaryReturnVariable;
+        this(strategy, suggestedMethodName, suggestedParameters, suggestedReturnType, targetLocation, confidenceScore,
+                estimatedLOCReduction, primaryReturnVariable, -1);
     }
 
     /**
@@ -52,7 +68,7 @@ public class RefactoringRecommendation {
             int estimatedLOCReduction) {
         this(strategy, suggestedMethodName, suggestedParameters,
                 StaticJavaParser.parseType(suggestedReturnType != null ? suggestedReturnType : "void"),
-                targetLocation, confidenceScore, estimatedLOCReduction, null);
+                targetLocation, confidenceScore, estimatedLOCReduction, null, -1);
     }
 
     public RefactoringStrategy getStrategy() {
@@ -85,6 +101,10 @@ public class RefactoringRecommendation {
 
     public String getPrimaryReturnVariable() {
         return primaryReturnVariable;
+    }
+
+    public int getValidStatementCount() {
+        return validStatementCount;
     }
 
     /**

@@ -248,8 +248,15 @@ public class BertieCLI implements Callable<Integer> {
         List<DuplicationReport> reports = new ArrayList<>();
 
         // Single iteration - filter and analyze
+        String targetClass = DuplicationDetectorSettings.getTargetClass();
+
         for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
+
+            // Filter by target class if specified
+            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
+                continue;
+            }
 
             // Production code and test code - check both locations
             Path sourceFile = findSourceFile(className, entry.getValue());

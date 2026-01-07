@@ -41,6 +41,13 @@ public class ASTVariationAnalyzer {
         // Walk both sequences in parallel
         int minSize = Math.min(seq1.statements().size(), seq2.statements().size());
 
+        // Collect variables declared within the sequence (to avoid treating them as
+        // external references)
+        Set<String> declaredInternalVars = new HashSet<>();
+        for (Statement stmt : seq1.statements()) {
+            findDeclarations(stmt, declaredInternalVars);
+        }
+
         for (int i = 0; i < minSize; i++) {
             Statement stmt1 = seq1.statements().get(i);
             Statement stmt2 = seq2.statements().get(i);
@@ -49,7 +56,7 @@ public class ASTVariationAnalyzer {
             findDifferences(stmt1, stmt2, i, variations, cu1, cu2);
 
             // Find variable references in first sequence (representative)
-            findVariableReferences(stmt1, varRefs, cu1);
+            findVariableReferences(stmt1, varRefs, cu1, declaredInternalVars);
         }
 
         logger.debug("[ASTVariationAnalyzer] Found {} varying expressions, {} variable references",
@@ -59,7 +66,17 @@ public class ASTVariationAnalyzer {
         return VariationAnalysis.builder()
                 .varyingExpressions(variations)
                 .variableReferences(varRefs)
+                .declaredInternalVariables(declaredInternalVars)
                 .build();
+    }
+
+    /**
+     * Find variable declarations in a statement.
+     */
+    private void findDeclarations(Statement stmt, Set<String> declaredVars) {
+        stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).forEach(vd -> {
+            declaredVars.add(vd.getNameAsString());
+        });
     }
 
     /**
@@ -110,9 +127,17 @@ public class ASTVariationAnalyzer {
     private void findVariableReferences(
             Statement stmt,
             Set<VariableReference> varRefs,
-            CompilationUnit cu) {
+            CompilationUnit cu,
+            Set<String> declaredInternalVars) {
         // Find all NameExpr (variable references)
         stmt.findAll(NameExpr.class).forEach(nameExpr -> {
+            String name = nameExpr.getNameAsString();
+
+            // Skip if declared internally
+            if (declaredInternalVars.contains(name)) {
+                return;
+            }
+
             try {
                 // Try to resolve using JavaParser's built-in resolution
                 ResolvedValueDeclaration resolved = nameExpr.resolve();
@@ -121,19 +146,32 @@ public class ASTVariationAnalyzer {
                 ResolvedType type = resolved.getType();
 
                 varRefs.add(new VariableReference(
-                        nameExpr.getNameAsString(),
+                        name,
                         type,
                         scope));
 
                 logger.debug("[ASTVariationAnalyzer] Variable reference: {} (scope: {})",
-                        nameExpr.getNameAsString(), scope);
+                        name, scope);
 
             } catch (Exception e) {
-                // If resolution fails, add as UNKNOWN
-                varRefs.add(VariableReference.unknown(nameExpr.getNameAsString()));
+                // Heuristic: If name starts with Uppercase and resolution failed, assume it's a
+                // Class reference (e.g. System)
+                if (Character.isUpperCase(name.charAt(0))) {
+                    logger.debug("[ASTVariationAnalyzer] Ignoring likely class reference: {}", name);
+                    return;
+                }
 
-                logger.debug("[ASTVariationAnalyzer] Could not resolve variable: {}",
-                        nameExpr.getNameAsString());
+                // Fallback: manual AST lookup for fields
+                ResolvedType fallback = manualFieldLookup(nameExpr, name);
+                if (fallback != null) {
+                    varRefs.add(new VariableReference(name, fallback, Scope.FIELD)); // Assume FIELD scope if found in
+                                                                                     // class
+                    logger.debug("[ASTVariationAnalyzer] Variable reference (fallback): {} (scope: FIELD)", name);
+                } else {
+                    // If resolution fails, add as UNKNOWN
+                    varRefs.add(VariableReference.unknown(name));
+                    logger.debug("[ASTVariationAnalyzer] Could not resolve variable: {}", name);
+                }
             }
         });
     }
@@ -159,8 +197,100 @@ public class ASTVariationAnalyzer {
         try {
             return expr.calculateResolvedType();
         } catch (Exception e) {
+            // Fallback: manual AST lookup for fields
+            if (expr.isNameExpr()) {
+                String name = expr.asNameExpr().getNameAsString();
+                ResolvedType fallback = manualFieldLookup(expr, name);
+                if (fallback != null)
+                    return fallback;
+            }
             logger.debug("[ASTVariationAnalyzer] Could not resolve type for: {}", expr);
             return null;
+        }
+    }
+
+    private ResolvedType manualFieldLookup(com.github.javaparser.ast.Node node, String name) {
+        Optional<com.github.javaparser.ast.body.ClassOrInterfaceDeclaration> classDecl = node
+                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (classDecl.isPresent()) {
+            Optional<com.github.javaparser.ast.body.FieldDeclaration> field = classDecl.get().getFieldByName(name);
+            if (field.isPresent()) {
+                String typeName = field.get().getCommonType().asString();
+                return new SimpleResolvedType(typeName);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Minimal implementation of ResolvedType for fallback scenarios.
+     */
+    private static class SimpleResolvedType implements ResolvedType {
+        private final String typeName;
+
+        public SimpleResolvedType(String typeName) {
+            this.typeName = typeName;
+        }
+
+        @Override
+        public String describe() {
+            return typeName;
+        }
+
+        @Override
+        public boolean isArray() {
+            return typeName.endsWith("[]");
+        }
+
+        @Override
+        public boolean isPrimitive() {
+            return false;
+        } // Simplified
+
+        @Override
+        public boolean isReferenceType() {
+            return true;
+        } // simplified
+
+        @Override
+        public boolean isVoid() {
+            return "void".equals(typeName);
+        }
+
+        @Override
+        public boolean isTypeVariable() {
+            return false;
+        }
+
+        @Override
+        public boolean isWildcard() {
+            return false;
+        }
+
+        @Override
+        public boolean isNull() {
+            return false;
+        }
+
+        @Override
+        public boolean isUnionType() {
+            return false;
+        }
+
+        @Override
+        public boolean isConstraint() {
+            return false;
+        }
+
+        @Override
+        public boolean isInferenceVariable() {
+            return false;
+        }
+
+        @Override
+        public boolean isAssignableBy(ResolvedType other) {
+            // Minimal implementation: exact name match
+            return other.describe().equals(this.describe());
         }
     }
 }

@@ -13,8 +13,11 @@ import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
 import com.raditha.dedup.model.SimilarityResult;
+import com.raditha.dedup.model.Range; // NEW
+import com.raditha.dedup.model.Range; // NEW
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.TypeCompatibility;
+import com.raditha.dedup.model.VaryingExpression; // NEW
 import com.raditha.dedup.refactoring.MethodNameGenerator;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
@@ -143,8 +146,59 @@ public class RefactoringRecommendationGenerator {
         // Generate method name
         String methodName = suggestMethodName(cluster, strategy);
 
+        // Initialize primary return variable (may be set by truncation logic or data
+        // flow analysis)
+        String primaryReturnVariable = null;
+
+        // Calculate valid statement count (truncate if internal dependencies found)
+        int validStatementCount = -1;
+        Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
+
+        // Check varying expressions for internal dependency
+        for (VaryingExpression var : astAnalysis.getVaryingExpressions()) {
+            // Check if expression uses any internal variable
+            Set<String> usedInternalVars = new HashSet<>();
+            var.expr1().findAll(com.github.javaparser.ast.expr.NameExpr.class).forEach(n -> {
+                if (declaredVars.contains(n.getNameAsString())) {
+                    usedInternalVars.add(n.getNameAsString());
+                }
+            });
+
+            if (!usedInternalVars.isEmpty()) {
+                // Found invalid variation. Truncate BEFORE this statement.
+                validStatementCount = var.position();
+
+                // If exactly one internal variable is used, that's our return candidate!
+                if (usedInternalVars.size() == 1) {
+                    primaryReturnVariable = usedInternalVars.iterator().next();
+                }
+                break;
+            }
+        }
+
         // Determine return type using data flow analysis
-        String returnType = determineReturnType(cluster);
+        String returnType;
+        if (validStatementCount != -1) {
+            // If primaryReturnVariable was identified from dependency, use it to determine
+            // type
+            if (primaryReturnVariable != null) {
+                String typeStr = findTypeInContext(cluster.primary(), primaryReturnVariable);
+                returnType = typeStr != null ? typeStr : "Object";
+            } else {
+                // Fallback: Re-analyze for return variables in the truncated sequence
+                StatementSequence prefix = createPrefixSequence(cluster.primary(), validStatementCount);
+                String liveOut = dataFlowAnalyzer.findReturnVariable(prefix, null);
+                if (liveOut != null) {
+                    primaryReturnVariable = liveOut;
+                    String typeStr = findTypeInContext(cluster.primary(), liveOut);
+                    returnType = typeStr != null ? typeStr : "Object";
+                } else {
+                    returnType = "void";
+                }
+            }
+        } else {
+            returnType = determineReturnType(cluster);
+        }
 
         // Create empty TypeCompatibility for backward compat
         TypeCompatibility typeCompat = new TypeCompatibility(
@@ -160,8 +214,10 @@ public class RefactoringRecommendationGenerator {
         // duplicates
         // This helps when data flow analysis fails for a specific duplicate but works
         // for the primary
-        String primaryReturnVariable = null;
-        if (returnType != null && !"void".equals(returnType)) {
+        // duplicates
+        // NOTE: we re-check primaryReturnVariable only if it wasn't set by truncation
+        // logic
+        if (primaryReturnVariable == null && returnType != null && !"void".equals(returnType)) {
             primaryReturnVariable = dataFlowAnalyzer.findReturnVariable(cluster.primary(), returnType);
         }
 
@@ -173,7 +229,8 @@ public class RefactoringRecommendationGenerator {
                 "",
                 confidence,
                 cluster.estimatedLOCReduction(),
-                primaryReturnVariable);
+                primaryReturnVariable,
+                validStatementCount); // Passed new argument
     }
 
     /**
@@ -905,5 +962,28 @@ public class RefactoringRecommendationGenerator {
 
     // Lightweight holder for field metadata
     private record FieldInfo(String type, boolean isStatic) {
+    }
+
+    private StatementSequence createPrefixSequence(StatementSequence fullSequence, int count) {
+        if (count >= fullSequence.statements().size()) {
+            return fullSequence;
+        }
+        List<Statement> prefixStmts = fullSequence.statements().subList(0, count);
+
+        // Calculate new range based on prefix statements
+        Range fullRange = fullSequence.range();
+        int endLine = prefixStmts.get(count - 1).getEnd().map(p -> p.line).orElse(fullRange.endLine());
+        int endColumn = prefixStmts.get(count - 1).getEnd().map(p -> p.column).orElse(fullRange.endColumn());
+
+        Range prefixRange = new Range(fullRange.startLine(), fullRange.startColumn(), endLine, endColumn);
+
+        // Pass original compilation unit and file path
+        return new StatementSequence(
+                prefixStmts,
+                prefixRange,
+                fullSequence.startOffset(),
+                fullSequence.containingMethod(),
+                fullSequence.compilationUnit(),
+                fullSequence.sourceFilePath());
     }
 }
