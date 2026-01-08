@@ -67,17 +67,53 @@ public class RefactoringRecommendationGenerator {
         // NEW: Perform AST-based variation analysis
         // Get the first two sequences from the cluster for analysis
         StatementSequence seq1 = cluster.primary();
-        StatementSequence seq2 = cluster.duplicates().isEmpty() ? seq1 : cluster.duplicates().get(0).seq2(); // Get seq2
-                                                                                                             // from
-                                                                                                             // SimilarityPair
+        // Default seq2 for backward compatibility or initial setup
+        StatementSequence seq2 = cluster.duplicates().isEmpty() ? seq1 : cluster.duplicates().get(0).seq2();
 
         // Get CompilationUnits
         CompilationUnit cu1 = seq1.compilationUnit();
         CompilationUnit cu2 = seq2.compilationUnit();
 
-        // Perform AST-based variation analysis
-        com.raditha.dedup.model.VariationAnalysis astAnalysis = astVariationAnalyzer.analyzeVariations(seq1, seq2, cu1,
-                cu2);
+        // Perform AST-based variation analysis - Aggregate variations from ALL
+        // duplicates
+        List<VaryingExpression> allVariations = new java.util.ArrayList<>();
+        Set<com.raditha.dedup.model.VariableReference> allVarRefs = new HashSet<>();
+        Set<String> allInternalVars = new HashSet<>();
+
+        if (cluster.duplicates().isEmpty()) {
+            // Fallback to single analysis (compare against itself or handle edge case)
+            com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seq1, cu1,
+                    cu1);
+            allVariations.addAll(analysis.varyingExpressions());
+            allVarRefs.addAll(analysis.variableReferences());
+            allInternalVars.addAll(analysis.getDeclaredInternalVariables());
+        } else {
+            // Compare Primary against EACH duplicate
+            for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
+                StatementSequence seqN = pair.seq2();
+                CompilationUnit cuN = seqN.compilationUnit();
+
+                com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seqN,
+                        cu1, cuN);
+
+                allVariations.addAll(analysis.varyingExpressions());
+                allVarRefs.addAll(analysis.variableReferences());
+                allInternalVars.addAll(analysis.getDeclaredInternalVariables());
+            }
+        }
+
+        // Deduplicate variations based on position
+        Map<Integer, VaryingExpression> uniqueVariations = new java.util.HashMap<>();
+        for (VaryingExpression v : allVariations) {
+            uniqueVariations.putIfAbsent(v.position(), v);
+        }
+
+        // Reconstruct a merged analysis
+        com.raditha.dedup.model.VariationAnalysis astAnalysis = com.raditha.dedup.model.VariationAnalysis.builder()
+                .varyingExpressions(new java.util.ArrayList<>(uniqueVariations.values()))
+                .variableReferences(allVarRefs)
+                .declaredInternalVariables(allInternalVars)
+                .build();
 
         // Extract parameters using AST-based extractor
         com.raditha.dedup.model.ExtractionPlan extractionPlan = astParameterExtractor.extractParameters(astAnalysis);
@@ -106,8 +142,8 @@ public class RefactoringRecommendationGenerator {
         List<ParameterSpec> capturedParams = identifyCapturedParameters(cluster.primary(), parameters);
         parameters.addAll(capturedParams);
 
-        // Filter out internal parameters (defined in sequence)
-        parameters = filterInternalParameters(parameters, cluster.primary());
+        // Filter out internal parameters (defined in ANY sequence in the cluster)
+        parameters = filterInternalParameters(parameters, cluster);
 
         // Determine strategy
         RefactoringStrategy strategy = determineStrategy(cluster);
@@ -121,8 +157,16 @@ public class RefactoringRecommendationGenerator {
                 String val = p.getExampleValues().get(0);
                 String inferred = null;
                 try {
+                    // Start Debug
+                    System.out.println(
+                            "[DEBUG refine] Attempting to refine param " + p.getName() + " with example: " + val);
+                    long startTime = System.currentTimeMillis();
                     inferred = findTypeInContext(cluster.primary(), val);
+                    System.out.println("[DEBUG refine] Inferred type for " + val + ": " + inferred + " (took "
+                            + (System.currentTimeMillis() - startTime) + "ms)");
+                    // End Debug
                 } catch (Exception e) {
+                    System.out.println("[DEBUG refine] Error inferring type for " + val + ": " + e.getMessage());
                     // ignore
                 }
 
@@ -855,6 +899,13 @@ public class RefactoringRecommendationGenerator {
     // [Rest of the class remains unchanged - keeping existing methods]
     private RefactoringStrategy determineStrategy(DuplicateCluster cluster) {
 
+        // Check for risky control flow (conditional returns)
+        // Extracting blocks with conditional returns (that aren't the final return)
+        // helps avoid semantic changes
+        if (hasNestedReturn(cluster.primary())) {
+            return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+        }
+
         // DEFAULT: EXTRACT_HELPER_METHOD is the primary, safest strategy
         // It works for both source and test files
 
@@ -872,6 +923,30 @@ public class RefactoringRecommendationGenerator {
 
         // Default to the most robust, general-purpose strategy
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+    }
+
+    /**
+     * Check if the sequence contains return statements nested inside other
+     * structures.
+     * Nested returns (e.g. inside if/while) imply conditional exit points which are
+     * hard to refactor safely.
+     */
+    private boolean hasNestedReturn(StatementSequence seq) {
+        // DEBUG: Trace execution
+        for (Statement stmt : seq.statements()) {
+            System.out.println("[DEBUG Safety] Checking stmt type: " + stmt.getClass().getSimpleName());
+            // Top-level return is usually fine if it's the last statement
+            // But we specifically want to avoid conditional returns hidden in blocks
+            if (stmt.isReturnStmt())
+                continue;
+
+            // Check if this statement contains ANY return statements (nested)
+            if (!stmt.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class).isEmpty()) {
+                System.out.println("[DEBUG Safety] FOUND nested return in: " + stmt);
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -918,17 +993,42 @@ public class RefactoringRecommendationGenerator {
         return score;
     }
 
-    private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, StatementSequence sequence) {
-        Set<String> defined = dataFlowAnalyzer.findDefinedVariables(sequence);
+    private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, DuplicateCluster cluster) {
+        // CRITICAL FIX: Collect defined variables from ALL sequences in the cluster
+        // Previously only checked primary sequence, missing variables defined in other
+        // duplicates
+        Set<String> defined = new HashSet<>();
+
+        // Check primary sequence
+        defined.addAll(dataFlowAnalyzer.findDefinedVariables(cluster.primary()));
+
+        // Check all duplicate sequences
+        for (var pair : cluster.duplicates()) {
+            defined.addAll(dataFlowAnalyzer.findDefinedVariables(pair.seq2()));
+        }
+
         List<ParameterSpec> filtered = new java.util.ArrayList<>();
 
-        // Find CU for type resolution
+        System.out.println("[DEBUG filterInternalParameters] Defined variables in ALL sequences: " + defined);
+        System.out.println("[DEBUG filterInternalParameters] Parameters to filter: " +
+                params.stream().map(ParameterSpec::getName).toList());
+
+        // Find CU for type resolution (use primary sequence)
         CompilationUnit cu = null;
-        if (!sequence.statements().isEmpty()) {
-            cu = sequence.statements().get(0).findCompilationUnit().orElse(null);
+        if (!cluster.primary().statements().isEmpty()) {
+            cu = cluster.primary().statements().get(0).findCompilationUnit().orElse(null);
         }
 
         for (var p : params) {
+            // CRITICAL FIX: Check if parameter name itself is an internally defined
+            // variable
+            // This catches variable references (arguments) that were incorrectly converted
+            // to parameters
+            if (defined.contains(p.getName())) {
+                System.out.println("[DEBUG filterInternalParameters] Filtering out internal parameter: " + p.getName());
+                continue; // Skip this parameter - it's defined within the sequence
+            }
+
             boolean isInternal = false;
             // Check if any example value utilizes a defined variable
             for (String val : p.getExampleValues()) {
@@ -957,7 +1057,7 @@ public class RefactoringRecommendationGenerator {
 
                 // 3. Check for VOID expressions (cannot be passed as arguments)
                 if (!isInternal) {
-                    for (Statement s : sequence.statements()) {
+                    for (Statement s : cluster.primary().statements()) {
                         boolean voidFound = false;
                         for (Expression e : s.findAll(Expression.class)) {
                             if (e.toString().equals(val)) {
@@ -974,7 +1074,7 @@ public class RefactoringRecommendationGenerator {
                                         MethodCallExpr call = e.asMethodCallExpr();
                                         if (call.getScope().isPresent()) {
                                             String scopeName = call.getScope().get().toString();
-                                            String typeName = findTypeInContext(sequence, scopeName);
+                                            String typeName = findTypeInContext(cluster.primary(), scopeName);
 
                                             // Find CU for this type
                                             CompilationUnit typeCU = allCUs.get(typeName); // Try exact key

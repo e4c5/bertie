@@ -46,10 +46,21 @@ public class DataFlowAnalyzer {
     public Set<String> findDefinedVariables(StatementSequence sequence) {
         Set<String> defined = new HashSet<>();
 
+        System.out.println(
+                "[DEBUG findDefinedVariables] Analyzing sequence with " + sequence.statements().size() + " statements");
+        for (int i = 0; i < sequence.statements().size(); i++) {
+            Statement stmt = sequence.statements().get(i);
+            System.out.println("[DEBUG] Statement " + i + ": "
+                    + stmt.toString().replaceAll("\\n", " ").substring(0, Math.min(80, stmt.toString().length())));
+        }
+
         for (Statement stmt : sequence.statements()) {
             // 1. Variable declarations (including nested ones)
             stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
-                vde.getVariables().forEach(v -> defined.add(v.getNameAsString()));
+                vde.getVariables().forEach(v -> {
+                    defined.add(v.getNameAsString());
+                    System.out.println("[DEBUG findDefinedVariables] Found declaration: " + v.getNameAsString());
+                });
             });
 
             // 2. Assignments (target variables)
@@ -65,6 +76,8 @@ public class DataFlowAnalyzer {
                 lambda.getParameters().forEach(p -> defined.add(p.getNameAsString()));
             });
         }
+
+        System.out.println("[DEBUG findDefinedVariables] Total defined: " + defined);
 
         return defined;
     }

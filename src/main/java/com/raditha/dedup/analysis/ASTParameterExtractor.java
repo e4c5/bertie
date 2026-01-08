@@ -33,6 +33,7 @@ public class ASTParameterExtractor {
         List<ArgumentSpec> arguments = new ArrayList<>();
 
         // Extract parameters from varying expressions
+        logger.debug("[ASTParameterExtractor] Processing {} varying expressions", analysis.varyingExpressions().size());
         for (VaryingExpression variation : analysis.varyingExpressions()) {
             String name = inferParameterName(variation.expr1());
             Type type = convertToJavaParserType(variation.type());
@@ -54,7 +55,9 @@ public class ASTParameterExtractor {
                     line,
                     column));
 
-            logger.debug("[ASTParameterExtractor] Created parameter: {} (type: {})", name, type);
+            logger.debug(
+                    "[ASTParameterExtractor] Created parameter #{}: name={}, type={}, variationIndex={}, examples={}",
+                    parameters.size() - 1, name, type, variation.position(), examples);
         }
 
         // Extract arguments from variable references

@@ -60,6 +60,9 @@ class RefactoringEngineTest {
         assertTrue(report.hasDuplicates());
         assertFalse(report.clusters().isEmpty());
 
+        // Store original content
+        String originalContent = cu.toString();
+
         // Test dry-run mode (should not modify file)
         engine = new RefactoringEngine(
                 tempDir,
@@ -72,9 +75,9 @@ class RefactoringEngineTest {
         assertFalse(session.getSkipped().isEmpty());
         assertEquals(0, session.getSuccessful().size());
 
-        // File should not be modified
+        // File should not be modified in dry-run mode
         String fileAfter = Files.readString(sourceFile);
-        assertNotEquals(cu.toString(), fileAfter);
+        assertEquals(originalContent, fileAfter, "Dry-run should not modify the file");
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.raditha.dedup.refactoring;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.RefactoringStrategy;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -68,6 +69,11 @@ public class RefactoringEngine {
 
             if (recommendation == null) {
                 session.addSkipped(cluster, "No recommendation generated");
+                continue;
+            }
+
+            if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
+                session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
                 continue;
             }
 

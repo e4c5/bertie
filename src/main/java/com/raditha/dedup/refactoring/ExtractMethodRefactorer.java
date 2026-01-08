@@ -101,11 +101,29 @@ public class ExtractMethodRefactorer {
         applyMethodModifiers(method, sequence);
         setReturnType(method, recommendation);
 
+        // CRITICAL FIX: Sort parameters to match ArgumentBuilder order
+        // This ensures the method signature matches the argument list at call sites
+        List<ParameterSpec> sortedParams = new ArrayList<>(recommendation.getSuggestedParameters());
+        sortedParams.sort((p1, p2) -> {
+            Integer idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1)
+                    ? Integer.MAX_VALUE
+                    : p1.getVariationIndex();
+            Integer idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1)
+                    ? Integer.MAX_VALUE
+                    : p2.getVariationIndex();
+            return Integer.compare(idx1, idx2);
+        });
+
+        System.out.println("[DEBUG createHelperMethod] Sorted Params: " +
+                sortedParams.stream()
+                        .map(p -> String.format("%s(idx=%d, type=%s)", p.getName(), p.getVariationIndex(), p.getType()))
+                        .collect(java.util.stream.Collectors.joining(", ")));
+
         // Parameters with collision handling
         Set<String> declaredVars = collectDeclaredVariableNames(sequence, recommendation);
         Map<ParameterSpec, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
-                recommendation.getSuggestedParameters());
-        addParameters(method, recommendation.getSuggestedParameters(), paramNameOverrides);
+                sortedParams);
+        addParameters(method, sortedParams, paramNameOverrides);
 
         // Copy thrown exceptions
         copyThrownExceptions(method, sequence);
@@ -351,6 +369,16 @@ public class ExtractMethodRefactorer {
         for (Statement stmt : sequence.statements()) {
             if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
                 Expression returnExpr = stmt.asReturnStmt().getExpression().get();
+
+                // CRITICAL FIX: If the return expression is NOT a simple variable name (e.g.
+                // it's a method call),
+                // we treat it as having external dependencies/complexity that prevents direct
+                // inlining.
+                // This forces the refactorer to assign the result to a variable first.
+                if (!returnExpr.isNameExpr()) {
+                    return true;
+                }
+
                 // Check all variable references in the return expression
                 for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
                     String varName = nameExpr.getNameAsString();
@@ -407,39 +435,15 @@ public class ExtractMethodRefactorer {
      * where the expression combines the variable with other external variables.
      */
     private boolean isSimpleReturnOfVariable(Expression expr, String varName) {
-        // Case 1: Just return the variable itself (return user;)
+        // Strict check: only return true if the expression is EXACTLY the variable
+        // itself.
+        // Any modification (method call, binary op, etc.) implies the return value
+        // might differ in type or value from the variable itself.
         if (expr.isNameExpr() && expr.asNameExpr().getNameAsString().equals(varName)) {
             return true;
         }
 
-        // Case 2: Method call on the variable (return user.getName();)
-        if (expr.isMethodCallExpr()) {
-            MethodCallExpr mce = expr.asMethodCallExpr();
-            if (mce.getScope().isPresent()) {
-                Expression scope = mce.getScope().get();
-                if (scope.isNameExpr() && scope.asNameExpr().getNameAsString().equals(varName)) {
-                    return true;
-                }
-            }
-        }
-
-        // Case 3: Check if this is a binary expression (like prefix + user.getName())
-        // - if it uses any variables OTHER than varName, it's complex
-        if (expr.isBinaryExpr()) {
-            // Find all name expressions used
-            Set<String> usedVars = new HashSet<>();
-            for (NameExpr nameExpr : expr.findAll(NameExpr.class)) {
-                usedVars.add(nameExpr.getNameAsString());
-            }
-            // If there's more than one unique variable, it's complex
-            usedVars.remove(varName);
-            if (!usedVars.isEmpty()) {
-                return false;
-            }
-        }
-
-        // Default: assume simple
-        return true;
+        return false;
     }
 
     private Expression resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings,
@@ -529,6 +533,7 @@ public class ExtractMethodRefactorer {
         String varName = inferReturnVariable(sequence, recommendation);
         boolean nextIsReturn = startIdx < block.getStatements().size()
                 && block.getStatements().get(startIdx).isReturnStmt();
+
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
         if (nextIsReturn) {
             ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
@@ -581,20 +586,63 @@ public class ExtractMethodRefactorer {
                 VariationAnalysis variations,
                 StatementSequence sequence) {
             NodeList<Expression> arguments = new NodeList<>();
-            for (ParameterSpec param : recommendation.getSuggestedParameters()) {
+
+            // DEBUG: Log parameter order
+            var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
+            log.debug("[ArgumentBuilder] Building arguments for {} parameters",
+                    recommendation.getSuggestedParameters().size());
+
+            // CRITICAL FIX: Sort parameters by variationIndex to ensure correct argument
+            // order
+            // Parameters must be in the same order as they appear in the method signature
+            // Note: variationIndex=-1 indicates variable references (arguments), not
+            // varying parameters
+            // These should be sorted to the END
+            List<ParameterSpec> sortedParams = new ArrayList<>(recommendation.getSuggestedParameters());
+            sortedParams.sort((p1, p2) -> {
+                // Treat null and -1 as MAX_VALUE to sort them to the end
+                Integer idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1)
+                        ? Integer.MAX_VALUE
+                        : p1.getVariationIndex();
+                Integer idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1)
+                        ? Integer.MAX_VALUE
+                        : p2.getVariationIndex();
+                return Integer.compare(idx1, idx2);
+            });
+            // log.debug("[ArgumentBuilder] Sorted {} parameters by variationIndex",
+            // sortedParams.size());
+            System.out.println("[DEBUG ArgumentBuilder] Sorted Params: " +
+                    sortedParams.stream()
+                            .map(p -> String.format("%s(idx=%d, type=%s)", p.getName(), p.getVariationIndex(),
+                                    p.getType()))
+                            .collect(java.util.stream.Collectors.joining(", ")));
+
+            int argIndex = 0;
+            for (ParameterSpec param : sortedParams) {
+                log.debug("[ArgumentBuilder] Processing arg #{}: paramName={}, paramType={}, variationIndex={}",
+                        argIndex, param.getName(), param.getType(), param.getVariationIndex());
+
                 Expression expr = resolveValue(variations, sequence, param);
-                if (expr == null)
+                if (expr == null) {
+                    log.warn("[ArgumentBuilder] Could not resolve value for parameter: {} (variationIndex={})",
+                            param.getName(), param.getVariationIndex());
                     return null; // cannot resolve safely
+                }
+
+                log.debug("[ArgumentBuilder] Resolved arg #{} to expression: {} (type: {})",
+                        argIndex, expr, expr.getClass().getSimpleName());
 
                 // AST-based type guardrails
                 com.github.javaparser.ast.type.Type pType = param.getType();
 
                 if (isNumericType(pType) && expr.isStringLiteralExpr()) {
+                    log.warn("[ArgumentBuilder] Type mismatch: numeric param got string literal");
                     return null;
                 }
 
                 if (isStringType(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() ||
                         expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
+                    log.warn("[ArgumentBuilder] Type mismatch: string param got numeric literal");
                     return null;
                 }
 
@@ -605,13 +653,18 @@ public class ExtractMethodRefactorer {
                     if (expr.isNameExpr()) {
                         adapted = new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
                     }
-                    if (adapted == null)
+                    if (adapted == null) {
+                        log.warn("[ArgumentBuilder] Could not adapt to Class type");
                         return null; // unsafe
+                    }
                     expr = adapted;
                 }
 
                 arguments.add(expr);
+                argIndex++;
             }
+
+            log.debug("[ArgumentBuilder] Successfully built {} arguments", arguments.size());
             return arguments;
         }
 
@@ -845,13 +898,22 @@ public class ExtractMethodRefactorer {
         }
         DataFlowAnalyzer postDfa = new DataFlowAnalyzer();
         Set<String> sequenceDefinedVars = postDfa.findDefinedVariables(sequence);
+
+        System.out.println("[DEBUG affects] RuleVars: " + returnVars + ", SeqVars: " + sequenceDefinedVars
+                + ", currentVar: " + currentVarName);
+
         for (String definedVar : sequenceDefinedVars) {
             if (returnVars.contains(definedVar)) {
-                if (currentVarName == null || !isSimpleReturnOfVariable(returnExpr, currentVarName)) {
+                boolean isSimple = isSimpleReturnOfVariable(returnExpr, currentVarName);
+                System.out.println("[DEBUG affects] Checking " + definedVar + ": isSimple=" + isSimple);
+
+                if (currentVarName == null || !isSimple) {
+                    System.out.println("[DEBUG affects] Returning TRUE (affects)");
                     return true;
                 }
             }
         }
+        System.out.println("[DEBUG affects] Returning FALSE");
         return false;
     }
 
@@ -877,6 +939,7 @@ public class ExtractMethodRefactorer {
     private void insertValueReplacement(BlockStmt block, int startIdx, RefactoringRecommendation recommendation,
             MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
             boolean shouldReturnDirectly, boolean nextIsReturn) {
+
         if (varName != null && shouldReturnDirectly) {
             if (nextIsReturn) {
                 block.getStatements().remove(startIdx);

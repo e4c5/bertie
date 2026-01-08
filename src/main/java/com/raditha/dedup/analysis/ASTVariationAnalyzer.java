@@ -68,6 +68,13 @@ public class ASTVariationAnalyzer {
         // we only want to parameterize '"a"', not the whole call)
         List<VaryingExpression> filteredVariations = filterParentVariations(variations);
 
+        // CRITICAL: Sort by position to ensure parameters are in correct order
+        // filterParentVariations() can reorder the list, so we must sort here
+        filteredVariations.sort(Comparator.comparingInt(VaryingExpression::position));
+
+        logger.debug("[ASTVariationAnalyzer] After filtering and sorting: {} varying expressions",
+                filteredVariations.size());
+
         return VariationAnalysis.builder()
                 .varyingExpressions(filteredVariations)
                 .variableReferences(varRefs)
@@ -138,9 +145,39 @@ public class ASTVariationAnalyzer {
 
             if (!expressionsEquivalent(e1, e2)) {
                 // Resolve type
-                ResolvedType type = resolveExpressionType(e1, cu1);
+                ResolvedType type1 = resolveExpressionType(e1, cu1);
+                ResolvedType type2 = resolveExpressionType(e2, cu2);
 
-                variations.add(new VaryingExpression(position, e1, e2, type));
+                // CRITICAL FIX: Ensure type compatibility
+                ResolvedType commonType = type1;
+                if (type1 != null && type2 != null) {
+                    String t1 = type1.describe();
+                    String t2 = type2.describe();
+
+                    System.out.println("[DEBUG ASTVariationAnalyzer] Types at pos " + position + ": " + t1 + " vs " + t2
+                            + " (" + e1 + " vs " + e2 + ")");
+
+                    if (!t1.equals(t2)) {
+                        // Types differ, fallback to Object
+                        // (Ideally finding common supertype, but Object handles primitive wrappers +
+                        // String mismatch safety)
+                        // For primitives (int vs String), we need Object.
+                        System.out.println("[DEBUG ASTVariationAnalyzer] Incompatible types! Falling back to Object.");
+                        logger.debug(
+                                "[ASTVariationAnalyzer] Incompatible types at pos {}: {} vs {}. Falling back to Object.",
+                                position, t1, t2);
+                        commonType = null; // null implies Object in ASTParameterExtractor
+                    }
+                } else {
+                    System.out.println("[DEBUG ASTVariationAnalyzer] Unresolved types at pos " + position + ": "
+                            + (type1 == null ? "null" : type1.describe()) + " vs "
+                            + (type2 == null ? "null" : type2.describe()));
+                    if (type1 == null || type2 == null) {
+                        commonType = null; // Fallback if either is unresolved
+                    }
+                }
+
+                variations.add(new VaryingExpression(position, e1, e2, commonType));
 
                 logger.debug("[ASTVariationAnalyzer] Variation at pos {}: {} vs {}",
                         position, e1, e2);
@@ -231,14 +268,32 @@ public class ASTVariationAnalyzer {
      */
     private ResolvedType resolveExpressionType(Expression expr, CompilationUnit cu) {
         try {
-            return expr.calculateResolvedType();
+            ResolvedType res = expr.calculateResolvedType();
+            if (expr.isNameExpr()) {
+                String name = expr.asNameExpr().getNameAsString();
+                if (name.equals("user") || name.equals("customer")) {
+                    System.out.println("[DEBUG resolve] Resolved " + name + " -> " + res.describe());
+                }
+            }
+            return res;
         } catch (Exception e) {
+            if (expr.isNameExpr()) {
+                String name = expr.asNameExpr().getNameAsString();
+                if (name.equals("user") || name.equals("customer")) {
+                    System.out.println("[DEBUG resolve] FAILED for " + name + ": " + e.getMessage());
+                }
+            }
+
             // Fallback: manual AST lookup for fields
             if (expr.isNameExpr()) {
                 String name = expr.asNameExpr().getNameAsString();
                 ResolvedType fallback = manualFieldLookup(expr, name);
-                if (fallback != null)
+                if (fallback != null) {
+                    if (name.equals("user") || name.equals("customer")) {
+                        System.out.println("[DEBUG resolve] Fallback success " + name + " -> " + fallback.describe());
+                    }
                     return fallback;
+                }
             }
             logger.debug("[ASTVariationAnalyzer] Could not resolve type for: {}", expr);
             return null;
