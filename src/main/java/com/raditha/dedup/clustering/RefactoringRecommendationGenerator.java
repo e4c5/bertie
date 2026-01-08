@@ -2,22 +2,24 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
 
+import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
+import com.raditha.dedup.model.ExtractionPlan;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
-import com.raditha.dedup.model.SimilarityResult;
-import com.raditha.dedup.model.Range; // NEW
-import com.raditha.dedup.model.Range; // NEW
+import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.TypeCompatibility;
-import com.raditha.dedup.model.VaryingExpression; // NEW
+import com.raditha.dedup.model.VariationAnalysis;
+import com.raditha.dedup.model.VaryingExpression;
 import com.raditha.dedup.refactoring.MethodNameGenerator;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
@@ -35,6 +37,7 @@ public class RefactoringRecommendationGenerator {
     public static final String STRING = "String";
     public static final String DOUBLE = "double";
     public static final String BOOLEAN = "boolean";
+    public static final String OBJECT = "Object";
     private final com.raditha.dedup.analysis.ASTVariationAnalyzer astVariationAnalyzer; // NEW
     private final com.raditha.dedup.analysis.ASTParameterExtractor astParameterExtractor; // NEW
     private final MethodNameGenerator nameGenerator;
@@ -56,9 +59,7 @@ public class RefactoringRecommendationGenerator {
     /**
      * Generate refactoring recommendation for a cluster.
      */
-    public RefactoringRecommendation generateRecommendation(
-            DuplicateCluster cluster,
-            SimilarityResult similarity) {
+    public RefactoringRecommendation generateRecommendation(DuplicateCluster cluster) {
 
         // Note: Old safety check for METHOD_CALL/TYPE variations removed
         // because similarity.variations() is now null (AST-mode).
@@ -67,12 +68,9 @@ public class RefactoringRecommendationGenerator {
         // NEW: Perform AST-based variation analysis
         // Get the first two sequences from the cluster for analysis
         StatementSequence seq1 = cluster.primary();
-        // Default seq2 for backward compatibility or initial setup
-        StatementSequence seq2 = cluster.duplicates().isEmpty() ? seq1 : cluster.duplicates().get(0).seq2();
 
         // Get CompilationUnits
         CompilationUnit cu1 = seq1.compilationUnit();
-        CompilationUnit cu2 = seq2.compilationUnit();
 
         // Perform AST-based variation analysis - Aggregate variations from ALL
         // duplicates
@@ -82,8 +80,7 @@ public class RefactoringRecommendationGenerator {
 
         if (cluster.duplicates().isEmpty()) {
             // Fallback to single analysis (compare against itself or handle edge case)
-            com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seq1, cu1,
-                    cu1);
+            com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seq1, cu1);
             allVariations.addAll(analysis.varyingExpressions());
             allVarRefs.addAll(analysis.variableReferences());
             allInternalVars.addAll(analysis.getDeclaredInternalVariables());
@@ -91,10 +88,8 @@ public class RefactoringRecommendationGenerator {
             // Compare Primary against EACH duplicate
             for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
                 StatementSequence seqN = pair.seq2();
-                CompilationUnit cuN = seqN.compilationUnit();
-
                 com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seqN,
-                        cu1, cuN);
+                        cu1);
 
                 allVariations.addAll(analysis.varyingExpressions());
                 allVarRefs.addAll(analysis.variableReferences());
@@ -109,14 +104,14 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Reconstruct a merged analysis
-        com.raditha.dedup.model.VariationAnalysis astAnalysis = com.raditha.dedup.model.VariationAnalysis.builder()
+        VariationAnalysis astAnalysis = com.raditha.dedup.model.VariationAnalysis.builder()
                 .varyingExpressions(new java.util.ArrayList<>(uniqueVariations.values()))
                 .variableReferences(allVarRefs)
                 .declaredInternalVariables(allInternalVars)
                 .build();
 
         // Extract parameters using AST-based extractor
-        com.raditha.dedup.model.ExtractionPlan extractionPlan = astParameterExtractor.extractParameters(astAnalysis);
+        ExtractionPlan extractionPlan = astParameterExtractor.extractParameters(astAnalysis);
 
         // Convert to old ParameterSpec list for backward compatibility
         List<ParameterSpec> parameters = new java.util.ArrayList<>(extractionPlan.parameters());
@@ -153,24 +148,17 @@ public class RefactoringRecommendationGenerator {
         // values
         List<ParameterSpec> refinedParameters = new java.util.ArrayList<>();
         for (ParameterSpec p : parameters) {
-            if ("Object".equals(p.getType().asString()) && !p.getExampleValues().isEmpty()) {
+            if (OBJECT.equals(p.getType().asString()) && !p.getExampleValues().isEmpty()) {
                 String val = p.getExampleValues().get(0);
                 String inferred = null;
                 try {
-                    // Start Debug
-                    System.out.println(
-                            "[DEBUG refine] Attempting to refine param " + p.getName() + " with example: " + val);
-                    long startTime = System.currentTimeMillis();
                     inferred = findTypeInContext(cluster.primary(), val);
-                    System.out.println("[DEBUG refine] Inferred type for " + val + ": " + inferred + " (took "
-                            + (System.currentTimeMillis() - startTime) + "ms)");
-                    // End Debug
                 } catch (Exception e) {
                     System.out.println("[DEBUG refine] Error inferring type for " + val + ": " + e.getMessage());
                     // ignore
                 }
 
-                if (inferred != null && !inferred.equals("Object")) {
+                if (inferred != null && !inferred.equals(OBJECT)) {
                     refinedParameters.add(new ParameterSpec(
                             p.getName(),
                             StaticJavaParser.parseType(inferred),
@@ -199,10 +187,10 @@ public class RefactoringRecommendationGenerator {
         Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
 
         // Check varying expressions for internal dependency
-        for (VaryingExpression var : astAnalysis.getVaryingExpressions()) {
+        for (VaryingExpression vae : astAnalysis.getVaryingExpressions()) {
             // Check if expression uses any internal variable
             Set<String> usedInternalVars = new HashSet<>();
-            var.expr1().findAll(com.github.javaparser.ast.expr.NameExpr.class).forEach(n -> {
+            vae.expr1().findAll(com.github.javaparser.ast.expr.NameExpr.class).forEach(n -> {
                 if (declaredVars.contains(n.getNameAsString())) {
                     usedInternalVars.add(n.getNameAsString());
                 }
@@ -210,7 +198,7 @@ public class RefactoringRecommendationGenerator {
 
             if (!usedInternalVars.isEmpty()) {
                 // Found invalid variation. Truncate BEFORE this statement.
-                validStatementCount = var.position();
+                validStatementCount = vae.position();
 
                 // If exactly one internal variable is used, that's our return candidate!
                 if (usedInternalVars.size() == 1) {
@@ -227,7 +215,7 @@ public class RefactoringRecommendationGenerator {
             // type
             if (primaryReturnVariable != null) {
                 String typeStr = findTypeInContext(cluster.primary(), primaryReturnVariable);
-                returnType = typeStr != null ? typeStr : "Object";
+                returnType = typeStr != null ? typeStr : OBJECT;
             } else {
                 // Fallback: Re-analyze for return variables in the truncated sequence
                 StatementSequence prefix = createPrefixSequence(cluster.primary(), validStatementCount);
@@ -235,7 +223,7 @@ public class RefactoringRecommendationGenerator {
                 if (liveOut != null) {
                     primaryReturnVariable = liveOut;
                     String typeStr = findTypeInContext(cluster.primary(), liveOut);
-                    returnType = typeStr != null ? typeStr : "Object";
+                    returnType = typeStr != null ? typeStr : OBJECT;
                 } else {
                     returnType = "void";
                 }
@@ -353,14 +341,11 @@ public class RefactoringRecommendationGenerator {
         // PRIORITY 1: Check for live-out variables
         // If a variable is used AFTER this sequence, it MUST be returned.
         String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void"); // Pass "void" to bypass type
-                                                                                      // filtering
-
-        System.out.println("DEBUG analyzeReturnTypeForSequence var=" + returnVarName);
+        // filtering
 
         if (returnVarName != null) {
             // Get the actual type of that variable
             String varType = getVariableType(sequence, returnVarName);
-            System.out.println("DEBUG analyzeReturnTypeForSequence varType=" + varType);
             // Return the variable's type, NOT the return statement's expression type
             if (varType != null && !"void".equals(varType)) {
                 return varType;
@@ -369,15 +354,7 @@ public class RefactoringRecommendationGenerator {
 
         // PRIORITY 2: Check for logical return statements
         // If the block explicitly returns a value, that is the return type.
-        String explicitType = analyzeReturnStatementType(sequence);
-        System.out.println("DEBUG analyzeReturnTypeForSequence [" +
-                (sequence.range().toString()) + "]: explicitType=" + explicitType);
-
-        if (explicitType != null) {
-            return explicitType;
-        }
-
-        return null;
+        return analyzeReturnStatementType(sequence);
     }
 
     /**
@@ -429,7 +406,7 @@ public class RefactoringRecommendationGenerator {
         }
 
         // If resolution worked and is specific, use it
-        if (resolvedType != null && !resolvedType.equals("java.lang.Object") && !resolvedType.equals("Object")) {
+        if (resolvedType != null && !resolvedType.equals("java.lang.Object") && !resolvedType.equals(OBJECT)) {
             return resolvedType;
         }
 
@@ -440,21 +417,9 @@ public class RefactoringRecommendationGenerator {
                 String scopeName = methodCall.getScope().get().toString();
 
                 // NEW: Track generic type from field declaration
-                String genericTypeParam = extractGenericTypeFromScope(sequence, scopeName);
+                String genericTypeParam = extractGenericTypeFromScope(sequence, scopeName).toString();
 
-                String typeName = findTypeInContext(sequence, scopeName);
-
-                // Find CU for this type
-                CompilationUnit typeCU = allCUs.get(typeName);
-                if (typeCU == null) {
-                    // Try simple name matching
-                    for (var entry : allCUs.entrySet()) {
-                        if (entry.getKey().endsWith("." + typeName) || entry.getKey().equals(typeName)) {
-                            typeCU = entry.getValue();
-                            break;
-                        }
-                    }
-                }
+                CompilationUnit typeCU = findCompilationUnit(sequence, scopeName);
 
                 if (typeCU != null) {
                     // Find method in this CU
@@ -503,34 +468,27 @@ public class RefactoringRecommendationGenerator {
      * E.g., for "repository" with field "Repository<User> repository", returns
      * "User"
      */
-    private String extractGenericTypeFromScope(StatementSequence sequence, String scopeName) {
-
-        if (sequence.containingMethod() != null) {
-            var classDecl = sequence.containingMethod()
-                    .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            if (classDecl.isPresent()) {
-                // Find field declaration for the scope
-                for (var field : classDecl.get().getFields()) {
-                    for (var v : field.getVariables()) {
-                        if (v.getNameAsString().equals(scopeName)) {
-                            // Check if field type has generic type arguments
-                            if (field.getElementType().isClassOrInterfaceType()) {
-                                var classType = field.getElementType().asClassOrInterfaceType();
-                                if (classType.getTypeArguments().isPresent()) {
-                                    var typeArgs = classType.getTypeArguments().get();
-                                    if (!typeArgs.isEmpty()) {
-                                        // Return first type argument (e.g., User from Repository<User>)
-                                        return typeArgs.get(0).asString();
-                                    }
-                                }
-                            }
-                        }
+    @SuppressWarnings("unchecked")
+    private Optional<Type> extractGenericTypeFromScope(StatementSequence sequence, String scopeName) {
+        var classDecl = sequence.containingMethod()
+                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (classDecl.isEmpty()) {
+            return Optional.empty();
+        }
+        // Find field declaration for the scope
+        for (var field : classDecl.get().getFields()) {
+            if (field.getElementType().isClassOrInterfaceType()) {
+                var classType = field.getElementType().asClassOrInterfaceType();
+                for (var v : field.getVariables()) {
+                    if (v.getNameAsString().equals(scopeName) &&  classType.getTypeArguments().isPresent()) {
+                        var typeArgs = classType.getTypeArguments().get();
+                        return typeArgs.getFirst();
                     }
                 }
             }
         }
 
-        return null;
+        return Optional.empty();
     }
 
     /**
@@ -580,7 +538,7 @@ public class RefactoringRecommendationGenerator {
      * variation analysis.
      */
     private List<ParameterSpec> identifyCapturedParameters(StatementSequence sequence,
-            List<ParameterSpec> existingParams) {
+                                                           List<ParameterSpec> existingParams) {
         Set<String> usedVars = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
         Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
 
@@ -633,10 +591,8 @@ public class RefactoringRecommendationGenerator {
                 continue;
             }
             // If the name resolves to a type in context, skip (likely static access)
-            if (cu != null) {
-                if (AbstractCompiler.findType(cu, varName) != null) {
-                    continue;
-                }
+            if (cu != null && AbstractCompiler.findType(cu, varName) != null) {
+                continue;
             }
 
             // NEW: Field-aware captured parameter handling
@@ -651,7 +607,7 @@ public class RefactoringRecommendationGenerator {
                 // • non-static field → NOT accessible → KEEP as parameter with field type
                 if (!containingMethodIsStatic && fi.isStatic) {
                     // non-static field needed for static helper; will pass as parameter
-                    String type = fi.type != null ? fi.type : "Object";
+                    String type = fi.type != null ? fi.type : OBJECT;
                     capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type), List.of(varName),
                             null, null, null));
                 }
@@ -665,7 +621,7 @@ public class RefactoringRecommendationGenerator {
             }
 
             capturedParams.add(
-                    new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : "Object"),
+                    new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : OBJECT),
                             List.of(varName), null, null, null));
         }
 
@@ -704,45 +660,6 @@ public class RefactoringRecommendationGenerator {
         return false;
     }
 
-    /**
-     * Check if the sequence contains any explicit return statements.
-     * Care must be taken to not count returns inside lambdas or anonymous classes.
-     */
-    private boolean containsExplicitReturn(StatementSequence sequence) {
-        for (Statement stmt : sequence.statements()) {
-            // We use a visitor or a manual finder that stops at scope boundaries
-            // Simple finder fails because it goes into lambdas.
-            // Using a stream with filtering:
-
-            // Fast check: does string contain "return"?
-            if (!stmt.toString().contains("return"))
-                continue;
-
-            // Detailed check: Visit nodes
-            if (hasReturnInScope(stmt))
-                return true;
-        }
-        return false;
-    }
-
-    private boolean hasReturnInScope(com.github.javaparser.ast.Node node) {
-        if (node instanceof com.github.javaparser.ast.stmt.ReturnStmt) {
-            return true;
-        }
-        // STOP traversal at new scopes
-        if (node instanceof com.github.javaparser.ast.expr.LambdaExpr ||
-                node instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration ||
-                node instanceof com.github.javaparser.ast.expr.ObjectCreationExpr) { // Anonymous class
-            return false;
-        }
-
-        for (com.github.javaparser.ast.Node child : node.getChildNodes()) {
-            if (hasReturnInScope(child))
-                return true;
-        }
-        return false;
-    }
-
     private String findTypeInContext(StatementSequence sequence, String varName) {
         // 1. Scan statements for any variable declaration matching this name
         for (Statement stmt : sequence.statements()) {
@@ -764,7 +681,7 @@ public class RefactoringRecommendationGenerator {
                             if (resolved != null)
                                 return resolved;
                         }
-                        return "Object";
+                        return OBJECT;
                     }
                 }
             }
@@ -815,19 +732,7 @@ public class RefactoringRecommendationGenerator {
                     var call = expr.asMethodCallExpr();
                     if (call.getScope().isPresent()) {
                         String scopeName = call.getScope().get().toString();
-                        String scopeType = findTypeInContext(sequence, scopeName);
-
-                        // Find CU for this type
-                        CompilationUnit typeCU = allCUs.get(scopeType);
-                        if (typeCU == null) {
-                            // Try simple name matching
-                            for (var entry : allCUs.entrySet()) {
-                                if (entry.getKey().endsWith("." + scopeType) || entry.getKey().equals(scopeType)) {
-                                    typeCU = entry.getValue();
-                                    break;
-                                }
-                            }
-                        }
+                        CompilationUnit typeCU = findCompilationUnit(sequence, scopeName);
 
                         if (typeCU != null) {
                             String methodName = call.getNameAsString();
@@ -851,13 +756,30 @@ public class RefactoringRecommendationGenerator {
         return null;
     }
 
+    private CompilationUnit findCompilationUnit(StatementSequence sequence, String scopeName) {
+        String scopeType = findTypeInContext(sequence, scopeName);
+
+        // Find CU for this type
+        CompilationUnit typeCU = allCUs.get(scopeType);
+        if (typeCU == null) {
+            // Try simple name matching
+            for (var entry : allCUs.entrySet()) {
+                if (entry.getKey().endsWith("." + scopeType) || entry.getKey().equals(scopeType)) {
+                    typeCU = entry.getValue();
+                    break;
+                }
+            }
+        }
+        return typeCU;
+    }
+
     private String resolveType(com.github.javaparser.ast.type.Type type, com.github.javaparser.ast.Node contextNode,
-            StatementSequence sequence) {
+                               StatementSequence sequence) {
         // Attempt to resolve using AbstractCompiler
         var classDecl = contextNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
         if (classDecl.isPresent()) {
             String fqn = AbstractCompiler.resolveTypeFqn(type, classDecl.get(), null);
-            if (fqn != null && !fqn.equals("java.lang.Object") && !fqn.equals("Object")) {
+            if (fqn != null && !fqn.equals("java.lang.Object") && !fqn.equals(OBJECT)) {
                 return simplifyType(fqn);
             }
         }
@@ -868,16 +790,14 @@ public class RefactoringRecommendationGenerator {
             // If implicit var, we might need initializer inference, but without solver it's
             // hard.
             // We can check initializer if available on the variable declarator
-            if (contextNode instanceof com.github.javaparser.ast.body.VariableDeclarator v) {
-                if (v.getInitializer().isPresent()) {
-                    var init = v.getInitializer().get();
-                    if (init.isMethodCallExpr()) {
-                        return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
-                    }
-                    return inferTypeFromExpression(init);
+            if (contextNode instanceof VariableDeclarator v && v.getInitializer().isPresent()) {
+                var init = v.getInitializer().get();
+                if (init.isMethodCallExpr()) {
+                    return inferTypeFromMethodCall(init.asMethodCallExpr(), sequence);
                 }
+                return inferTypeFromExpression(init);
             }
-            return "Object"; // Worst case
+            return OBJECT; // Worst case
         }
         return astType;
     }
@@ -934,7 +854,6 @@ public class RefactoringRecommendationGenerator {
     private boolean hasNestedReturn(StatementSequence seq) {
         // DEBUG: Trace execution
         for (Statement stmt : seq.statements()) {
-            System.out.println("[DEBUG Safety] Checking stmt type: " + stmt.getClass().getSimpleName());
             // Top-level return is usually fine if it's the last statement
             // But we specifically want to avoid conditional returns hidden in blocks
             if (stmt.isReturnStmt())
@@ -942,7 +861,6 @@ public class RefactoringRecommendationGenerator {
 
             // Check if this statement contains ANY return statements (nested)
             if (!stmt.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class).isEmpty()) {
-                System.out.println("[DEBUG Safety] FOUND nested return in: " + stmt);
                 return true;
             }
         }
@@ -1009,10 +927,6 @@ public class RefactoringRecommendationGenerator {
 
         List<ParameterSpec> filtered = new java.util.ArrayList<>();
 
-        System.out.println("[DEBUG filterInternalParameters] Defined variables in ALL sequences: " + defined);
-        System.out.println("[DEBUG filterInternalParameters] Parameters to filter: " +
-                params.stream().map(ParameterSpec::getName).toList());
-
         // Find CU for type resolution (use primary sequence)
         CompilationUnit cu = null;
         if (!cluster.primary().statements().isEmpty()) {
@@ -1025,7 +939,6 @@ public class RefactoringRecommendationGenerator {
             // This catches variable references (arguments) that were incorrectly converted
             // to parameters
             if (defined.contains(p.getName())) {
-                System.out.println("[DEBUG filterInternalParameters] Filtering out internal parameter: " + p.getName());
                 continue; // Skip this parameter - it's defined within the sequence
             }
 
@@ -1052,86 +965,62 @@ public class RefactoringRecommendationGenerator {
                             break;
                         }
                     } catch (Exception e) {
+                        // ignored
                     }
                 }
 
                 // 3. Check for VOID expressions (cannot be passed as arguments)
-                if (!isInternal) {
-                    for (Statement s : cluster.primary().statements()) {
-                        boolean voidFound = false;
-                        for (Expression e : s.findAll(Expression.class)) {
-                            if (e.toString().equals(val)) {
-                                try {
-                                    String type = e.calculateResolvedType().describe();
-                                    if ("void".equals(type)) {
-                                        isInternal = true;
-                                        voidFound = true;
-                                        break;
-                                    }
-                                } catch (Exception ex) {
-                                    // Resolution failed. Try manual lookup if it's a method call.
-                                    if (e.isMethodCallExpr()) {
-                                        MethodCallExpr call = e.asMethodCallExpr();
-                                        if (call.getScope().isPresent()) {
-                                            String scopeName = call.getScope().get().toString();
-                                            String typeName = findTypeInContext(cluster.primary(), scopeName);
 
-                                            // Find CU for this type
-                                            CompilationUnit typeCU = allCUs.get(typeName); // Try exact key
-                                            if (typeCU == null) {
-                                                // Try simple name matching
-                                                for (var entry : allCUs.entrySet()) {
-                                                    if (entry.getKey().endsWith("." + typeName)
-                                                            || entry.getKey().equals(typeName)) {
-                                                        typeCU = entry.getValue();
-                                                        break;
-                                                    }
-                                                }
-                                            }
+                for (Statement s : cluster.primary().statements()) {
+                    boolean voidFound = false;
+                    for (Expression e : s.findAll(Expression.class)) {
+                        if (e.toString().equals(val)) {
+                            try {
+                                String type = e.calculateResolvedType().describe();
+                                if ("void".equals(type)) {
+                                    isInternal = true;
+                                    voidFound = true;
+                                    break;
+                                }
+                            } catch (Exception ex) {
+                                // Resolution failed. Try manual lookup if it's a method call.
+                                if (e.isMethodCallExpr()) {
+                                    MethodCallExpr call = e.asMethodCallExpr();
+                                    if (call.getScope().isPresent()) {
+                                        String scopeName = call.getScope().get().toString();
+                                        CompilationUnit typeCU = findCompilationUnit(cluster.primary(), scopeName);
 
-                                            if (typeCU != null) {
-                                                // Find method in this CU
-                                                String methodName = call.getNameAsString();
-                                                boolean methodFoundIsVoid = typeCU
-                                                        .findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
-                                                        .stream()
-                                                        .filter(m -> m.getNameAsString().equals(methodName))
-                                                        .anyMatch(m -> m.getType().isVoidType());
+                                        if (typeCU != null) {
+                                            // Find method in this CU
+                                            String methodName = call.getNameAsString();
+                                            boolean methodFoundIsVoid = typeCU
+                                                    .findAll(com.github.javaparser.ast.body.MethodDeclaration.class)
+                                                    .stream()
+                                                    .filter(m -> m.getNameAsString().equals(methodName))
+                                                    .anyMatch(m -> m.getType().isVoidType());
 
-                                                if (methodFoundIsVoid) {
-                                                    isInternal = true;
-                                                    voidFound = true;
-                                                    break;
-                                                }
+                                            if (methodFoundIsVoid) {
+                                                isInternal = true;
+                                                voidFound = true;
+                                                break;
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                        if (voidFound)
-                            break;
                     }
+                    if (voidFound)
+                        break;
                 }
+
             }
 
             if (!isInternal) {
                 filtered.add(p);
-            } else {
-                // Was filtered
             }
         }
         return filtered;
-    }
-
-    public static class TypeInferenceException extends RuntimeException {
-        public TypeInferenceException(String message) {
-            super(message);
-        }
-    }
-
-    // Lightweight holder for field metadata
-    private record FieldInfo(String type, boolean isStatic) {
     }
 
     private StatementSequence createPrefixSequence(StatementSequence fullSequence, int count) {
@@ -1155,5 +1044,15 @@ public class RefactoringRecommendationGenerator {
                 fullSequence.containingMethod(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
+    }
+
+    public static class TypeInferenceException extends RuntimeException {
+        public TypeInferenceException(String message) {
+            super(message);
+        }
+    }
+
+    // Lightweight holder for field metadata
+    private record FieldInfo(String type, boolean isStatic) {
     }
 }

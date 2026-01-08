@@ -15,13 +15,13 @@ import java.util.Map;
  * Main orchestrator for automated refactoring.
  * Coordinates validation, refactoring application, and verification.
  */
+@SuppressWarnings("java:S106")
 public class RefactoringEngine {
 
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
     private final RefactoringMode mode;
-    private final Path projectRoot;
     private final List<String> dryRunDiffs = new ArrayList<>();
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode) {
@@ -30,7 +30,6 @@ public class RefactoringEngine {
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
             RefactoringVerifier.VerificationLevel verificationLevel) {
-        this.projectRoot = projectRoot;
         this.mode = mode;
         this.validator = new SafetyValidator();
         this.verifier = new RefactoringVerifier(projectRoot, verificationLevel);

@@ -47,7 +47,7 @@ class ASTVariationAnalyzerTest {
         StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
         StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
 
-        VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1, cu2);
+        VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1);
 
         // No variations - code is identical
         assertEquals(0, result.varyingExpressions().size());
@@ -85,7 +85,7 @@ class ASTVariationAnalyzerTest {
         StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
         StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
 
-        VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1, cu2);
+        VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1);
 
         // Should find variation in string literal
         assertTrue(result.varyingExpressions().size() > 0);
@@ -114,7 +114,7 @@ class ASTVariationAnalyzerTest {
         StatementSequence seq = new StatementSequence(m.getBody().get().getStatements(), null, 0, m, cu, null);
 
         // Analyze against itself (no variations)
-        VariationAnalysis result = analyzer.analyzeVariations(seq, seq, cu, cu);
+        VariationAnalysis result = analyzer.analyzeVariations(seq, seq, cu);
 
         // Should find both userName and age as variable references
         assertTrue(result.variableReferences().stream()

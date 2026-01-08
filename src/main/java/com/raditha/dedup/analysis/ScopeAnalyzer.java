@@ -82,10 +82,10 @@ public class ScopeAnalyzer {
 
         // Extract all fields
         for (FieldDeclaration field : containingClass.get().getFields()) {
-            for (VariableDeclarator var : field.getVariables()) {
+            for (VariableDeclarator vdecl : field.getVariables()) {
                 fields.add(new VariableInfo(
-                        var.getNameAsString(),
-                        var.getTypeAsString(),
+                        vdecl.getNameAsString(),
+                        vdecl.getTypeAsString(),
                         false, // isParameter
                         true, // isField
                         field.isFinal()));
@@ -128,15 +128,15 @@ public class ScopeAnalyzer {
             Statement stmt = allStatements.get(i);
 
             // Find variable declarations in this statement
-            stmt.findAll(VariableDeclarator.class).forEach(var -> {
+            stmt.findAll(VariableDeclarator.class).forEach(vdecl ->
                 locals.add(new VariableInfo(
-                        var.getNameAsString(),
-                        var.getTypeAsString(),
+                        vdecl.getNameAsString(),
+                        vdecl.getTypeAsString(),
                         false, // isParameter
                         false, // isField
                         false // Unknown if final for local vars in this simplified version
-                ));
-            });
+                ))
+            );
         }
 
         return locals;

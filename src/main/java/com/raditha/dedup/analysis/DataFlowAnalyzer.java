@@ -7,26 +7,85 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
-
-import java.util.*;
-
-import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Performs data flow analysis to determine which variables are live
  * after a sequence of statements.
- * 
+ * <p>
  * This is critical for Gap 5: ensures we return the CORRECT variable,
  * not just the first one of matching type.
  */
 public class DataFlowAnalyzer {
 
+    private static void findCandidate(StatementSequence sequence, Set<String> liveOut, VariableDeclarationExpr expr, List<String> candidates) {
+        VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
+        for (var variable : varDecl.getVariables()) {
+            String varName = variable.getNameAsString();
+
+            // Must be live out OR returned in a return statement within the sequence
+            boolean isLiveOut = liveOut.contains(varName);
+            boolean isReturned = false;
+
+            // Check if this variable is used in any return statement in the sequence
+            for (Statement s : sequence.statements()) {
+                if (s.isReturnStmt() && s.asReturnStmt().getExpression().isPresent()) {
+                    List<NameExpr> nameExprs = s.asReturnStmt().getExpression().get()
+                            .findAll(NameExpr.class);
+                    for (NameExpr nameExpr : nameExprs) {
+                        if (nameExpr.getNameAsString().equals(varName)) {
+                            isReturned = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // FIXED: Accept if live-out OR returned, regardless of type
+            if (isLiveOut || isReturned) {
+                candidates.add(varName);
+            }
+        }
+
+    }
+
+    private static String findBestCandidate(List<String> candidates, StatementSequence sequence) {
+        // Prefer the first candidate whose type is not primitive-like
+        for (String varName : candidates) {
+            for (Statement stmt : sequence.statements()) {
+                if (stmt instanceof ExpressionStmt expr
+                        && expr.getExpression() instanceof VariableDeclarationExpr varDecl) {
+                    for (var variable : varDecl.getVariables()) {
+                        var type = variable.getType();
+                        if (variable.getNameAsString().equals(varName) && !isPrimitiveLike(type)) {
+                            return varName;
+                        }
+                    }
+                }
+            }
+        }
+        // If all are primitive-like, return first
+        return candidates.getFirst();
+    }
+
+    private static boolean isPrimitiveLike(com.github.javaparser.ast.type.Type type) {
+        if (type.isClassOrInterfaceType()) {
+            return type.asClassOrInterfaceType().getNameAsString().equals("String");
+        }
+        return type.isPrimitiveType();
+    }
+
     /**
      * Find variables that are:
      * 1. Defined within the sequence (assignment or declaration)
      * 2. Used AFTER the sequence ends (live out)
-     * 
+     * <p>
      * This identifies which variables must be returned from extracted method.
      */
     public Set<String> findLiveOutVariables(StatementSequence sequence) {
@@ -46,22 +105,14 @@ public class DataFlowAnalyzer {
     public Set<String> findDefinedVariables(StatementSequence sequence) {
         Set<String> defined = new HashSet<>();
 
-        System.out.println(
-                "[DEBUG findDefinedVariables] Analyzing sequence with " + sequence.statements().size() + " statements");
-        for (int i = 0; i < sequence.statements().size(); i++) {
-            Statement stmt = sequence.statements().get(i);
-            System.out.println("[DEBUG] Statement " + i + ": "
-                    + stmt.toString().replaceAll("\\n", " ").substring(0, Math.min(80, stmt.toString().length())));
-        }
 
         for (Statement stmt : sequence.statements()) {
             // 1. Variable declarations (including nested ones)
-            stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
-                vde.getVariables().forEach(v -> {
-                    defined.add(v.getNameAsString());
-                    System.out.println("[DEBUG findDefinedVariables] Found declaration: " + v.getNameAsString());
-                });
-            });
+            stmt.findAll(VariableDeclarationExpr.class).forEach(vde ->
+                    vde.getVariables().forEach(v ->
+                            defined.add(v.getNameAsString())
+                    )
+            );
 
             // 2. Assignments (target variables)
             stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class).forEach(ae -> {
@@ -72,19 +123,17 @@ public class DataFlowAnalyzer {
             });
 
             // 3. Lambda parameters
-            stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).forEach(lambda -> {
-                lambda.getParameters().forEach(p -> defined.add(p.getNameAsString()));
-            });
+            stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).forEach(lambda ->
+                    lambda.getParameters().forEach(p -> defined.add(p.getNameAsString()))
+            );
         }
-
-        System.out.println("[DEBUG findDefinedVariables] Total defined: " + defined);
 
         return defined;
     }
 
     /**
      * Find variables used AFTER the sequence ends in the containing method.
-     * 
+     * <p>
      * Uses physical source code ordering (Ranges) to be robust against
      * list index shifting caused by boundary refinement.
      */
@@ -134,33 +183,7 @@ public class DataFlowAnalyzer {
             if (stmt.isExpressionStmt()) {
                 var expr = stmt.asExpressionStmt().getExpression();
                 if (expr.isVariableDeclarationExpr()) {
-                    VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
-                    for (var variable : varDecl.getVariables()) {
-                        String varName = variable.getNameAsString();
-
-                        // Must be live out OR returned in a return statement within the sequence
-                        boolean isLiveOut = liveOut.contains(varName);
-                        boolean isReturned = false;
-
-                        // Check if this variable is used in any return statement in the sequence
-                        for (Statement s : sequence.statements()) {
-                            if (s.isReturnStmt() && s.asReturnStmt().getExpression().isPresent()) {
-                                List<NameExpr> nameExprs = s.asReturnStmt().getExpression().get()
-                                        .findAll(NameExpr.class);
-                                for (NameExpr nameExpr : nameExprs) {
-                                    if (nameExpr.getNameAsString().equals(varName)) {
-                                        isReturned = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        // FIXED: Accept if live-out OR returned, regardless of type
-                        if (isLiveOut || isReturned) {
-                            candidates.add(varName);
-                        }
-                    }
+                    findCandidate(sequence, liveOut, expr.asVariableDeclarationExpr(), candidates);
                 }
             }
         }
@@ -169,12 +192,12 @@ public class DataFlowAnalyzer {
 
     /**
      * Find the correct return variable for an extracted method.
-     * 
+     * <p>
      * Returns the variable that is:
      * 1. Defined in the sequence
      * 2. Used after the sequence
      * 3. Matches the expected return type
-     * 
+     * <p>
      * Returns null if no suitable variable found or multiple candidates.
      */
     public String findReturnVariable(StatementSequence sequence, String returnType) {
@@ -231,32 +254,6 @@ public class DataFlowAnalyzer {
         return null;
     }
 
-    private static String findBestCandidate(List<String> candidates, StatementSequence sequence) {
-        // Prefer the first candidate whose type is not primitive-like
-        for (String varName : candidates) {
-            for (Statement stmt : sequence.statements()) {
-                if (stmt instanceof ExpressionStmt expr
-                        && expr.getExpression() instanceof VariableDeclarationExpr varDecl) {
-                    for (var variable : varDecl.getVariables()) {
-                        var type = variable.getType();
-                        if (variable.getNameAsString().equals(varName) && !isPrimitiveLike(type)) {
-                            return varName;
-                        }
-                    }
-                }
-            }
-        }
-        // If all are primitive-like, return first
-        return candidates.getFirst();
-    }
-
-    private static boolean isPrimitiveLike(com.github.javaparser.ast.type.Type type) {
-        if (type.isClassOrInterfaceType()) {
-            return type.asClassOrInterfaceType().getNameAsString().equals("String");
-        }
-        return type.isPrimitiveType();
-    }
-
     /**
      * Check if it's safe to extract the sequence.
      */
@@ -270,17 +267,6 @@ public class DataFlowAnalyzer {
 
         // Otherwise, must have exactly one return variable
         return returnVar != null;
-    }
-
-    private boolean isField(StatementSequence sequence, String varName) {
-        var method = sequence.containingMethod();
-        if (method == null)
-            return false;
-        var classDecl = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-        if (classDecl.isPresent()) {
-            return classDecl.get().getFieldByName(varName).isPresent();
-        }
-        return false;
     }
 
     /**

@@ -113,9 +113,8 @@ public class DuplicationAnalyzer {
     private DuplicateCluster addRecommendation(DuplicateCluster cluster) {
         // Get a representative similarity result from the first pair
         if (!cluster.duplicates().isEmpty()) {
-            SimilarityResult similarity = cluster.duplicates().getFirst().similarity();
             RefactoringRecommendation recommendation = recommendationGenerator
-                    .generateRecommendation(cluster, similarity);
+                    .generateRecommendation(cluster);
 
             // Create new cluster with recommendation
             return new DuplicateCluster(
