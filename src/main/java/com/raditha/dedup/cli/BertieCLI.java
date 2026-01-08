@@ -103,6 +103,19 @@ public class BertieCLI implements Callable<Integer> {
                 Settings.setProperty(Settings.OUTPUT_PATH, outputPath);
             }
 
+            // Update verifyMode from Settings if present (and not overridden by CLI -
+            // simplified check)
+            // We verify if --verify was passed using spec (if available) or just prefer
+            // config if set
+            Object verifyProp = Settings.getProperty("verify");
+            if (verifyProp != null) {
+                try {
+                    this.verifyMode = VerifyMode.fromString(verifyProp.toString());
+                } catch (Exception e) {
+                    System.err.println("Warning: Invalid verify mode in config: " + verifyProp);
+                }
+            }
+
             // Parse all source files once
             AbstractCompiler.preProcess();
 
@@ -242,6 +255,8 @@ public class BertieCLI implements Callable<Integer> {
                 preset);
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+        System.out.println("DEBUG: allCUs detected " + allCUs.size() + " files.");
+        allCUs.keySet().forEach(k -> System.out.println(" - " + k));
 
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
 
@@ -249,13 +264,23 @@ public class BertieCLI implements Callable<Integer> {
 
         // Single iteration - filter and analyze
         String targetClass = DuplicationDetectorSettings.getTargetClass();
+        System.out.println("DEBUG: targetClass='" + targetClass + "'");
 
         for (var entry : allCUs.entrySet()) {
             String className = entry.getKey();
+            if (className.contains("Lambda")) {
+                System.out.println("DEBUG: Checking candidate: '" + className + "'");
+            }
 
             // Filter by target class if specified
-            if (targetClass != null && !targetClass.isEmpty() && !className.equals(targetClass)) {
-                continue;
+            if (targetClass != null && !targetClass.isEmpty()) {
+                if (!className.equals(targetClass)) {
+                    // System.out.println("Skipping " + className + " (target: " + targetClass +
+                    // ")");
+                    continue;
+                } else {
+                    System.out.println("MATCHED target class: " + className);
+                }
             }
 
             // Production code and test code - check both locations

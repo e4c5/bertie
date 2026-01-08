@@ -90,18 +90,32 @@ public class ParameterSpec {
         }
 
         // 2. Type-based literal checks (using Antikythera's type resolution)
+        // 2. Type-based literal checks (using Antikythera's type resolution)
         if (expr.isLiteralExpr()) {
-            // Resolve the parameter type
             TypeWrapper paramTypeWrapper = AbstractCompiler.findType(cu, this.type);
-            if (paramTypeWrapper != null) {
-                // Resolve the literal's type
-                com.github.javaparser.ast.type.Type litType = AbstractCompiler
-                        .convertLiteralToType(expr.asLiteralExpr());
-                TypeWrapper litTypeWrapper = AbstractCompiler.findType(cu, litType);
 
-                // Check compatibility
+            com.github.javaparser.ast.type.Type litType = AbstractCompiler.convertLiteralToType(expr.asLiteralExpr());
+            TypeWrapper litTypeWrapper = AbstractCompiler.findType(cu, litType);
+            String litTypeName = (litTypeWrapper != null) ? litTypeWrapper.getFullyQualifiedName() : "null";
+
+            if (paramTypeWrapper != null) {
+                System.out.println("[DEBUG ParameterSpec] Matching literal: " + expr +
+                        " ParamType: " + this.type + " (" + paramTypeWrapper.getFullyQualifiedName() + ")" +
+                        " LitType: " + litType + " (" + litTypeName + ")");
+
                 if (litTypeWrapper != null && paramTypeWrapper.isAssignableFrom(litTypeWrapper)) {
+                    System.out.println("[DEBUG ParameterSpec] Match FOUND via TypeWrapper");
                     return true;
+                }
+            } else {
+                System.out.println("[DEBUG ParameterSpec] ParamTypeWrapper is NULL for: " + this.type);
+                // Fallback for String
+                if (expr.isStringLiteralExpr()) {
+                    String typeName = this.type.asString();
+                    if ("String".equals(typeName) || "java.lang.String".equals(typeName)) {
+                        System.out.println("[DEBUG ParameterSpec] Match FOUND via String Fallback");
+                        return true;
+                    }
                 }
             }
         }

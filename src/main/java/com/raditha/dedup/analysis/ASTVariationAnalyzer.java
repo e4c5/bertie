@@ -108,16 +108,12 @@ public class ASTVariationAnalyzer {
      * Find variable declarations in a statement.
      */
     private void findDeclarations(Statement stmt, Set<String> declaredVars) {
-        stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).forEach(vd ->
-            declaredVars.add(vd.getNameAsString())
-        );
+        stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .forEach(vd -> declaredVars.add(vd.getNameAsString()));
 
         // Also find lambda parameters!
-        stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).forEach(lambda ->
-            lambda.getParameters().forEach(param ->
-                declaredVars.add(param.getNameAsString())
-            )
-        );
+        stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)
+                .forEach(lambda -> lambda.getParameters().forEach(param -> declaredVars.add(param.getNameAsString())));
     }
 
     /**
@@ -135,11 +131,17 @@ public class ASTVariationAnalyzer {
         // Compare expressions at same positions
         int minExprs = Math.min(exprs1.size(), exprs2.size());
 
+        System.out.println("[DEBUG Diff] Comparing Stmt " + position);
+        System.out.println(" S1: " + stmt1.toString().split("\n")[0]);
+        System.out.println(" S2: " + stmt2.toString().split("\n")[0]);
+
         for (int i = 0; i < minExprs; i++) {
             Expression e1 = exprs1.get(i);
             Expression e2 = exprs2.get(i);
 
             if (!expressionsEquivalent(e1, e2)) {
+                System.out.println(" [Diff] Expr " + i + ": " + e1 + " vs " + e2);
+
                 // Resolve type
                 ResolvedType type1 = resolveExpressionType(e1);
                 ResolvedType type2 = resolveExpressionType(e2);

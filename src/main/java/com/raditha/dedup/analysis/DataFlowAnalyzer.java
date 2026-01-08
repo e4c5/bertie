@@ -24,7 +24,8 @@ import java.util.Set;
  */
 public class DataFlowAnalyzer {
 
-    private static void findCandidate(StatementSequence sequence, Set<String> liveOut, VariableDeclarationExpr expr, List<String> candidates) {
+    private static void findCandidate(StatementSequence sequence, Set<String> liveOut, VariableDeclarationExpr expr,
+            List<String> candidates) {
         VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
         for (var variable : varDecl.getVariables()) {
             String varName = variable.getNameAsString();
@@ -92,9 +93,13 @@ public class DataFlowAnalyzer {
         Set<String> definedVars = findDefinedVariables(sequence);
         Set<String> usedAfter = findVariablesUsedAfter(sequence);
 
+        System.out.println("[DEBUG LiveOut] Defined in seq: " + definedVars);
+        System.out.println("[DEBUG LiveOut] Used after seq: " + usedAfter);
+
         // Return intersection: defined in sequence AND used after
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
+        System.out.println("[DEBUG LiveOut] Intersection (LiveOut): " + liveOut);
 
         return liveOut;
     }
@@ -105,14 +110,10 @@ public class DataFlowAnalyzer {
     public Set<String> findDefinedVariables(StatementSequence sequence) {
         Set<String> defined = new HashSet<>();
 
-
         for (Statement stmt : sequence.statements()) {
             // 1. Variable declarations (including nested ones)
-            stmt.findAll(VariableDeclarationExpr.class).forEach(vde ->
-                    vde.getVariables().forEach(v ->
-                            defined.add(v.getNameAsString())
-                    )
-            );
+            stmt.findAll(VariableDeclarationExpr.class)
+                    .forEach(vde -> vde.getVariables().forEach(v -> defined.add(v.getNameAsString())));
 
             // 2. Assignments (target variables)
             stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class).forEach(ae -> {
@@ -123,9 +124,8 @@ public class DataFlowAnalyzer {
             });
 
             // 3. Lambda parameters
-            stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class).forEach(lambda ->
-                    lambda.getParameters().forEach(p -> defined.add(p.getNameAsString()))
-            );
+            stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)
+                    .forEach(lambda -> lambda.getParameters().forEach(p -> defined.add(p.getNameAsString())));
         }
 
         return defined;
@@ -145,10 +145,18 @@ public class DataFlowAnalyzer {
             return usedAfter;
         }
 
-        // Get the specific end line/column of the sequence
-        // We use Range to be absolutely sure about ordering
-        int endLine = sequence.range().endLine();
-        int endColumn = sequence.range().endColumn();
+        // Get the specific end line/column from the LAST statement in the sequence
+        // We use statements list to be exact, ignoring trailing comments/whitespace
+        // covered by sequence.range()
+        if (sequence.statements().isEmpty()) {
+            return usedAfter;
+        }
+        Statement lastStmt = sequence.statements().get(sequence.statements().size() - 1);
+        int endLine = lastStmt.getRange().map(r -> r.end.line).orElse(sequence.range().endLine());
+        int endColumn = lastStmt.getRange().map(r -> r.end.column).orElse(sequence.range().endColumn());
+
+        System.out.println("[DEBUG LiveOut-Trace] Seq (Stmt) ends at " + endLine + ":" + endColumn);
+        System.out.println("[DEBUG LiveOut-Trace] Analyzing Method: " + method.getNameAsString());
 
         // Scan the entire method body for variable usages
         BlockStmt methodBody = method.getBody().get();
@@ -156,7 +164,18 @@ public class DataFlowAnalyzer {
             // Check if this usage is physically AFTER the sequence
             if (nameExpr.getRange().isPresent()) {
                 var range = nameExpr.getRange().get();
-                if (range.begin.line > endLine || (range.begin.line == endLine && range.begin.column > endColumn)) {
+                boolean isAfter = range.begin.line > endLine
+                        || (range.begin.line == endLine && range.begin.column > endColumn);
+
+                // Log scope details
+                if (isAfter || nameExpr.getNameAsString().equals("apiUrl")
+                        || nameExpr.getNameAsString().equals("timeout")) {
+                    System.out.println("[DEBUG LiveOut-Trace] Found '" + nameExpr.getNameAsString() + "' at "
+                            + range.begin.line + ":"
+                            + range.begin.column + " - IsAfter? " + isAfter);
+                }
+
+                if (isAfter) {
                     usedAfter.add(nameExpr.getNameAsString());
                 }
             }

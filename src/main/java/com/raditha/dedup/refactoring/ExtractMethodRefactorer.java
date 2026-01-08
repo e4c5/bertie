@@ -114,11 +114,6 @@ public class ExtractMethodRefactorer {
             return Integer.compare(idx1, idx2);
         });
 
-        System.out.println("[DEBUG createHelperMethod] Sorted Params: " +
-                sortedParams.stream()
-                        .map(p -> String.format("%s(idx=%d, type=%s)", p.getName(), p.getVariationIndex(), p.getType()))
-                        .collect(java.util.stream.Collectors.joining(", ")));
-
         // Parameters with collision handling
         Set<String> declaredVars = collectDeclaredVariableNames(sequence, recommendation);
         Map<ParameterSpec, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
@@ -991,6 +986,15 @@ public class ExtractMethodRefactorer {
         return -1;
     }
 
+    private boolean isParamStringType(com.github.javaparser.ast.type.Type type) {
+        if (type == null || !type.isClassOrInterfaceType()) {
+            return false;
+        }
+        String name = type.asClassOrInterfaceType().getNameAsString();
+        return sa.com.cloudsolutions.antikythera.evaluator.Reflect.STRING.equals(name) ||
+                sa.com.cloudsolutions.antikythera.evaluator.Reflect.JAVA_LANG_STRING.equals(name);
+    }
+
     /**
      * Extract the actual value used in this sequence for a parameter.
      * Returns the AST Expression found in the sequence, or a parsed Expression from
@@ -1013,7 +1017,8 @@ public class ExtractMethodRefactorer {
 
         // Fallback to example value
         if (!param.getExampleValues().isEmpty()
-                && (param.getType() == null || !STRING.equals(param.getType().asString()))) {
+                && (param.getType() == null || (!"String".equals(param.getType().asString())
+                        && !"java.lang.String".equals(param.getType().asString())))) {
             try {
                 return com.github.javaparser.StaticJavaParser.parseExpression(param.getExampleValues().get(0));
             } catch (Exception e) {

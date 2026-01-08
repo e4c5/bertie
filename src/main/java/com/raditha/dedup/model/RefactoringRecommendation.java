@@ -111,7 +111,7 @@ public class RefactoringRecommendation {
      * Check if this recommendation is high confidence (>= 0.90).
      */
     public boolean isHighConfidence() {
-        return confidenceScore >= 0.90;
+        return confidenceScore >= 0.80;
     }
 
     /**

@@ -80,7 +80,8 @@ public class RefactoringRecommendationGenerator {
 
         if (cluster.duplicates().isEmpty()) {
             // Fallback to single analysis (compare against itself or handle edge case)
-            com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seq1, cu1);
+            com.raditha.dedup.model.VariationAnalysis analysis = astVariationAnalyzer.analyzeVariations(seq1, seq1,
+                    cu1);
             allVariations.addAll(analysis.varyingExpressions());
             allVarRefs.addAll(analysis.variableReferences());
             allInternalVars.addAll(analysis.getDeclaredInternalVariables());
@@ -480,7 +481,7 @@ public class RefactoringRecommendationGenerator {
             if (field.getElementType().isClassOrInterfaceType()) {
                 var classType = field.getElementType().asClassOrInterfaceType();
                 for (var v : field.getVariables()) {
-                    if (v.getNameAsString().equals(scopeName) &&  classType.getTypeArguments().isPresent()) {
+                    if (v.getNameAsString().equals(scopeName) && classType.getTypeArguments().isPresent()) {
                         var typeArgs = classType.getTypeArguments().get();
                         return typeArgs.getFirst();
                     }
@@ -538,7 +539,7 @@ public class RefactoringRecommendationGenerator {
      * variation analysis.
      */
     private List<ParameterSpec> identifyCapturedParameters(StatementSequence sequence,
-                                                           List<ParameterSpec> existingParams) {
+            List<ParameterSpec> existingParams) {
         Set<String> usedVars = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
         Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
 
@@ -774,7 +775,7 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String resolveType(com.github.javaparser.ast.type.Type type, com.github.javaparser.ast.Node contextNode,
-                               StatementSequence sequence) {
+            StatementSequence sequence) {
         // Attempt to resolve using AbstractCompiler
         var classDecl = contextNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
         if (classDecl.isPresent()) {
@@ -907,6 +908,15 @@ public class RefactoringRecommendationGenerator {
 
         if (cluster.getAverageSimilarity() < 0.85)
             score *= 0.8;
+
+        // NEW: Check for multiple live-out variables (which cannot be returned)
+        Set<String> liveOuts = dataFlowAnalyzer.findLiveOutVariables(cluster.primary());
+        if (liveOuts.size() > 1) {
+            // Returning multiple values requires a wrapper object, which we don't support
+            // yet.
+            // Penalize heavily to skip this cluster in batch mode.
+            score *= 0.1;
+        }
 
         return score;
     }
