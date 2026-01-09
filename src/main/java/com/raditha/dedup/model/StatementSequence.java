@@ -40,4 +40,23 @@ public record StatementSequence(
         return statements != null ? statements.size() : 0;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o)
+            return true;
+        if (o == null || getClass() != o.getClass())
+            return false;
+        StatementSequence that = (StatementSequence) o;
+        return startOffset == that.startOffset &&
+                java.util.Objects.equals(range, that.range) &&
+                (sourceFilePath == null ? that.sourceFilePath == null
+                        : (that.sourceFilePath != null && sourceFilePath.toAbsolutePath().normalize().toString()
+                                .equals(that.sourceFilePath.toAbsolutePath().normalize().toString())));
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(range, startOffset,
+                sourceFilePath != null ? sourceFilePath.toAbsolutePath().normalize().toString() : 0);
+    }
 }

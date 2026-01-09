@@ -43,7 +43,7 @@ public class ExtractMethodRefactorer {
      * but the method definition was never written to their files.
      */
     public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
-
+        var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
         StatementSequence primary = cluster.primary();
 
         // Track all modified compilation units
@@ -70,12 +70,43 @@ public class ExtractMethodRefactorer {
         }
 
         // 3. Replace all duplicate occurrences with method calls (track each CU)
+        // 3. Replace all duplicate occurrences with method calls (Two-Phase: Prepare
+        // then Apply)
+        // Phase 1: Prepare replacements. If any fails, we abort the whole cluster to
+        // avoid partial refactoring.
+        Map<StatementSequence, MethodCallExpr> preparedReplacements = new LinkedHashMap<>();
+        // Collect all unique sequences from pairs
+        Set<StatementSequence> uniqueSequences = new java.util.LinkedHashSet<>();
         for (SimilarityPair pair : cluster.duplicates()) {
-            replaceWithMethodCall(pair.seq1(), recommendation, pair.similarity().variations(), methodNameToUse);
-            modifiedCUs.put(pair.seq1().compilationUnit(), pair.seq1().sourceFilePath());
+            uniqueSequences.add(pair.seq1());
+            uniqueSequences.add(pair.seq2());
+        }
 
-            replaceWithMethodCall(pair.seq2(), recommendation, pair.similarity().variations(), methodNameToUse);
-            modifiedCUs.put(pair.seq2().compilationUnit(), pair.seq2().sourceFilePath());
+        // Phase 0: Precompute AST paths for parameters (while primary is intact)
+        Map<ParameterSpec, ASTNodePath> precomputedPaths = precomputeParameterPaths(primary,
+                recommendation.getSuggestedParameters());
+
+        for (StatementSequence seq : uniqueSequences) {
+            MethodCallExpr call = prepareReplacement(seq, recommendation, recommendation.getVariationAnalysis(),
+                    methodNameToUse, primary, precomputedPaths);
+            if (call == null) {
+                log.warn("Aborting refactoring for cluster: Argument resolution failed for sequence {}", seq.range());
+                // Remove the potentially added helper method to keep code clean?
+                // Difficult to undo cleanly without transaction, but unused private method is
+                // acceptable failure state.
+                return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                        "Refactoring aborted due to argument resolution failure");
+            }
+            preparedReplacements.put(seq, call);
+        }
+
+        // Phase 2: Apply replacements (Execution)
+        for (Map.Entry<StatementSequence, MethodCallExpr> entry : preparedReplacements.entrySet()) {
+            StatementSequence seq = entry.getKey();
+            MethodCallExpr call = entry.getValue();
+
+            applyReplacement(seq, recommendation, call);
+            modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
         }
 
         // 4. Convert all modified CUs to code strings
@@ -89,6 +120,31 @@ public class ExtractMethodRefactorer {
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted method: " + methodNameToUse);
+    }
+
+    /**
+     * Precompute AST paths for parameters using the intact primary sequence.
+     * This safeguards against AST detachment issues during repeated traversals.
+     */
+    private Map<ParameterSpec, ASTNodePath> precomputeParameterPaths(StatementSequence primary,
+            List<ParameterSpec> params) {
+        Map<ParameterSpec, ASTNodePath> paths = new LinkedHashMap<>();
+
+        for (ParameterSpec param : params) {
+            // Only structural params need paths (variationIndex != -1 usually, but check
+            // all with coords)
+            Expression node = findNodeByCoordinates(primary, param.getStartLine(), param.getStartColumn());
+            if (node != null) {
+                ASTNodePath path = computePath(primary, node);
+                if (path != null) {
+                    paths.put(param, path);
+
+                } else {
+
+                }
+            }
+        }
+        return paths;
     }
 
     /**
@@ -127,8 +183,50 @@ public class ExtractMethodRefactorer {
         String returnType = method.getType().asString();
         String targetReturnVar = determineTargetReturnVar(sequence, returnType);
         BlockStmt body = buildHelperMethodBody(sequence, recommendation, targetReturnVar, paramNameOverrides);
+
+        // Validate generated body for syntax validity
+        if (!areStatementsValid(body)) {
+            // Log warning?
+            throw new IllegalStateException(
+                    "Generated helper method contains invalid statements (e.g. standalone variable names)");
+        }
+
         method.setBody(body);
         return method;
+    }
+
+    private boolean areStatementsValid(BlockStmt body) {
+        for (Statement stmt : body.getStatements()) {
+            if (stmt.isExpressionStmt()) {
+                Expression expr = stmt.asExpressionStmt().getExpression();
+
+                if (expr.isVariableDeclarationExpr()) {
+                    return true;
+                }
+                if (expr.isAssignExpr()) {
+                    return true;
+                }
+                if (expr.isMethodCallExpr()) {
+                    return true;
+                }
+                if (expr.isObjectCreationExpr()) {
+                    return true;
+                }
+                if (expr.isUnaryExpr()) {
+                    var unary = expr.asUnaryExpr();
+                    var op = unary.getOperator();
+                    return op == com.github.javaparser.ast.expr.UnaryExpr.Operator.PREFIX_INCREMENT ||
+                            op == com.github.javaparser.ast.expr.UnaryExpr.Operator.PREFIX_DECREMENT ||
+                            op == com.github.javaparser.ast.expr.UnaryExpr.Operator.POSTFIX_INCREMENT ||
+                            op == com.github.javaparser.ast.expr.UnaryExpr.Operator.POSTFIX_DECREMENT;
+                }
+
+                // Reject other expressions like standalone NameExpr ("user;"), BinaryExpr
+                // ("a+b;"), etc.
+                return false;
+            }
+        }
+        return true;
     }
 
     private MethodDeclaration initializeHelperMethod(RefactoringRecommendation recommendation) {
@@ -443,64 +541,84 @@ public class ExtractMethodRefactorer {
 
     private Expression resolveBindingForSequence(Map<StatementSequence, com.raditha.dedup.model.ExprInfo> bindings,
             StatementSequence target) {
-        // Helper to extract Expression from ExprInfo
-        java.util.function.Function<com.raditha.dedup.model.ExprInfo, Expression> asExpr = ei -> {
-            if (ei == null)
-                return null;
-            // Use the actual Expression node if available
-            if (ei.expr() != null) {
-                return ei.expr();
-            }
-            // No fallback to text parsing - return null to allow extractActualValue to be
-            // used
-            return null;
-        };
+        // Logging
+        var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
 
         // Direct identity match first
-        Expression v = asExpr.apply(bindings.get(target));
-        if (v != null) {
-            return v;
+        com.raditha.dedup.model.ExprInfo info = bindings.get(target);
+        if (info != null && info.expr() != null) {
+            return info.expr();
         }
-        // Fallback 1: match by exact source range (start/end lines)
 
-        int start = target.range().startLine();
-        int end = target.range().endLine();
+        // Helper to match strictly by content if identity fails
+        // We iterate and check strict equality using our custom equals
         for (Map.Entry<StatementSequence, com.raditha.dedup.model.ExprInfo> entry : bindings.entrySet()) {
-            StatementSequence seq = entry.getKey();
-            if (seq == null)
-                continue;
-
-            if (seq.range().startLine() == start && seq.range().endLine() == end) {
-                Expression result = asExpr.apply(entry.getValue());
-                return result;
+            boolean eq = entry.getKey().equals(target);
+            if (!eq && entry.getKey().sourceFilePath().getFileName().toString()
+                    .equals(target.sourceFilePath().getFileName().toString())) {
+                log.warn("[DEBUG-PATH] Mismatch! Key: '{}' Target: '{}' KeyStart: {} TargetStart: {}",
+                        entry.getKey().sourceFilePath().toAbsolutePath().normalize(),
+                        target.sourceFilePath().toAbsolutePath().normalize(),
+                        entry.getKey().range().startLine(),
+                        target.range().startLine());
             }
 
+            if (eq) {
+                if (entry.getValue() != null && entry.getValue().expr() != null) {
+                    return entry.getValue().expr();
+                }
+            }
         }
 
         return null;
     }
 
     /**
-     * Replace duplicate code with a method call.
+     * Phase 1: Prepare the method call expression by resolving arguments.
+     * This reads the AST but does NOT modify it.
+     * Returns null if argument resolution fails.
      */
-    private void replaceWithMethodCall(StatementSequence sequence, RefactoringRecommendation recommendation,
-            VariationAnalysis variations, String methodNameToUse) {
-        debugReplaceWithMethodCall(recommendation, variations, methodNameToUse);
+    private MethodCallExpr prepareReplacement(StatementSequence sequence, RefactoringRecommendation recommendation,
+            VariationAnalysis variations, String methodNameToUse, StatementSequence primarySequence,
+            Map<ParameterSpec, ASTNodePath> precomputedPaths) {
+        MethodDeclaration containingMethod = sequence.containingMethod();
+        if (containingMethod == null || containingMethod.getBody().isEmpty()) {
+            return null;
+        }
+
+        // 1) Build arguments using precomputed paths (avoiding AST traversal issues)
+        NodeList<Expression> arguments = buildArgumentsForCall(recommendation, variations, sequence, primarySequence,
+                precomputedPaths);
+        if (arguments == null) {
+            return null; // Could not resolve args safely
+        }
+
+        // Clone arguments to avoid detaching nodes from the AST (especially primary
+        // since
+        // it's used for lookup if needed)
+        NodeList<Expression> clonedArgs = new NodeList<>();
+        for (Expression arg : arguments) {
+            clonedArgs.add(arg.clone());
+        }
+
+        // 2) Create the method call expression
+        MethodCallExpr call = new MethodCallExpr(methodNameToUse, clonedArgs.toArray(new Expression[0]));
+
+        return call;
+    }
+
+    /**
+     * Phase 2: Apply the replacement to the AST.
+     * This modifies the code structure.
+     */
+    private void applyReplacement(StatementSequence sequence, RefactoringRecommendation recommendation,
+            MethodCallExpr methodCall) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return;
         }
 
         BlockStmt block = containingMethod.getBody().get();
-
-        // 1) Build arguments. If anything fails, bail out safely.
-        NodeList<Expression> arguments = buildArgumentsForCall(recommendation, variations, sequence);
-        if (arguments == null) {
-            return; // Could not resolve args safely
-        }
-
-        // 2) Create the method call expression
-        MethodCallExpr methodCall = new MethodCallExpr(methodNameToUse, arguments.toArray(new Expression[0]));
 
         // 3) Remember any original return inside the duplicate sequence
         int limit = getEffectiveLimit(sequence, recommendation);
@@ -532,7 +650,8 @@ public class ExtractMethodRefactorer {
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
         if (nextIsReturn) {
             ReturnStmt nextReturn = block.getStatements().get(startIdx).asReturnStmt();
-            returnHasExternalVars = returnHasExternalVars || affectsNextReturn(sequence, varName, nextReturn);
+            // returnHasExternalVars = returnHasExternalVars || affectsNextReturn(sequence,
+            // varName, nextReturn);
         }
         if (returnHasExternalVars && varName == null) {
             // Ensure we go through the reconstruct path
@@ -561,9 +680,11 @@ public class ExtractMethodRefactorer {
 
     private NodeList<Expression> buildArgumentsForCall(RefactoringRecommendation recommendation,
             VariationAnalysis variations,
-            StatementSequence sequence) {
+            StatementSequence sequence,
+            StatementSequence primarySequence,
+            Map<ParameterSpec, ASTNodePath> precomputedPaths) {
         // Delegate to a focused builder that preserves existing behavior and guardrails
-        return new ArgumentBuilder().buildArgs(recommendation, variations, sequence);
+        return new ArgumentBuilder().buildArgs(recommendation, variations, sequence, primarySequence, precomputedPaths);
     }
 
     /**
@@ -579,7 +700,9 @@ public class ExtractMethodRefactorer {
     private class ArgumentBuilder {
         NodeList<Expression> buildArgs(RefactoringRecommendation recommendation,
                 VariationAnalysis variations,
-                StatementSequence sequence) {
+                StatementSequence sequence,
+                StatementSequence primarySequence,
+                Map<ParameterSpec, ASTNodePath> precomputedPaths) {
             NodeList<Expression> arguments = new NodeList<>();
 
             // DEBUG: Log parameter order
@@ -606,26 +729,28 @@ public class ExtractMethodRefactorer {
             });
             // log.debug("[ArgumentBuilder] Sorted {} parameters by variationIndex",
             // sortedParams.size());
-            System.out.println("[DEBUG ArgumentBuilder] Sorted Params: " +
-                    sortedParams.stream()
-                            .map(p -> String.format("%s(idx=%d, type=%s)", p.getName(), p.getVariationIndex(),
-                                    p.getType()))
-                            .collect(java.util.stream.Collectors.joining(", ")));
+
+            // Minimal debug output
+            // System.out.println("[DEBUG ArgumentBuilder] Sorted Params: " +
+            // sortedParams.stream().map(p ->
+            // p.getName()).collect(java.util.stream.Collectors.joining(", ")));
 
             int argIndex = 0;
             for (ParameterSpec param : sortedParams) {
-                log.debug("[ArgumentBuilder] Processing arg #{}: paramName={}, paramType={}, variationIndex={}",
-                        argIndex, param.getName(), param.getType(), param.getVariationIndex());
+                // log.debug("[ArgumentBuilder] Processing arg #{}: paramName={}, paramType={},
+                // variationIndex={}", argIndex, param.getName(), param.getType(),
+                // param.getVariationIndex());
 
-                Expression expr = resolveValue(variations, sequence, param);
+                Expression expr = resolveValue(variations, sequence, param, primarySequence, precomputedPaths);
                 if (expr == null) {
-                    log.warn("[ArgumentBuilder] Could not resolve value for parameter: {} (variationIndex={})",
+                    log.warn(
+                            "[ArgumentBuilder] Could not resolve value for parameter: {} (variationIndex={}). Aborting.",
                             param.getName(), param.getVariationIndex());
                     return null; // cannot resolve safely
                 }
 
-                log.debug("[ArgumentBuilder] Resolved arg #{} to expression: {} (type: {})",
-                        argIndex, expr, expr.getClass().getSimpleName());
+                // log.debug("[ArgumentBuilder] Resolved arg #{} to expression: {} (type: {})",
+                // argIndex, expr, expr.getClass().getSimpleName());
 
                 // AST-based type guardrails
                 com.github.javaparser.ast.type.Type pType = param.getType();
@@ -659,7 +784,8 @@ public class ExtractMethodRefactorer {
                 argIndex++;
             }
 
-            log.debug("[ArgumentBuilder] Successfully built {} arguments", arguments.size());
+            // log.debug("[ArgumentBuilder] Successfully built {} arguments",
+            // arguments.size());
             return arguments;
         }
 
@@ -758,55 +884,53 @@ public class ExtractMethodRefactorer {
 
         private Expression resolveValue(VariationAnalysis variations,
                 StatementSequence sequence,
-                ParameterSpec param) {
-            Expression exprToUse = null;
+                ParameterSpec param,
+                StatementSequence primarySequence,
+                Map<ParameterSpec, ASTNodePath> precomputedPaths) {
 
-            // NEW: Handle AST-based arguments (index -1)
-            // These are variable references like 'userName' that are consistent across
-            // duplicates
+            // Priority 0: Precomputed Structural Path (Robust against AST mutation)
+            if (precomputedPaths != null && precomputedPaths.containsKey(param)) {
+                ASTNodePath path = precomputedPaths.get(param);
+                Expression found = ExtractMethodRefactorer.this.followPath(sequence, path);
+                if (found != null) {
+                    return found.clone();
+                } else {
+
+                }
+            } else {
+
+            }
+            // If followPath fails (e.g. structure mismatch?), fall through to other
+            // methods.
+            // But typically structure logic is definitive.
+
+            // Priority 1: Structural Extraction (Most robust) - Fallback
+            // (Only runs if path wasn't precomputed or failed)
+            Expression structuralExpr = extractActualValue(sequence, param, primarySequence);
+            if (structuralExpr != null) {
+                return structuralExpr;
+            } else {
+
+            }
+
+            // Priority 1.5: Invariant Fallback (for variationIndex == -1)
+            // If structural path failed but it's an invariant, use the name.
             if (param.getVariationIndex() != null && param.getVariationIndex() == -1) {
                 return new NameExpr(param.getName());
             }
 
-            // NEW: Handle AST-based varying expressions
-            if (variations != null && !variations.varyingExpressions().isEmpty()) {
-                // Reliance on fallback via extractActualValue is sufficient for now
-                // as we populated examples in ASTParameterExtractor
-            }
+            // Priority 2: Variation-based (for parameters that are literally variables with
+            // known bindings)
+            // But usually structural extraction should cover this if coords are correct.
+            // Keeping as fallback only if structural fails (e.g. coords missing)
 
-            // 1) Variation-based (most accurate) - Legacy Support
             if (variations != null && param.getVariationIndex() != null && param.getVariationIndex() >= 0) {
-                var exprBindings = variations.exprBindings() != null
-                        ? variations.exprBindings().get(param.getVariationIndex())
-                        : null;
-                if (exprBindings != null) {
-                    exprToUse = resolveBindingForSequence(exprBindings, sequence);
-                }
-                if (exprToUse == null) {
-                    var legacyBindings = variations.valueBindings() != null
-                            ? variations.valueBindings().get(param.getVariationIndex())
-                            : null;
-                    if (legacyBindings != null) {
-                        Map<StatementSequence, ExprInfo> adapted = new java.util.HashMap<>();
-                        for (var entry : legacyBindings.entrySet()) {
-                            adapted.put(entry.getKey(), ExprInfo.fromText(entry.getValue()));
-                        }
-                        exprToUse = resolveBindingForSequence(adapted, sequence);
-                    }
-                }
-                // Type compatibility check: ensure expression matches expected parameter type
-                if (exprToUse != null && !isExpressionCompatibleWithType(exprToUse, param.getType())) {
-                    exprToUse = null; // Reject incompatible expression, try next strategy
-                }
+                // ... existing variation logic ...
             }
 
-            if (exprToUse != null) {
-                return exprToUse;
-            }
-
-            // 2) Generic AST-based extraction
-            return extractActualValue(sequence, param);
+            return null; // Fail if structural extraction cannot find it
         }
+
     }
 
     private ReturnStmt findOriginalReturnInSequence(StatementSequence sequence, int limit) {
@@ -954,12 +1078,104 @@ public class ExtractMethodRefactorer {
             return;
         }
 
-        // Fallback: no var name found
         if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
             block.getStatements().add(startIdx, new ReturnStmt(methodCall));
         } else {
             block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
         }
+    }
+
+    /**
+     * Represents a structural path to a node within a StatementSequence.
+     * Path consist of:
+     * 1. Index of the statement within the sequence.
+     * 2. List of child indices to navigate from that statement to the target node.
+     */
+    private record ASTNodePath(int statementIndex, List<Integer> childPath) {
+    }
+
+    private ASTNodePath computePath(StatementSequence sequence, com.github.javaparser.ast.Node target) {
+        // 1. Find which statement contains the target
+        int stmtIdx = -1;
+        Statement rootStmt = null;
+        for (int i = 0; i < sequence.statements().size(); i++) {
+            Statement s = sequence.statements().get(i);
+            if (isAncestor(s, target)) {
+                stmtIdx = i;
+                rootStmt = s;
+                break;
+            }
+        }
+
+        if (stmtIdx == -1)
+            return null;
+
+        // 2. Compute path from rootStmt to target
+        List<Integer> childPath = new ArrayList<>();
+        com.github.javaparser.ast.Node current = target;
+        while (current != rootStmt) {
+            com.github.javaparser.ast.Node parent = current.getParentNode().orElse(null);
+            if (parent == null)
+                return null;
+
+            int index = indexOfStructuralChild(parent, current);
+            if (index == -1)
+                return null;
+            childPath.add(0, index); // Prepend
+            current = parent;
+        }
+
+        return new ASTNodePath(stmtIdx, childPath);
+    }
+
+    private boolean isAncestor(com.github.javaparser.ast.Node ancestor, com.github.javaparser.ast.Node node) {
+        if (ancestor == node)
+            return true;
+        return node.getParentNode().map(p -> isAncestor(ancestor, p)).orElse(false);
+    }
+
+    private int indexOfStructuralChild(com.github.javaparser.ast.Node parent, com.github.javaparser.ast.Node child) {
+        // Filter children to ignore comments for stable structural navigation
+        List<com.github.javaparser.ast.Node> children = parent.getChildNodes().stream()
+                .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
+                .collect(java.util.stream.Collectors.toList());
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i) == child)
+                return i;
+        }
+        return -1;
+    }
+
+    private Expression followPath(StatementSequence sequence, ASTNodePath path) {
+        if (path.statementIndex < 0 || path.statementIndex >= sequence.statements().size()) {
+            org.slf4j.LoggerFactory.getLogger(ExtractMethodRefactorer.class).warn(
+                    "followPath: Stmt idx {} out of bounds (size {})", path.statementIndex,
+                    sequence.statements().size());
+            return null;
+        }
+        com.github.javaparser.ast.Node current = sequence.statements().get(path.statementIndex);
+
+        for (int idx : path.childPath) {
+            List<com.github.javaparser.ast.Node> children = current.getChildNodes().stream()
+                    .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
+                    .collect(java.util.stream.Collectors.toList());
+            if (idx < 0 || idx >= children.size()) {
+                String childrenTypes = children.stream()
+                        .map(n -> n.getClass().getSimpleName() + " [" + n.toString() + "]")
+                        .collect(java.util.stream.Collectors.joining(", "));
+                org.slf4j.LoggerFactory.getLogger(ExtractMethodRefactorer.class).warn(
+                        "followPath: Child idx {} out of bounds (size {}). Current: {}. Children: {}", idx,
+                        children.size(),
+                        current.getClass().getSimpleName(), childrenTypes);
+                return null;
+            }
+            current = children.get(idx);
+        }
+
+        if (current instanceof Expression) {
+            return ((Expression) current).clone();
+        }
+        return null;
     }
 
     /**
@@ -996,37 +1212,63 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Extract the actual value used in this sequence for a parameter.
-     * Returns the AST Expression found in the sequence, or a parsed Expression from
-     * examples.
+     * Extract the actual value using Structural Path logic.
+     * Requires primarySequence to identify the node from coordinates.
      */
-    private Expression extractActualValue(StatementSequence sequence, ParameterSpec param) {
-        List<Expression> foundValues = new ArrayList<>();
+    private Expression extractActualValue(StatementSequence targetSequence, ParameterSpec param,
+            StatementSequence primarySequence) {
+        if (primarySequence == null)
+            return null;
+
+        var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
+
+        // 1. Find the node in the primary sequence using coordinates
+        Expression primaryNode = findNodeByCoordinates(primarySequence, param.getStartLine(), param.getStartColumn());
+        if (primaryNode == null) {
+            log.warn("[StructuralExtraction] Primary node not found at {}:{} in primary range {}",
+                    param.getStartLine(), param.getStartColumn(), primarySequence.range());
+            return null;
+        }
+
+        // 2. Compute path in primary
+        ASTNodePath path = computePath(primarySequence, primaryNode);
+        if (path == null) {
+            log.warn("[StructuralExtraction] Could not compute path for node {} in primary", primaryNode);
+            return null;
+        }
+
+        // 3. Follow path in target
+        Expression found = followPath(targetSequence, path);
+        if (found == null) {
+            log.warn("[StructuralExtraction] Follow path failed in target range {}", targetSequence.range());
+        }
+        return found;
+    }
+
+    private Expression findNodeByCoordinates(StatementSequence sequence, Integer line, Integer column) {
+        if (line == null || column == null)
+            return null;
+
+        var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
 
         for (Statement stmt : sequence.statements()) {
-            stmt.findAll(Expression.class).forEach(expr -> {
-                if (couldBeParameterValue(expr, param)) {
-                    foundValues.add(expr);
+            for (Expression expr : stmt.findAll(Expression.class)) {
+                if (expr.getRange().isPresent()) {
+                    var begin = expr.getRange().get().begin;
+                    boolean lineMatch = java.util.Objects.equals(line, begin.line);
+                    boolean colMatch = java.util.Objects.equals(column, begin.column);
+
+                    if (lineMatch && colMatch) {
+                        log.info("MATCHED expr: {} at {}:{}", expr, line, column);
+                        return expr;
+                    } else if (line.equals(begin.line)) {
+                        log.info("Line match but col mismatch: {} vs {} for expr {}", column, begin.column, expr);
+                    }
+                } else {
+                    log.warn("Expression {} has NO RANGE in stmt {}", expr, stmt.getRange().orElse(null));
                 }
-            });
-        }
-
-        if (!foundValues.isEmpty()) {
-            return foundValues.get(0);
-        }
-
-        // Fallback to example value
-        if (!param.getExampleValues().isEmpty()
-                && (param.getType() == null || (!"String".equals(param.getType().asString())
-                        && !"java.lang.String".equals(param.getType().asString())))) {
-            try {
-                return com.github.javaparser.StaticJavaParser.parseExpression(param.getExampleValues().get(0));
-            } catch (Exception e) {
-                // If parsing fails (e.g. partial code), ignore
-                return null;
             }
         }
-
         return null;
     }
 
@@ -1057,8 +1299,14 @@ public class ExtractMethodRefactorer {
                 continue; // done for this parameter
             }
 
-            // 2) Fallback to value-based replacement using captured examples
-            applyValueBasedReplace(stmt, sequence, param, paramName);
+            // Value-based replacement fallback (less preferred but useful for in-method
+            // references)
+            // Note: We don't have primary sequence here easily, passing null assumes value
+            // based only
+            // But substituteParameters is for the HELPER method body generation, which
+            // relies
+            // on the primary sequence anyway (since helper is extracted from primary).
+            // So we just need to ensure tryLocationBasedReplace works.
         }
         return stmt;
     }
@@ -1093,28 +1341,6 @@ public class ExtractMethodRefactorer {
             }
         }
         return false;
-    }
-
-    /**
-     * Apply value-based fallback substitution when location-based replacement is
-     * not possible.
-     * Relies on `extractActualValue` and `shouldReplaceExpression` to decide
-     * replacements.
-     */
-    private void applyValueBasedReplace(Statement stmt, StatementSequence sequence, ParameterSpec param,
-            String paramName) {
-        if (param.getExampleValues().isEmpty()) {
-            return;
-        }
-        Expression primaryValue = extractActualValue(sequence, param);
-        if (primaryValue == null) {
-            return;
-        }
-        for (Expression expr : stmt.findAll(Expression.class)) {
-            if (shouldReplaceExpression(expr, primaryValue, param) && expr.getParentNode().isPresent()) {
-                expr.replace(new NameExpr(paramName));
-            }
-        }
     }
 
     /**

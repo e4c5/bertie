@@ -108,37 +108,45 @@ public class RefactoringEngine {
                 continue;
             }
 
-            ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
+            try {
+                ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
-            if (mode == RefactoringMode.DRY_RUN) {
-                // Collect diff for summary report
-                collectDryRunDiff(recommendation, result, i + 1);
-                System.out.println("  ✓ Dry-run: Changes not applied");
-                session.addSkipped(cluster, "Dry-run mode");
-                continue;
-            }
+                if (mode == RefactoringMode.DRY_RUN) {
+                    // Collect diff for summary report
+                    collectDryRunDiff(recommendation, result, i + 1);
+                    System.out.println("  ✓ Dry-run: Changes not applied");
+                    session.addSkipped(cluster, "Dry-run mode");
+                    continue;
+                }
 
-            // Create backups before writing (for all modified files)
-            for (Path file : result.modifiedFiles().keySet()) {
-                verifier.createBackup(file);
-            }
+                // Create backups before writing (for all modified files)
+                for (Path file : result.modifiedFiles().keySet()) {
+                    verifier.createBackup(file);
+                }
 
-            // Write refactored code to all files
-            result.apply();
-            System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
+                // Write refactored code to all files
+                result.apply();
+                System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
 
-            // Verify compilation
-            RefactoringVerifier.VerificationResult verify = verifier.verify();
-            if (verify.isSuccess()) {
-                System.out.println("  ✓ Verification passed");
-                session.addSuccess(cluster, result.description());
-                verifier.clearBackups();
-            } else {
-                System.out.println("  ❌ Verification failed:");
-                verify.errors().forEach(e -> System.out.println("     - " + e));
-                // Rollback
+                // Verify compilation
+                RefactoringVerifier.VerificationResult verify = verifier.verify();
+                if (verify.isSuccess()) {
+                    System.out.println("  ✓ Verification passed");
+                    session.addSuccess(cluster, result.description());
+                    verifier.clearBackups();
+                } else {
+                    System.out.println("  ❌ Verification failed:");
+                    verify.errors().forEach(e -> System.out.println("     - " + e));
+                    // Rollback
+                    verifier.rollback();
+                    session.addFailed(cluster, String.join("; ", verify.errors()));
+                }
+            } catch (Exception e) {
+                System.out.println("  ❌ Refactoring failed: " + e.getMessage());
+                // Ensure checking if rollback is needed in case files offered partial writes
+                // (unlikely based on implementation but safe)
                 verifier.rollback();
-                session.addFailed(cluster, String.join("; ", verify.errors()));
+                session.addFailed(cluster, "Exception: " + e.getMessage());
             }
 
         }

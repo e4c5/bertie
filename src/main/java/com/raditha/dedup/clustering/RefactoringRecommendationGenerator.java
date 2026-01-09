@@ -99,16 +99,46 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Deduplicate variations based on position
+        // Deduplicate variations based on position
         Map<Integer, VaryingExpression> uniqueVariations = new java.util.HashMap<>();
         for (VaryingExpression v : allVariations) {
             uniqueVariations.putIfAbsent(v.position(), v);
         }
 
-        // Reconstruct a merged analysis
+        // Initialize bindings map
+        Map<Integer, Map<StatementSequence, com.raditha.dedup.model.ExprInfo>> exprBindings = new java.util.HashMap<>();
+
+        // 1. Populate bindings for Primary (seq1) using uniqueVariations
+        for (VaryingExpression v : uniqueVariations.values()) {
+            exprBindings.computeIfAbsent(v.position(), k -> new java.util.HashMap<>())
+                    .put(seq1, com.raditha.dedup.model.ExprInfo.fromExpression(v.expr1()));
+        }
+
+        // 2. Populate bindings for Duplicates by re-analyzing
+        if (!cluster.duplicates().isEmpty()) {
+            for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
+                StatementSequence seqN = pair.seq2();
+                com.raditha.dedup.model.VariationAnalysis pairAnalysis = astVariationAnalyzer.analyzeVariations(seq1,
+                        seqN, cu1);
+
+                for (VaryingExpression v : pairAnalysis.varyingExpressions()) {
+                    int pos = v.position();
+                    if (uniqueVariations.containsKey(pos)) {
+                        Expression e2 = v.expr2();
+                        System.out.println("DEBUG: Binding pos=" + pos + " seqN=" + seqN.hashCode() + " expr=" + e2);
+                        exprBindings.computeIfAbsent(pos, k -> new java.util.HashMap<>())
+                                .put(seqN, com.raditha.dedup.model.ExprInfo.fromExpression(e2));
+                    }
+                }
+            }
+        }
+
+        // Reconstruct a merged analysis with bindings
         VariationAnalysis astAnalysis = com.raditha.dedup.model.VariationAnalysis.builder()
                 .varyingExpressions(new java.util.ArrayList<>(uniqueVariations.values()))
                 .variableReferences(allVarRefs)
                 .declaredInternalVariables(allInternalVars)
+                .exprBindings(exprBindings)
                 .build();
 
         // Extract parameters using AST-based extractor
@@ -187,9 +217,27 @@ public class RefactoringRecommendationGenerator {
         int validStatementCount = -1;
         Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
 
-        // Check varying expressions for internal dependency
+        // Check varying expressions for internal dependency or unsafe return types
         for (VaryingExpression vae : astAnalysis.getVaryingExpressions()) {
-            // Check if expression uses any internal variable
+            int stmtIndex = vae.position() >> 16; // Decode statement index
+
+            // 1. Check for type mismatch in ReturnStatement (unsafe to parameterize)
+            // Use vae.type() instead of commonType()
+            if (vae.type() == null || OBJECT.equals(vae.type().describe())) {
+                boolean unsafe = true;
+                // If it's OBJECT but has example values that are consistently NOT differing
+                // fundamentally
+                // (e.g. just specialized types), maybe safe?
+                // But for safety, if we fall back to Object in a return stmt, truncate.
+
+                if (unsafe && isReturnExpression(vae.expr1())) {
+                    if (validStatementCount == -1 || stmtIndex < validStatementCount) {
+                        validStatementCount = stmtIndex;
+                    }
+                }
+            }
+
+            // 2. Check internal variable dependency
             Set<String> usedInternalVars = new HashSet<>();
             vae.expr1().findAll(com.github.javaparser.ast.expr.NameExpr.class).forEach(n -> {
                 if (declaredVars.contains(n.getNameAsString())) {
@@ -198,22 +246,18 @@ public class RefactoringRecommendationGenerator {
             });
 
             if (!usedInternalVars.isEmpty()) {
-                // Found invalid variation. Truncate BEFORE this statement.
-                validStatementCount = vae.position();
-
-                // If exactly one internal variable is used, that's our return candidate!
+                if (validStatementCount == -1 || stmtIndex < validStatementCount) {
+                    validStatementCount = stmtIndex;
+                }
                 if (usedInternalVars.size() == 1) {
                     primaryReturnVariable = usedInternalVars.iterator().next();
                 }
-                break;
             }
         }
 
         // Determine return type using data flow analysis
         String returnType;
         if (validStatementCount != -1) {
-            // If primaryReturnVariable was identified from dependency, use it to determine
-            // type
             if (primaryReturnVariable != null) {
                 String typeStr = findTypeInContext(cluster.primary(), primaryReturnVariable);
                 returnType = typeStr != null ? typeStr : OBJECT;
@@ -230,18 +274,17 @@ public class RefactoringRecommendationGenerator {
                 }
             }
         } else {
+            // Default return logic
             returnType = determineReturnType(cluster);
+            primaryReturnVariable = findReturnVariable(cluster.primary(), declaredVars);
         }
 
         // Create empty TypeCompatibility for backward compat
-        TypeCompatibility typeCompat = new TypeCompatibility(
-                true,
-                java.util.Collections.emptyMap(),
-                "void",
+        TypeCompatibility typeCompat = new TypeCompatibility(true, java.util.Collections.emptyMap(), "void",
                 java.util.Collections.emptyList());
 
         // Calculate confidence
-        double confidence = calculateConfidence(cluster, typeCompat, parameters);
+        double confidence = calculateConfidence(cluster, typeCompat, parameters, validStatementCount);
 
         // duplicates
         // This helps when data flow analysis fails for a specific duplicate but works
@@ -258,11 +301,12 @@ public class RefactoringRecommendationGenerator {
                 methodName,
                 parameters,
                 StaticJavaParser.parseType(returnType != null ? returnType : "void"),
-                "",
+                "", // Revert to empty string
                 confidence,
                 cluster.estimatedLOCReduction(),
                 primaryReturnVariable,
-                validStatementCount); // Passed new argument
+                validStatementCount,
+                astAnalysis);
     }
 
     /**
@@ -896,7 +940,8 @@ public class RefactoringRecommendationGenerator {
     private double calculateConfidence(
             DuplicateCluster cluster,
             TypeCompatibility typeCompat,
-            List<ParameterSpec> parameters) {
+            List<ParameterSpec> parameters,
+            int validStatementCount) { // NEW arg
 
         double score = 1.0;
 
@@ -910,7 +955,13 @@ public class RefactoringRecommendationGenerator {
             score *= 0.8;
 
         // NEW: Check for multiple live-out variables (which cannot be returned)
-        Set<String> liveOuts = dataFlowAnalyzer.findLiveOutVariables(cluster.primary());
+        // Must use TRUNCATED sequence if applicable
+        StatementSequence sequenceToAnalyze = cluster.primary();
+        if (validStatementCount != -1) {
+            sequenceToAnalyze = createPrefixSequence(cluster.primary(), validStatementCount);
+        }
+
+        Set<String> liveOuts = dataFlowAnalyzer.findLiveOutVariables(sequenceToAnalyze);
         if (liveOuts.size() > 1) {
             // Returning multiple values requires a wrapper object, which we don't support
             // yet.
@@ -1047,6 +1098,7 @@ public class RefactoringRecommendationGenerator {
         Range prefixRange = new Range(fullRange.startLine(), fullRange.startColumn(), endLine, endColumn);
 
         // Pass original compilation unit and file path
+        // Correct Constructor: (List, Range, int, MethodDecl, CU, Path)
         return new StatementSequence(
                 prefixStmts,
                 prefixRange,
@@ -1054,6 +1106,15 @@ public class RefactoringRecommendationGenerator {
                 fullSequence.containingMethod(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
+    }
+
+    private boolean isReturnExpression(Expression expr) {
+        return expr.findAncestor(com.github.javaparser.ast.stmt.ReturnStmt.class).isPresent();
+    }
+
+    private String findReturnVariable(StatementSequence sequence, Set<String> declaredVars) {
+        // declaredVars unused by DFA
+        return dataFlowAnalyzer.findReturnVariable(sequence, null);
     }
 
     public static class TypeInferenceException extends RuntimeException {

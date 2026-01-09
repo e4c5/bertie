@@ -247,7 +247,7 @@ public class DataFlowAnalyzer {
     }
 
     private String findFallBackCandidate(StatementSequence sequence, String returnType) {
-        if ("void".equals(returnType)) {
+        if (returnType == null || "void".equals(returnType)) {
             return null;
         }
 

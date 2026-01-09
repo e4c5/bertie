@@ -163,7 +163,10 @@ public class ASTVariationAnalyzer {
                     commonType = null; // Fallback if either is unresolved
                 }
 
-                variations.add(new VaryingExpression(position, e1, e2, commonType));
+                // CRITICAL FIX: Ensure unique position for each expression in statement
+                // Encode statement position in high bits, expression index in low bits
+                int uniquePos = (position << 16) + i;
+                variations.add(new VaryingExpression(uniquePos, e1, e2, commonType));
             }
         }
     }

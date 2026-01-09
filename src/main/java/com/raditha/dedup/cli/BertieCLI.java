@@ -142,6 +142,7 @@ public class BertieCLI implements Callable<Integer> {
             return 4; // Interrupted
         } catch (Exception e) {
             // General application errors
+            e.printStackTrace(); // ADDED
             System.err.println("Error: " + e.getMessage());
             if (e.getCause() != null) {
                 System.err.println("Caused by: " + e.getCause().getMessage());
