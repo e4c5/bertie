@@ -236,6 +236,26 @@ public class RefactoringRecommendationGenerator {
             validStatementCount = minSequenceLength;
         }
 
+        // Fix for "Fuzzy Method Match" bug (assertTrue vs assertFalse, or different
+        // method calls):
+        // Validate structural consistency. If a duplicate has diverse structure (e.g.
+        // different method name),
+        // we must truncate the extraction BEFORE that point, or invalidate it.
+        int structuralLimit = validateStructuralConsistency(cluster,
+                validStatementCount != -1 ? validStatementCount : minSequenceLength);
+        if (structuralLimit < minSequenceLength
+                || (validStatementCount != -1 && structuralLimit < validStatementCount)) {
+            validStatementCount = structuralLimit;
+        }
+
+        if (validStatementCount == 0) {
+            // If structure differs from the start, we cannot extract anything safely.
+            // Return a low confidence recommendation to effectively abort.
+            return new RefactoringRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD, "",
+                    java.util.Collections.emptyList(), StaticJavaParser.parseType("void"), "", 0.0, 0, null, 0,
+                    astAnalysis);
+        }
+
         // Check varying expressions for internal dependency or unsafe return types
         for (VaryingExpression vae : astAnalysis.getVaryingExpressions()) {
             int stmtIndex = vae.position() >> 16; // Decode statement index
@@ -313,6 +333,29 @@ public class RefactoringRecommendationGenerator {
         // logic
         if (primaryReturnVariable == null && returnType != null && !"void".equals(returnType)) {
             primaryReturnVariable = dataFlowAnalyzer.findReturnVariable(cluster.primary(), returnType);
+        }
+
+        // Fix for Double Invocation Bug:
+        // Filter out parameters that belong to statements truncated from the method
+        // body.
+        // If we truncate the method, we must not pass arguments for the removed
+        // statements,
+        // otherwise expressions (like method calls) passed as arguments will be
+        // executed unnecessarily.
+        if (validStatementCount != -1 && validStatementCount < cluster.primary().statements().size()
+                && validStatementCount > 0) {
+            Statement lastAllowedStmt = cluster.primary().statements().get(validStatementCount - 1);
+            int limitLine = lastAllowedStmt.getEnd().map(p -> p.line).orElse(Integer.MAX_VALUE);
+
+            List<ParameterSpec> filteredParams = new java.util.ArrayList<>();
+            for (ParameterSpec p : parameters) {
+                // Keep if startLine is null (captured/synthetic) OR if it is before/on
+                // limitLine
+                if (p.getStartLine() == null || p.getStartLine() <= limitLine) {
+                    filteredParams.add(p);
+                }
+            }
+            parameters = filteredParams;
         }
 
         return new RefactoringRecommendation(
@@ -1145,4 +1188,72 @@ public class RefactoringRecommendationGenerator {
     // Lightweight holder for field metadata
     private record FieldInfo(String type, boolean isStatic) {
     }
+
+    /**
+     * Validate that all duplicates are structurally consistent with the primary
+     * sequence up to the limit.
+     * Returns the number of statements that are safe to extract (0 to limit).
+     */
+    private int validateStructuralConsistency(DuplicateCluster cluster, int limit) {
+        StatementSequence primary = cluster.primary();
+        int safeLimit = limit;
+
+        for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
+            StatementSequence duplicate = pair.seq2();
+            int currentSafe = 0;
+
+            // Iterate through statements up to the limit
+            int loopMax = Math.min(limit, Math.min(primary.statements().size(), duplicate.statements().size()));
+
+            for (int i = 0; i < loopMax; i++) {
+                Statement s1 = primary.statements().get(i);
+                Statement s2 = duplicate.statements().get(i);
+
+                if (!areStructurallyCompatible(s1, s2)) {
+                    break;
+                }
+                currentSafe++;
+            }
+
+            // The effective safe limit is the minimum across all duplicates
+            if (currentSafe < safeLimit) {
+                safeLimit = currentSafe;
+            }
+        }
+        return safeLimit;
+    }
+
+    private boolean areStructurallyCompatible(com.github.javaparser.ast.Node n1, com.github.javaparser.ast.Node n2) {
+        if (n1.getMetaModel() != n2.getMetaModel()) {
+            return false;
+        }
+
+        // METHOD CALLS: Must have same method name!
+        if (n1 instanceof MethodCallExpr) {
+            MethodCallExpr mc1 = (MethodCallExpr) n1;
+            MethodCallExpr mc2 = (MethodCallExpr) n2;
+            if (!mc1.getNameAsString().equals(mc2.getNameAsString())) {
+                // Method name mismatch (e.g. assertTrue vs assertFalse, processUser vs
+                // processAnotherUser)
+                return false;
+            }
+        }
+
+        // Recurse on children (ALL children, including those inside VariableDeclarator)
+        List<com.github.javaparser.ast.Node> children1 = n1.getChildNodes();
+        List<com.github.javaparser.ast.Node> children2 = n2.getChildNodes();
+
+        if (children1.size() != children2.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < children1.size(); i++) {
+            if (!areStructurallyCompatible(children1.get(i), children2.get(i))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
 }
