@@ -214,8 +214,27 @@ public class RefactoringRecommendationGenerator {
         String primaryReturnVariable = null;
 
         // Calculate valid statement count (truncate if internal dependencies found)
+        // Calculate valid statement count (truncate if internal dependencies found)
         int validStatementCount = -1;
         Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
+
+        // Fix for "Greedy Extraction" bug:
+        // Truncate to the minimum sequence length across all duplicates.
+        // If the primary sequence is longer (e.g., includes a trailing statement that
+        // matches some but not all duplicates),
+        // we must not include that trailing statement in the helper, or it will be
+        // duplicated in the shorter call sites.
+        int minSequenceLength = cluster.primary().statements().size();
+        for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
+            int seq2Size = pair.seq2().statements().size();
+            if (seq2Size < minSequenceLength) {
+                minSequenceLength = seq2Size;
+            }
+        }
+
+        if (minSequenceLength < cluster.primary().statements().size()) {
+            validStatementCount = minSequenceLength;
+        }
 
         // Check varying expressions for internal dependency or unsafe return types
         for (VaryingExpression vae : astAnalysis.getVaryingExpressions()) {

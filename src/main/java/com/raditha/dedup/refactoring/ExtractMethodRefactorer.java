@@ -905,12 +905,12 @@ public class ExtractMethodRefactorer {
             // But typically structure logic is definitive.
 
             // Priority 1: Structural Extraction (Most robust) - Fallback
-            // (Only runs if path wasn't precomputed or failed)
-            Expression structuralExpr = extractActualValue(sequence, param, primarySequence);
-            if (structuralExpr != null) {
-                return structuralExpr;
-            } else {
-
+            // (Skipped if we are using precomputed paths, as logic is identical but slower)
+            if (precomputedPaths == null) {
+                Expression structuralExpr = extractActualValue(sequence, param, primarySequence);
+                if (structuralExpr != null) {
+                    return structuralExpr;
+                }
             }
 
             // Priority 1.5: Invariant Fallback (for variationIndex == -1)
@@ -1249,23 +1249,13 @@ public class ExtractMethodRefactorer {
         if (line == null || column == null)
             return null;
 
-        var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
-
         for (Statement stmt : sequence.statements()) {
             for (Expression expr : stmt.findAll(Expression.class)) {
                 if (expr.getRange().isPresent()) {
                     var begin = expr.getRange().get().begin;
-                    boolean lineMatch = java.util.Objects.equals(line, begin.line);
-                    boolean colMatch = java.util.Objects.equals(column, begin.column);
-
-                    if (lineMatch && colMatch) {
-                        log.info("MATCHED expr: {} at {}:{}", expr, line, column);
+                    if (begin.line == line && begin.column == column) {
                         return expr;
-                    } else if (line.equals(begin.line)) {
-                        log.info("Line match but col mismatch: {} vs {} for expr {}", column, begin.column, expr);
                     }
-                } else {
-                    log.warn("Expression {} has NO RANGE in stmt {}", expr, stmt.getRange().orElse(null));
                 }
             }
         }
