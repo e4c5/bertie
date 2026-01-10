@@ -141,7 +141,6 @@ public class DataFlowAnalyzer {
                 boolean isAfter = range.begin.line > endLine
                         || (range.begin.line == endLine && range.begin.column > endColumn);
 
-
                 if (isAfter) {
                     usedAfter.add(nameExpr.getNameAsString());
                 }
@@ -326,54 +325,6 @@ public class DataFlowAnalyzer {
         }
 
         // 4. Check compatibility
-        return checkCompatibility(varWrapper, expectedWrapper);
-    }
-
-    private boolean checkCompatibility(TypeWrapper varWrapper, TypeWrapper expectedWrapper) {
-        // Case 1: Both are Reflection types
-        if (varWrapper.getClazz() != null && expectedWrapper.getClazz() != null) {
-            return expectedWrapper.getClazz().isAssignableFrom(varWrapper.getClazz());
-        }
-
-        // Case 2: Both are AST Types or Mixed - Check FQN equality first
-        String varFQN = varWrapper.getFullyQualifiedName();
-        String expectedFQN = expectedWrapper.getFullyQualifiedName();
-
-        if (varFQN != null && varFQN.equals(expectedFQN)) {
-            return true;
-        }
-
-        // Case 3: AST Inheritance Check
-        // If the variable type is an AST type, we can check its ancestors
-        if (varWrapper.getType() != null && varWrapper.getType().isClassOrInterfaceDeclaration()) {
-            var typeDecl = varWrapper.getType().asClassOrInterfaceDeclaration();
-
-            // Check extended types (superclasses)
-            if (typeDecl.getExtendedTypes() != null) {
-                for (var extended : typeDecl.getExtendedTypes()) {
-                    String extendedFQN = AbstractCompiler.findFullyQualifiedName(
-                            varWrapper.getType().findCompilationUnit().orElse(null), extended);
-                    if (extendedFQN != null && extendedFQN.equals(expectedFQN)) {
-                        return true;
-                    }
-                    // Only deep check if we really need to (performance tradeoff)
-                    // Ideally we would recursively resolve, but 1-level up + FQN match catches most
-                    // direct inheritance
-                }
-            }
-
-            // Check implemented interfaces
-            if (typeDecl.getImplementedTypes() != null) {
-                for (var implemented : typeDecl.getImplementedTypes()) {
-                    String implFQN = AbstractCompiler.findFullyQualifiedName(
-                            varWrapper.getType().findCompilationUnit().orElse(null), implemented);
-                    if (implFQN != null && implFQN.equals(expectedFQN)) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
+        return expectedWrapper.isAssignableFrom(varWrapper);
     }
 }
