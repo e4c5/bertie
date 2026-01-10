@@ -96,13 +96,7 @@ public class ParameterSpec {
             com.github.javaparser.ast.type.Type litType = AbstractCompiler.convertLiteralToType(expr.asLiteralExpr());
             TypeWrapper litTypeWrapper = AbstractCompiler.findType(cu, litType);
 
-            if (paramTypeWrapper != null) {
-                if (litTypeWrapper != null && paramTypeWrapper.isAssignableFrom(litTypeWrapper)) {
-                    return true;
-                }
-            } else {
-                // Fallback removed
-            }
+            return paramTypeWrapper != null && litTypeWrapper != null && paramTypeWrapper.isAssignableFrom(litTypeWrapper);
         }
 
         return false;

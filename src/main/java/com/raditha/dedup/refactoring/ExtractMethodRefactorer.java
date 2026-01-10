@@ -35,6 +35,9 @@ public class ExtractMethodRefactorer {
     public static final String DOUBLE = "Double";
     public static final String Boolean = "Boolean";
 
+    private record HelperMethodResult(MethodDeclaration method, List<ParameterSpec> usedParameters) {
+    }
+
     /**
      * Perform extract method refactoring.
      * 
@@ -51,7 +54,9 @@ public class ExtractMethodRefactorer {
         modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
 
         // 1. Create the new helper method (tentative)
-        MethodDeclaration helperMethod = createHelperMethod(primary, recommendation);
+        HelperMethodResult helperResult = createHelperMethod(primary, recommendation);
+        MethodDeclaration helperMethod = helperResult.method();
+        List<ParameterSpec> effectiveParams = helperResult.usedParameters();
 
         // 2. Add method to the class (modifies primary CU) — but first, try to REUSE
         // existing equivalent helper
@@ -84,11 +89,11 @@ public class ExtractMethodRefactorer {
 
         // Phase 0: Precompute AST paths for parameters (while primary is intact)
         Map<ParameterSpec, ASTNodePath> precomputedPaths = precomputeParameterPaths(primary,
-                recommendation.getSuggestedParameters());
+                effectiveParams);
 
         for (StatementSequence seq : uniqueSequences) {
             MethodCallExpr call = prepareReplacement(seq, recommendation, recommendation.getVariationAnalysis(),
-                    methodNameToUse, primary, precomputedPaths);
+                    methodNameToUse, primary, precomputedPaths, effectiveParams);
             if (call == null) {
                 log.warn("Aborting refactoring for cluster: Argument resolution failed for sequence {}", seq.range());
                 // Remove the potentially added helper method to keep code clean?
@@ -151,7 +156,7 @@ public class ExtractMethodRefactorer {
      * Create the helper method from the primary sequence.
      * Simplified by delegating cohesive responsibilities to dedicated helpers.
      */
-    private MethodDeclaration createHelperMethod(StatementSequence sequence,
+    private HelperMethodResult createHelperMethod(StatementSequence sequence,
             RefactoringRecommendation recommendation) {
         MethodDeclaration method = initializeHelperMethod(recommendation);
         applyMethodModifiers(method, sequence);
@@ -174,7 +179,30 @@ public class ExtractMethodRefactorer {
         Set<String> declaredVars = collectDeclaredVariableNames(sequence, recommendation);
         Map<ParameterSpec, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
                 sortedParams);
-        addParameters(method, sortedParams, paramNameOverrides);
+
+        // CRITICAL FIX: Filter out unused parameters!
+        // The recommendation might include parameters that are variables in the scope
+        // but not actually used
+        // in the extracted sequence (e.g. if the sequence was truncated or analyzed
+        // conservatively).
+        // Including unused parameters changes the signature and prevents finding
+        // equivalent helpers.
+        BlockStmt tempBody = buildHelperMethodBody(sequence, recommendation,
+                determineTargetReturnVar(sequence, method.getType().asString()),
+                paramNameOverrides);
+
+        List<ParameterSpec> usedParams = new ArrayList<>();
+        for (ParameterSpec param : sortedParams) {
+            String targetName = paramNameOverrides.getOrDefault(param, param.getName());
+            // Check if targetName is used in the body
+            boolean isUsed = tempBody.findAll(NameExpr.class).stream()
+                    .anyMatch(n -> n.getNameAsString().equals(targetName));
+            if (isUsed) {
+                usedParams.add(param);
+            }
+        }
+
+        addParameters(method, usedParams, paramNameOverrides);
 
         // Copy thrown exceptions
         copyThrownExceptions(method, sequence);
@@ -192,7 +220,7 @@ public class ExtractMethodRefactorer {
         }
 
         method.setBody(body);
-        return method;
+        return new HelperMethodResult(method, usedParams);
     }
 
     private boolean areStatementsValid(BlockStmt body) {
@@ -580,7 +608,7 @@ public class ExtractMethodRefactorer {
      */
     private MethodCallExpr prepareReplacement(StatementSequence sequence, RefactoringRecommendation recommendation,
             VariationAnalysis variations, String methodNameToUse, StatementSequence primarySequence,
-            Map<ParameterSpec, ASTNodePath> precomputedPaths) {
+            Map<ParameterSpec, ASTNodePath> precomputedPaths, List<ParameterSpec> effectiveParams) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return null;
@@ -588,7 +616,7 @@ public class ExtractMethodRefactorer {
 
         // 1) Build arguments using precomputed paths (avoiding AST traversal issues)
         NodeList<Expression> arguments = buildArgumentsForCall(recommendation, variations, sequence, primarySequence,
-                precomputedPaths);
+                precomputedPaths, effectiveParams);
         if (arguments == null) {
             return null; // Could not resolve args safely
         }
@@ -682,9 +710,11 @@ public class ExtractMethodRefactorer {
             VariationAnalysis variations,
             StatementSequence sequence,
             StatementSequence primarySequence,
-            Map<ParameterSpec, ASTNodePath> precomputedPaths) {
+            Map<ParameterSpec, ASTNodePath> precomputedPaths,
+            List<ParameterSpec> effectiveParams) {
         // Delegate to a focused builder that preserves existing behavior and guardrails
-        return new ArgumentBuilder().buildArgs(recommendation, variations, sequence, primarySequence, precomputedPaths);
+        return new ArgumentBuilder().buildArgs(recommendation, variations, sequence, primarySequence, precomputedPaths,
+                effectiveParams);
     }
 
     /**
@@ -702,31 +732,17 @@ public class ExtractMethodRefactorer {
                 VariationAnalysis variations,
                 StatementSequence sequence,
                 StatementSequence primarySequence,
-                Map<ParameterSpec, ASTNodePath> precomputedPaths) {
+                Map<ParameterSpec, ASTNodePath> precomputedPaths,
+                List<ParameterSpec> effectiveParams) {
             NodeList<Expression> arguments = new NodeList<>();
 
             // DEBUG: Log parameter order
             var log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
             log.debug("[ArgumentBuilder] Building arguments for {} parameters",
-                    recommendation.getSuggestedParameters().size());
+                    effectiveParams.size());
 
-            // CRITICAL FIX: Sort parameters by variationIndex to ensure correct argument
-            // order
-            // Parameters must be in the same order as they appear in the method signature
-            // Note: variationIndex=-1 indicates variable references (arguments), not
-            // varying parameters
-            // These should be sorted to the END
-            List<ParameterSpec> sortedParams = new ArrayList<>(recommendation.getSuggestedParameters());
-            sortedParams.sort((p1, p2) -> {
-                // Treat null and -1 as MAX_VALUE to sort them to the end
-                Integer idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1)
-                        ? Integer.MAX_VALUE
-                        : p1.getVariationIndex();
-                Integer idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1)
-                        ? Integer.MAX_VALUE
-                        : p2.getVariationIndex();
-                return Integer.compare(idx1, idx2);
-            });
+            // Use the effective parameters which are already sorted and filtered
+            List<ParameterSpec> sortedParams = effectiveParams;
             // log.debug("[ArgumentBuilder] Sorted {} parameters by variationIndex",
             // sortedParams.size());
 
