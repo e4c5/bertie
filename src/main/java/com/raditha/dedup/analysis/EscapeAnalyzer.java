@@ -37,9 +37,27 @@ public class EscapeAnalyzer {
      * @return EscapeAnalysis containing all escape/capture information
      */
     public EscapeAnalysis analyze(StatementSequence sequence) {
-        Set<String> definedLocally = findLocalVariables(sequence);
-        Set<String> modifiedVariables = findModifiedVariables(sequence);
-        Set<String> readVariables = findReadVariables(sequence);
+        Set<String> definedLocally = new HashSet<>();
+        Set<String> modifiedVariables = new HashSet<>();
+        Set<String> readVariables = new HashSet<>();
+
+        for (Statement stmt : sequence.statements()) {
+            stmt.walk(node -> {
+                if (node instanceof VariableDeclarationExpr vde) {
+                    vde.getVariables().forEach(v -> definedLocally.add(v.getNameAsString()));
+                } else if (node instanceof AssignExpr ae) {
+                    if (ae.getTarget().isNameExpr()) {
+                        modifiedVariables.add(ae.getTarget().asNameExpr().getNameAsString());
+                    }
+                } else if (node instanceof UnaryExpr ue) {
+                    if (ue.getExpression().isNameExpr()) {
+                            modifiedVariables.add(ue.getExpression().asNameExpr().getNameAsString());
+                    }
+                } else if (node instanceof NameExpr ne) {
+                    readVariables.add(ne.getNameAsString());
+                }
+            });
+        }
 
         // Captured variables: read or modified but NOT defined locally
         Set<String> captured = new HashSet<>();
@@ -48,88 +66,19 @@ public class EscapeAnalyzer {
         captured.removeAll(definedLocally);
 
         // Escaping writes: variables modified that come from outer scope
-        Set<String> escapingWrites = new HashSet<>(modifiedVariables);
-        escapingWrites.removeAll(definedLocally);
+        modifiedVariables.removeAll(definedLocally);
 
         // Escaping reads: variables read from outer scope
-        Set<String> escapingReads = new HashSet<>(readVariables);
-        escapingReads.removeAll(definedLocally);
+        readVariables.removeAll(definedLocally);
 
         return new EscapeAnalysis(
-                escapingReads,
-                escapingWrites,
+                readVariables,
+                modifiedVariables,
                 captured,
                 definedLocally);
     }
 
-    /**
-     * Find all variables declared locally within the sequence.
-     */
-    private Set<String> findLocalVariables(StatementSequence sequence) {
-        Set<String> local = new HashSet<>();
 
-        for (Statement stmt : sequence.statements()) {
-            stmt.findAll(VariableDeclarationExpr.class).forEach(varDecl ->
-                varDecl.getVariables().forEach(v ->
-                    local.add(v.getNameAsString())
-                )
-            );
-        }
-
-        return local;
-    }
-
-    /**
-     * Find all variables that are MODIFIED (assigned to) in the sequence.
-     * 
-     * Includes:
-     * - Direct assignments: x = 5
-     * - Compound assignments: x += 1
-     * - Increment/decrement: x++, --x
-     */
-    private Set<String> findModifiedVariables(StatementSequence sequence) {
-        Set<String> modified = new HashSet<>();
-
-        for (Statement stmt : sequence.statements()) {
-            // Find all assignments
-            stmt.findAll(AssignExpr.class).forEach(assign -> {
-                if (assign.getTarget().isNameExpr()) {
-                    modified.add(assign.getTarget().asNameExpr().getNameAsString());
-                }
-            });
-
-            // Find all increment/decrement operations
-            stmt.findAll(UnaryExpr.class).forEach(unary -> {
-                if (unary.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT ||
-                        unary.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT ||
-                        unary.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
-                        unary.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT) {
-
-                    if (unary.getExpression().isNameExpr()) {
-                        modified.add(unary.getExpression().asNameExpr().getNameAsString());
-                    }
-                }
-            });
-        }
-
-        return modified;
-    }
-
-    /**
-     * Find all variables that are READ (used) in the sequence.
-     */
-    private Set<String> findReadVariables(StatementSequence sequence) {
-        Set<String> read = new HashSet<>();
-
-        for (Statement stmt : sequence.statements()) {
-            // Find all name expressions (variable references)
-            stmt.findAll(NameExpr.class).forEach(nameExpr ->
-                read.add(nameExpr.getNameAsString())
-            );
-        }
-
-        return read;
-    }
 
     /**
      * Result of escape analysis.
@@ -140,32 +89,11 @@ public class EscapeAnalyzer {
      * - capturedVariables: All variables captured from outer scope
      * - localVariables: Variables defined within the sequence
      */
-    public static class EscapeAnalysis {
-        private final Set<String> escapingReads;
-        private final Set<String> escapingWrites;
-        private final Set<String> capturedVariables;
-        private final Set<String> localVariables;
-
-        public  EscapeAnalysis() {
-            this (new HashSet<>(), new HashSet<>(), new HashSet<>(), new HashSet<>());
-        }
-
-        public EscapeAnalysis(Set<String> escapingReads,
-                              Set<String> escapingWrites,
-                              Set<String> capturedVariables,
-                              Set<String> localVariables) {
-            // Preserve immutability semantics similar to record
-            this.escapingReads = escapingReads;
-            this.escapingWrites = escapingWrites;
-            this.capturedVariables = capturedVariables;
-            this.localVariables = localVariables;
-        }
-
-        public Set<String> escapingReads() { return escapingReads; }
-        public Set<String> escapingWrites() { return escapingWrites; }
-        public Set<String> capturedVariables() { return capturedVariables; }
-        public Set<String> localVariables() { return localVariables; }
-
+    public record EscapeAnalysis(
+            Set<String> escapingReads,
+            Set<String> escapingWrites,
+            Set<String> capturedVariables,
+            Set<String> localVariables) {
         /**
          * Check if this sequence captures (modifies) outer variables.
          */

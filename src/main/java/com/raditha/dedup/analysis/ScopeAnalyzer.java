@@ -104,7 +104,7 @@ public class ScopeAnalyzer {
         List<VariableInfo> locals = new ArrayList<>();
 
         MethodDeclaration method = sequence.containingMethod();
-        if (method == null || !method.getBody().isPresent()) {
+        if (method == null || method.getBody().isEmpty()) {
             return locals;
         }
 

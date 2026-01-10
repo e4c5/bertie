@@ -74,13 +74,9 @@ public class DataFlowAnalyzer {
         Set<String> definedVars = findDefinedVariables(sequence);
         Set<String> usedAfter = findVariablesUsedAfter(sequence);
 
-        System.out.println("[DEBUG LiveOut] Defined in seq: " + definedVars);
-        System.out.println("[DEBUG LiveOut] Used after seq: " + usedAfter);
-
         // Return intersection: defined in sequence AND used after
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
-        System.out.println("[DEBUG LiveOut] Intersection (LiveOut): " + liveOut);
 
         return liveOut;
     }
@@ -136,9 +132,6 @@ public class DataFlowAnalyzer {
         int endLine = lastStmt.getRange().map(r -> r.end.line).orElse(sequence.range().endLine());
         int endColumn = lastStmt.getRange().map(r -> r.end.column).orElse(sequence.range().endColumn());
 
-        System.out.println("[DEBUG LiveOut-Trace] Seq (Stmt) ends at " + endLine + ":" + endColumn);
-        System.out.println("[DEBUG LiveOut-Trace] Analyzing Method: " + method.getNameAsString());
-
         // Scan the entire method body for variable usages
         BlockStmt methodBody = method.getBody().get();
         methodBody.findAll(NameExpr.class).forEach(nameExpr -> {
@@ -148,13 +141,6 @@ public class DataFlowAnalyzer {
                 boolean isAfter = range.begin.line > endLine
                         || (range.begin.line == endLine && range.begin.column > endColumn);
 
-                // Log scope details
-                if (isAfter || nameExpr.getNameAsString().equals("apiUrl")
-                        || nameExpr.getNameAsString().equals("timeout")) {
-                    System.out.println("[DEBUG LiveOut-Trace] Found '" + nameExpr.getNameAsString() + "' at "
-                            + range.begin.line + ":"
-                            + range.begin.column + " - IsAfter? " + isAfter);
-                }
 
                 if (isAfter) {
                     usedAfter.add(nameExpr.getNameAsString());
