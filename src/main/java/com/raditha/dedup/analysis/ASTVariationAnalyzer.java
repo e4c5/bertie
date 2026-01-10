@@ -317,36 +317,6 @@ public class ASTVariationAnalyzer {
         }
 
         @Override
-        public boolean isTypeVariable() {
-            return false;
-        }
-
-        @Override
-        public boolean isWildcard() {
-            return false;
-        }
-
-        @Override
-        public boolean isNull() {
-            return false;
-        }
-
-        @Override
-        public boolean isUnionType() {
-            return false;
-        }
-
-        @Override
-        public boolean isConstraint() {
-            return false;
-        }
-
-        @Override
-        public boolean isInferenceVariable() {
-            return false;
-        }
-
-        @Override
         public boolean isAssignableBy(ResolvedType other) {
             // Minimal implementation: exact name match
             return other.describe().equals(this.describe());

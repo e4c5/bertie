@@ -11,7 +11,6 @@ import com.raditha.dedup.model.SimilarityResult;
 import com.raditha.dedup.normalization.ASTNormalizer;
 import com.raditha.dedup.normalization.NormalizedNode;
 import com.raditha.dedup.config.SimilarityWeights;
-import com.raditha.dedup.model.TypeCompatibility;
 
 import java.util.*;
 
@@ -121,22 +120,6 @@ public class BoundaryRefiner {
         return refined;
     }
 
-    private boolean areSimilar(Statement s1, Statement s2) {
-        // Use AST normalizer which handles fuzzy matching
-        List<NormalizedNode> n1 = normalizer.normalize(Collections.singletonList(s1));
-        List<NormalizedNode> n2 = normalizer.normalize(Collections.singletonList(s2));
-
-        if (n1.size() != n2.size())
-            return false;
-
-        for (int i = 0; i < n1.size(); i++) {
-            // Compare normalized nodes for structural equality
-            if (!n1.get(i).structurallyEquals(n2.get(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     /**
      * Extend start boundary to include variable declarations.
@@ -398,9 +381,6 @@ public class BoundaryRefiner {
 
     }
 
-    /**
-     * Recalculate similarity for trimmed sequences.
-     */
     /**
      * Recalculate similarity for trimmed sequences.
      */

@@ -17,17 +17,4 @@ public record VaryingExpression(
         Expression expr1,
         Expression expr2,
         ResolvedType type) {
-    /**
-     * Get a representative expression (uses expr1).
-     */
-    public Expression getRepresentative() {
-        return expr1;
-    }
-
-    /**
-     * Check if this variation has a resolved type.
-     */
-    public boolean hasResolvedType() {
-        return type != null;
-    }
 }
