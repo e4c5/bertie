@@ -2,7 +2,7 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
-import com.github.javaparser.ast.NodeList;
+
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -16,8 +16,6 @@ import com.raditha.dedup.model.SimilarityPair;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Refactorer that converts duplicate test methods with varying data into
@@ -57,7 +55,7 @@ public class ExtractParameterizedTestRefactorer {
         // Create the parameterized test method
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
                 cluster.primary().containingMethod(),
-                recommendation.suggestedMethodName(),
+                recommendation.getSuggestedMethodName(),
                 parameters,
                 testInstances);
 

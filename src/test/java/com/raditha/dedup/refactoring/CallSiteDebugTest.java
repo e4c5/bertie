@@ -2,7 +2,6 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
@@ -16,55 +15,87 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 /**
- * DEBUG: See what duplicate is actually being detected
+ * Tests duplicate detection for object creation call sites.
+ * Verifies that duplicate object initialization patterns are properly detected
+ * and that appropriate refactoring recommendations are generated.
  */
 class CallSiteDebugTest {
 
     private DuplicationAnalyzer analyzer;
+    private Path testFile;
 
     @BeforeEach
     void setUp() {
         analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient());
+        testFile = Paths.get("test-bed/src/main/java/com/raditha/bertie/testbed/callsite/ServiceWithObjectCreation.java");
     }
 
     @Test
-    void testDebugWhatDuplicateWasFound() throws IOException {
-        Path sourceFile = Paths
-                .get("test-bed/src/main/java/com/raditha/bertie/testbed/callsite/ServiceWithObjectCreation.java");
+    void testDuplicateObjectCreationIsDetected() throws IOException {
+        // Given: A file with duplicate object initialization patterns
+        assertTrue(Files.exists(testFile), "Test file should exist: " + testFile);
 
-        if (!Files.exists(sourceFile)) {
-            System.out.println("SKIP: Test file doesn't exist");
-            return;
-        }
-
-        String code = Files.readString(sourceFile);
+        String code = Files.readString(testFile);
         CompilationUnit cu = StaticJavaParser.parse(code);
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        // When: We analyze the file for duplicates
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
-        System.out.println("\n=== DUPLICATE ANALYSIS DEBUG ===");
-        System.out.println("Clusters found: " + report.clusters().size());
+        // Then: At least one duplicate cluster should be detected
+        assertNotNull(report, "Report should not be null");
+        assertFalse(report.clusters().isEmpty(), "Should detect duplicate object creation patterns");
 
-        for (int i = 0; i < report.clusters().size(); i++) {
-            DuplicateCluster cluster = report.clusters().get(i);
+        DuplicateCluster cluster = report.clusters().get(0);
+        assertNotNull(cluster, "First cluster should not be null");
+
+        // Verify the cluster has a primary sequence
+        assertNotNull(cluster.primary(), "Cluster should have a primary sequence");
+        assertFalse(cluster.primary().statements().isEmpty(), "Primary sequence should contain statements");
+    }
+
+    @Test
+    void testRefactoringRecommendationIsGenerated() throws IOException {
+        // Given: A file with duplicate patterns
+        String code = Files.readString(testFile);
+        CompilationUnit cu = StaticJavaParser.parse(code);
+
+        // When: We analyze and generate recommendations
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+
+        // Then: Each cluster should have a refactoring recommendation
+        for (DuplicateCluster cluster : report.clusters()) {
             RefactoringRecommendation rec = cluster.recommendation();
 
-            System.out.println("\n--- Cluster #" + (i + 1) + " ---");
-            System.out.println("Primary sequence:");
-            System.out.println("  Line range: " + cluster.primary().range().startLine() + "-"
-                    + cluster.primary().range().endLine());
-            System.out.println("  Statement count: " + cluster.primary().statements().size());
-            System.out.println("  Statements:");
-            for (int j = 0; j < cluster.primary().statements().size(); j++) {
-                Statement stmt = cluster.primary().statements().get(j);
-                String stmtStr = stmt.toString().replaceAll("\\n", " ");
-                System.out.println("    " + (j + 1) + ". " + stmtStr.substring(0, Math.min(100, stmtStr.length())));
-            }
-            System.out.println("\nRecommendation:");
-            System.out.println("  Method name: " + rec.suggestedMethodName());
-            System.out.println("  Return type: " + rec.suggestedReturnType());
-            System.out.println("  Parameters: " + rec.suggestedParameters().size());
+            assertNotNull(rec, "Cluster should have a refactoring recommendation");
+            assertNotNull(rec.getSuggestedMethodName(), "Recommendation should have a method name");
+            assertFalse(rec.getSuggestedMethodName().isEmpty(),
+                    "Method name should not be empty");
+            assertNotNull(rec.getSuggestedReturnType(), "Recommendation should have a return type");
+            assertNotNull(rec.getSuggestedParameters(), "Recommendation should have parameters list");
+        }
+    }
+
+    @Test
+    void testDuplicateSequenceLinesAreValid() throws IOException {
+        // Given: A parsed file
+        String code = Files.readString(testFile);
+        CompilationUnit cu = StaticJavaParser.parse(code);
+
+        // When: We analyze for duplicates
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+
+        // Then: Line ranges should be valid
+        for (DuplicateCluster cluster : report.clusters()) {
+            int startLine = cluster.primary().range().startLine();
+            int endLine = cluster.primary().range().endLine();
+
+            assertTrue(startLine > 0, "Start line should be positive");
+            assertTrue(endLine >= startLine, "End line should be >= start line");
+            assertTrue(endLine < 1000, "End line should be reasonable (file is ~100 lines)");
         }
     }
 }

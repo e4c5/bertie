@@ -10,10 +10,12 @@ if [ ! -d "target/classes" ]; then
 fi
 
 # Get dependencies classpath
-CP="target/classes:$(mvn -q dependency:build-classpath -DincludeScope=runtime | tail -1)"
+mvn -q dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile=cp.txt
+CP="target/classes:$(cat cp.txt)"
+rm cp.txt
 
 # Run BertieCLI with all arguments passed through
-java -cp "$CP" com.raditha.dedup.BertieCLI "$@"
+java -cp "$CP" com.raditha.dedup.cli.BertieCLI "$@"
 
 
 

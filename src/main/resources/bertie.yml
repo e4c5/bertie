@@ -22,4 +22,4 @@ threshold: 70
 skip_getters_setters: true
 
 # Log level
-log_level: INFO
+log_level: DEBUG

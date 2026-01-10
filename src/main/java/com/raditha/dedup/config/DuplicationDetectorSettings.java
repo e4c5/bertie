@@ -27,19 +27,26 @@ public class DuplicationDetectorSettings {
      * @return Complete duplication configuration
      */
     public static DuplicationConfig loadConfig(int minLinesCLI, int thresholdCLI, String presetCLI) {
-        // Get config from generator.yml
+        // Get config from generator.yml (nested)
         Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = null;
 
-        if (!(yamlConfigRaw instanceof Map)) {
-            // No YAML config, use CLI or defaults
-            return createFromCLI(minLinesCLI, thresholdCLI, presetCLI);
+        if (yamlConfigRaw instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) yamlConfigRaw;
+            config = map;
         }
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> config = (Map<String, Object>) yamlConfigRaw;
-
-        // Determine preset (CLI > YAML)
-        String preset = presetCLI != null ? presetCLI : getString(config, "preset", null);
+        // Determine preset (CLI > YAML nested > YAML flat)
+        String preset = presetCLI;
+        if (preset == null) {
+            if (config != null) {
+                preset = getString(config, "preset", null);
+            }
+            if (preset == null) {
+                preset = getGlobalString("preset", null); // Flat fallback
+            }
+        }
 
         // Use preset if specified
         if (preset != null) {
@@ -50,25 +57,40 @@ public class DuplicationDetectorSettings {
             };
         }
 
-        // Build custom config (CLI overrides YAML overrides defaults)
-        int minLines = minLinesCLI != 0 ? minLinesCLI : getInt(config, "min_lines", 5);
-        double threshold = thresholdCLI != 0 ? thresholdCLI / 100.0 : getDouble(config, "threshold", 0.75);
+        // Build custom config (CLI > YAML nested > YAML flat > defaults)
+        int minLines = minLinesCLI != 0 ? minLinesCLI
+                : (config != null ? getInt(config, "min_lines", 5) : getGlobalInt("min_lines", 5));
 
-        boolean includeTests = getBoolean(config, "include_tests", false);
+        double thresholdDefault = (config != null ? getDouble(config, "threshold", 0.75)
+                : getGlobalDouble("threshold", 0.75));
+        if (thresholdDefault > 1.0) {
+            thresholdDefault /= 100.0;
+        }
+        double threshold = thresholdCLI != 0 ? thresholdCLI / 100.0 : thresholdDefault;
 
-        List<String> excludePatterns = getListString(config, "exclude_patterns");
-        if (excludePatterns.isEmpty()) {
+        boolean includeTests = (config != null ? getBoolean(config, "include_tests", false)
+                : getGlobalBoolean("include_tests", false));
+
+        List<String> excludePatterns;
+        if (config != null && config.containsKey("exclude_patterns")) {
+            excludePatterns = getListString(config, "exclude_patterns");
+        } else {
+            excludePatterns = getGlobalListString("exclude_patterns");
+        }
+
+        if (excludePatterns == null || excludePatterns.isEmpty()) {
             excludePatterns = getDefaultExcludes();
         }
 
         // Build similarity weights (from YAML or defaults)
-        SimilarityWeights weights = buildWeights(config);
+        SimilarityWeights weights = buildWeights(config); // Simplified, ignore flat weights for now or impl later if
+                                                          // needed
 
-        // Get max window growth (from YAML or default to 5)
-        int maxWindowGrowth = getInt(config, "max_window_growth", 5);
-
-        // Get maximalOnly flag (from YAML or default to true)
-        boolean maximalOnly = getBoolean(config, "maximal_only", true);
+        // Other settings
+        int maxWindowGrowth = (config != null ? getInt(config, "max_window_growth", 5)
+                : getGlobalInt("max_window_growth", 5));
+        boolean maximalOnly = (config != null ? getBoolean(config, "maximal_only", true)
+                : getGlobalBoolean("maximal_only", true));
 
         return new DuplicationConfig(
                 minLines,
@@ -93,6 +115,63 @@ public class DuplicationDetectorSettings {
             @SuppressWarnings("unchecked")
             Map<String, Object> config = (Map<String, Object>) yamlConfigRaw;
             return getString(config, "target_class", null);
+        }
+        // Fallback to top-level property
+        return getGlobalString("target_class", null);
+    }
+
+    // --- Global Helpers ---
+
+    private static String getGlobalString(String key, String defaultValue) {
+        Object val = Settings.getProperty(key);
+        return val != null ? val.toString() : defaultValue;
+    }
+
+    private static int getGlobalInt(String key, int defaultValue) {
+        Object val = Settings.getProperty(key);
+        if (val instanceof Number n)
+            return n.intValue();
+        if (val instanceof String s) {
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException e) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private static double getGlobalDouble(String key, double defaultValue) {
+        Object val = Settings.getProperty(key);
+        if (val instanceof Number n)
+            return n.doubleValue();
+        if (val instanceof String s) {
+            try {
+                return Double.parseDouble(s);
+            } catch (NumberFormatException e) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private static boolean getGlobalBoolean(String key, boolean defaultValue) {
+        Object val = Settings.getProperty(key);
+        if (val instanceof Boolean b)
+            return b;
+        if (val instanceof String s)
+            return Boolean.parseBoolean(s);
+        return defaultValue;
+    }
+
+    private static List<String> getGlobalListString(String key) {
+        Object val = Settings.getProperty(key);
+        if (val instanceof List) {
+            // Settings.getListString returns an empty list if not found, but we want null
+            // for consistency with other getGlobalX
+            // and to allow getDefaultExcludes to be called.
+            if (((List<?>) val).isEmpty()) {
+                return null;
+            }
+            return (List<String>) val;
         }
         return null;
     }
@@ -129,6 +208,9 @@ public class DuplicationDetectorSettings {
     }
 
     private static SimilarityWeights buildWeights(Map<String, Object> config) {
+        if (config == null) {
+            return SimilarityWeights.balanced();
+        }
         Object weightsObj = config.get("similarity_weights");
         if (weightsObj instanceof Map) {
             @SuppressWarnings("unchecked")

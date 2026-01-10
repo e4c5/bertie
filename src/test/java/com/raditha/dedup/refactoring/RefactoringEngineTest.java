@@ -49,7 +49,7 @@ class RefactoringEngineTest {
     }
 
     @Test
-    void testPrinting() throws IOException {
+    void testPrinting() throws IOException, InterruptedException {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Printing");
         Path sourceFile = tempDir.resolve("SimpleTest.java");
         Files.writeString(sourceFile, cu.toString());
@@ -59,6 +59,9 @@ class RefactoringEngineTest {
         // Should find duplicates
         assertTrue(report.hasDuplicates());
         assertFalse(report.clusters().isEmpty());
+
+        // Store original content
+        String originalContent = cu.toString();
 
         // Test dry-run mode (should not modify file)
         engine = new RefactoringEngine(
@@ -72,13 +75,13 @@ class RefactoringEngineTest {
         assertFalse(session.getSkipped().isEmpty());
         assertEquals(0, session.getSuccessful().size());
 
-        // File should not be modified
+        // File should not be modified in dry-run mode
         String fileAfter = Files.readString(sourceFile);
-        assertNotEquals(cu.toString(), fileAfter);
+        assertEquals(originalContent, fileAfter, "Dry-run should not modify the file");
     }
 
     @Test
-    void testBatchModeWithLowConfidence() throws IOException {
+    void testBatchModeWithLowConfidence() throws IOException, InterruptedException {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.Addition");
         Path sourceFile = tempDir.resolve("Test.java");
         Files.writeString(sourceFile, cu.toString());
@@ -113,7 +116,7 @@ class RefactoringEngineTest {
             var cluster = report.clusters().get(0);
             assertNotNull(cluster.recommendation());
             assertEquals(com.raditha.dedup.model.RefactoringStrategy.EXTRACT_HELPER_METHOD,
-                    cluster.recommendation().strategy(),
+                    cluster.recommendation().getStrategy(),
                     "Default strategy should be EXTRACT_HELPER_METHOD");
         }
     }
@@ -138,7 +141,7 @@ class RefactoringEngineTest {
     }
 
     @Test
-    void testNoDuplicatesFoundScenario() throws IOException {
+    void testNoDuplicatesFoundScenario() throws IOException, InterruptedException {
         String code = """
                 package com.test;
 

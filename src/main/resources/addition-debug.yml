@@ -1,0 +1,20 @@
+# Debug Configuration for Addition.java
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
+
+base_path: ${projects_folder}/bertie/test-bed
+base_package: com.raditha.bertie.testbed.simple
+output_path: /tmp/bertie-addition-debug
+
+target_class: com.raditha.bertie.testbed.simple.Addition
+
+min_lines: 3
+threshold: 10
+# threshold 10 to ensure everything is caught
+skip_getters_setters: true
+log_level: DEBUG
+
+refactor:
+  mode: BATCH
+  threshold: 10
+  verify: NONE

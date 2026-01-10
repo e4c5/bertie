@@ -1,0 +1,15 @@
+
+base_path: /home/raditha/csi/Antikythera/bertie/test-bed
+base_package: com.raditha.bertie.testbed
+output_path: /tmp/bertie-test-output-debug
+
+# Detection settings
+min_lines: 3
+threshold: 0.70
+
+# Target specific failing class
+duplication_detector:
+  # target_class: com.raditha.bertie.testbed.callsite.ServiceWithObjectCreation
+
+skip_getters_setters: true
+log_level: DEBUG

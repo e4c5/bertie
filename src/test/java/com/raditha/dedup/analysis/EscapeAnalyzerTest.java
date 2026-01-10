@@ -3,7 +3,6 @@ package com.raditha.dedup.analysis;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
-import com.raditha.dedup.analysis.EscapeAnalyzer.EscapeAnalysis;
 import com.raditha.dedup.model.StatementSequence;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -60,9 +59,7 @@ class EscapeAnalyzerTest {
                 Paths.get("Test.java"));
 
         // Test analyze method
-        EscapeAnalysis result = analyzer.analyze(sequence);
-        assertNotNull(result, "Analysis should return a result");
-
+        assertTrue(analyzer.analyze(sequence));
     }
 
     @Test
@@ -83,11 +80,7 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        // Test captured variables detection
-        EscapeAnalysis result = analyzer.analyze(sequence);
-        assertNotNull(result, "Should return analysis result");
-        assertNotNull(result.capturedVariables(), "Should have captured variables set");
-
+        assertFalse(analyzer.analyze(sequence));
     }
 
     @Test
@@ -106,10 +99,7 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        // Test escaping reads
-        EscapeAnalysis result = analyzer.analyze(sequence);
-        assertNotNull(result, "Should return analysis result");
-        assertNotNull(result.escapingReads(), "Should have escaping reads set");
+        assertTrue(analyzer.analyze(sequence));
     }
 
     @Test
@@ -141,12 +131,6 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        EscapeAnalysis result = analyzer.analyze(sequence);
-
-        // Verify all fields exist
-        assertNotNull(result.capturedVariables(), "Should have captured variables");
-        assertNotNull(result.escapingWrites(), "Should have escaping writes");
-        assertNotNull(result.escapingReads(), "Should have escaping reads");
-        assertNotNull(result.localVariables(), "Should have local variables");
+        assertTrue(analyzer.analyze(sequence));
     }
 }

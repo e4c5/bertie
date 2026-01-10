@@ -1,0 +1,11 @@
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
+
+base_path: ${projects_folder}/bertie/test-bed
+threshold: 50
+min_lines: 3
+target_class: com.raditha.bertie.testbed.testisolation.ServiceWithMutableUserSetupTest
+verify: NONE
+log_level: DEBUG
+refactor:
+  mode: BATCH

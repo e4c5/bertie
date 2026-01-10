@@ -6,13 +6,11 @@ import com.github.javaparser.ast.stmt.*;
 import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.Range;
-import com.raditha.dedup.similarity.SimilarityCalculator;
+import com.raditha.dedup.similarity.ASTSimilarityCalculator;
 import com.raditha.dedup.model.SimilarityResult;
-import com.raditha.dedup.detection.TokenNormalizer;
-import com.raditha.dedup.model.Token;
+import com.raditha.dedup.normalization.ASTNormalizer;
+import com.raditha.dedup.normalization.NormalizedNode;
 import com.raditha.dedup.config.SimilarityWeights;
-import com.raditha.dedup.model.VariationAnalysis;
-import com.raditha.dedup.model.TypeCompatibility;
 
 import java.util.*;
 
@@ -40,8 +38,8 @@ import java.util.*;
 public class BoundaryRefiner {
 
     private final DataFlowAnalyzer dataFlowAnalyzer;
-    private final TokenNormalizer normalizer;
-    private final SimilarityCalculator similarityCalculator;
+    private final ASTNormalizer normalizer;
+    private final ASTSimilarityCalculator similarityCalculator;
     private final int minStatements;
     private final double threshold;
 
@@ -54,8 +52,8 @@ public class BoundaryRefiner {
      */
     public BoundaryRefiner(DataFlowAnalyzer dataFlowAnalyzer, int minStatements, double threshold) {
         this.dataFlowAnalyzer = dataFlowAnalyzer;
-        this.normalizer = new TokenNormalizer();
-        this.similarityCalculator = new SimilarityCalculator();
+        this.normalizer = new ASTNormalizer();
+        this.similarityCalculator = new ASTSimilarityCalculator();
         this.minStatements = minStatements;
         this.threshold = threshold;
     }
@@ -122,6 +120,7 @@ public class BoundaryRefiner {
         return refined;
     }
 
+
     /**
      * Extend start boundary to include variable declarations.
      * If a variable is used in the sequence but not defined, and its declaration
@@ -139,7 +138,7 @@ public class BoundaryRefiner {
         }
 
         // Get the parent block to access preceding statements
-        if (sequence.containingMethod() == null || !sequence.containingMethod().getBody().isPresent()) {
+        if (sequence.containingMethod() == null || sequence.containingMethod().getBody().isEmpty()) {
             return sequence;
         }
 
@@ -161,7 +160,7 @@ public class BoundaryRefiner {
             return sequence; // Cannot extend backwards
         }
 
-        List<Statement> currentStmts = new ArrayList<>(sequence.statements());
+        Deque<Statement> merged = new ArrayDeque<>();
         boolean extended = false;
 
         // Look backwards from firstIdx - 1
@@ -170,22 +169,11 @@ public class BoundaryRefiner {
             Statement stmt = allStmts.get(currentIdx);
 
             // Check if this statement defines one of our captured variables
-            boolean relevantDeclaration = false;
-            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
-                VariableDeclarationExpr vde = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
-                for (var variable : vde.getVariables()) {
-                    if (captured.contains(variable.getNameAsString())) {
-                        relevantDeclaration = true;
-                        // It is now defined, remove from captured set to stop looking for it?
-                        // Ideally yes, but we might want to keep going for others.
-                        break;
-                    }
-                }
-            }
+            boolean relevantDeclaration = isRelevantDeclaration(stmt, captured);
 
             if (relevantDeclaration) {
-                // Prepend statement
-                currentStmts.add(0, stmt);
+                // Prepend statement efficiently
+                merged.addFirst(stmt);
                 extended = true;
                 currentIdx--;
             } else {
@@ -196,10 +184,30 @@ public class BoundaryRefiner {
         }
 
         if (extended) {
-            return createTrimmedSequence(sequence, currentStmts); // Re-use creation logic
+            // Append the original sequence statements preserving order
+            for (Statement s : sequence.statements()) {
+                merged.addLast(s);
+            }
+            return createTrimmedSequence(sequence, merged); // Re-use creation logic
         }
 
         return sequence;
+    }
+
+    private static boolean isRelevantDeclaration(Statement stmt, Set<String> captured) {
+        boolean relevantDeclaration = false;
+        if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+            VariableDeclarationExpr vde = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
+            for (var variable : vde.getVariables()) {
+                if (captured.contains(variable.getNameAsString())) {
+                    relevantDeclaration = true;
+                    // It is now defined, remove from captured set to stop looking for it?
+                    // Ideally yes, but we might want to keep going for others.
+                    break;
+                }
+            }
+        }
+        return relevantDeclaration;
     }
 
     /**
@@ -241,7 +249,7 @@ public class BoundaryRefiner {
 
         // If we can trim anything
         if (lastNonUsage < stmts.size() - 1) {
-            List<Statement> trimmed = stmts.subList(0, lastNonUsage + 1);
+            Deque<Statement> trimmed = new ArrayDeque<>(stmts.subList(0, lastNonUsage + 1));
             return createTrimmedSequence(sequence, trimmed);
         }
 
@@ -321,9 +329,7 @@ public class BoundaryRefiner {
         Set<String> used = new HashSet<>();
 
         // Find all name expressions (variable references)
-        stmt.findAll(NameExpr.class).forEach(nameExpr ->
-            used.add(nameExpr.getNameAsString())
-        );
+        stmt.findAll(NameExpr.class).forEach(nameExpr -> used.add(nameExpr.getNameAsString()));
 
         return used;
     }
@@ -341,12 +347,12 @@ public class BoundaryRefiner {
     /**
      * Create a new StatementSequence from a trimmed list of statements.
      */
-    private StatementSequence createTrimmedSequence(StatementSequence original, List<Statement> trimmed) {
+    private StatementSequence createTrimmedSequence(StatementSequence original, Deque<Statement> trimmed) {
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("Cannot create empty sequence");
         }
 
-        // Get range from first to last statement of trimmed list
+        // Get range from first to last statement of trimmed deque
         Statement first = trimmed.getFirst();
         Statement last = trimmed.getLast();
 
@@ -373,31 +379,20 @@ public class BoundaryRefiner {
                 firstRange.begin.column,
                 lastRange.end.column);
 
-
     }
 
     /**
      * Recalculate similarity for trimmed sequences.
      */
     private SimilarityResult recalculateSimilarity(StatementSequence seq1, StatementSequence seq2) {
-        // Normalize both sequences
-        List<Token> tokens1 = normalizer.normalizeStatements(seq1.statements());
-        List<Token> tokens2 = normalizer.normalizeStatements(seq2.statements());
+        // Normalize both sequences using AST normalization
+        List<NormalizedNode> n1 = normalizer.normalize(seq1.statements());
+        List<NormalizedNode> n2 = normalizer.normalize(seq2.statements());
 
-        // Track variations (simplified - full tracking not needed for threshold check)
-        VariationTracker tracker = new VariationTracker();
-        VariationAnalysis variations = tracker.trackVariations(tokens1, tokens2);
-
-        // Analyze type compatibility
-        TypeAnalyzer typeAnalyzer = new TypeAnalyzer();
-        TypeCompatibility typeCompat = typeAnalyzer.analyzeTypeCompatibility(variations);
-
-        // Calculate similarity with balanced weights
-        return similarityCalculator.calculate(
-                tokens1,
-                tokens2,
-                SimilarityWeights.balanced(),
-                variations,
-                typeCompat);
+        // Calculate similarity using AST-based calculator
+        // Note: ASTSimilarityCalculator calculates variations internally if needed,
+        // or returns a result without detailed variations if they aren't required for
+        // the score.
+        return similarityCalculator.calculate(n1, n2, SimilarityWeights.balanced());
     }
 }

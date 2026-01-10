@@ -3,6 +3,7 @@ package com.raditha.dedup.refactoring;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.RefactoringStrategy;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -14,13 +15,13 @@ import java.util.Map;
  * Main orchestrator for automated refactoring.
  * Coordinates validation, refactoring application, and verification.
  */
+@SuppressWarnings("java:S106")
 public class RefactoringEngine {
 
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
     private final RefactoringMode mode;
-    private final Path projectRoot;
     private final List<String> dryRunDiffs = new ArrayList<>();
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode) {
@@ -28,8 +29,7 @@ public class RefactoringEngine {
     }
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
-                             RefactoringVerifier.VerificationLevel verificationLevel) {
-        this.projectRoot = projectRoot;
+            RefactoringVerifier.VerificationLevel verificationLevel) {
         this.mode = mode;
         this.validator = new SafetyValidator();
         this.verifier = new RefactoringVerifier(projectRoot, verificationLevel);
@@ -39,10 +39,10 @@ public class RefactoringEngine {
     /**
      * Refactor all duplicates in a report.
      */
-    public RefactoringSession refactorAll(DuplicationReport report) throws IOException {
+    public RefactoringSession refactorAll(DuplicationReport report) throws IOException, InterruptedException {
         RefactoringSession session = new RefactoringSession();
 
-        System.out.println("%n=== Refactoring Session Started ===");
+        System.out.println("=== Refactoring Session Started ===");
         System.out.println("Mode: " + mode);
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
@@ -71,8 +71,13 @@ public class RefactoringEngine {
                 continue;
             }
 
+            if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
+                session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
+                continue;
+            }
+
             System.out.printf("Processing cluster #%d (Strategy: %s, Confidence: %.0f%%)%n",
-                    i + 1, recommendation.strategy(), recommendation.confidenceScore() * 100);
+                    i + 1, recommendation.getStrategy(), recommendation.getConfidenceScore() * 100);
 
             // Safety validation
             SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
@@ -103,38 +108,45 @@ public class RefactoringEngine {
                 continue;
             }
 
+            try {
+                ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
-            ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
+                if (mode == RefactoringMode.DRY_RUN) {
+                    // Collect diff for summary report
+                    collectDryRunDiff(recommendation, result, i + 1);
+                    System.out.println("  ✓ Dry-run: Changes not applied");
+                    session.addSkipped(cluster, "Dry-run mode");
+                    continue;
+                }
 
-            if (mode == RefactoringMode.DRY_RUN) {
-                // Collect diff for summary report
-                collectDryRunDiff(recommendation, result, i + 1);
-                System.out.println("  ✓ Dry-run: Changes not applied");
-                session.addSkipped(cluster, "Dry-run mode");
-                continue;
-            }
+                // Create backups before writing (for all modified files)
+                for (Path file : result.modifiedFiles().keySet()) {
+                    verifier.createBackup(file);
+                }
 
-            // Create backups before writing (for all modified files)
-            for (Path file : result.modifiedFiles().keySet()) {
-                verifier.createBackup(file);
-            }
+                // Write refactored code to all files
+                result.apply();
+                System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
 
-            // Write refactored code to all files
-            result.apply();
-            System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
-
-            // Verify compilation
-            RefactoringVerifier.VerificationResult verify = verifier.verify();
-            if (verify.isSuccess()) {
-                System.out.println("  ✓ Verification passed");
-                session.addSuccess(cluster, result.description());
-                verifier.clearBackups();
-            } else {
-                System.out.println("  ❌ Verification failed:");
-                verify.errors().forEach(e -> System.out.println("     - " + e));
-                // Rollback
+                // Verify compilation
+                RefactoringVerifier.VerificationResult verify = verifier.verify();
+                if (verify.isSuccess()) {
+                    System.out.println("  ✓ Verification passed");
+                    session.addSuccess(cluster, result.description());
+                    verifier.clearBackups();
+                } else {
+                    System.out.println("  ❌ Verification failed:");
+                    verify.errors().forEach(e -> System.out.println("     - " + e));
+                    // Rollback
+                    verifier.rollback();
+                    session.addFailed(cluster, String.join("; ", verify.errors()));
+                }
+            } catch (Exception e) {
+                System.out.println("  ❌ Refactoring failed: " + e.getMessage());
+                // Ensure checking if rollback is needed in case files offered partial writes
+                // (unlikely based on implementation but safe)
                 verifier.rollback();
-                session.addFailed(cluster, String.join("; ", verify.errors()));
+                session.addFailed(cluster, "Exception: " + e.getMessage());
             }
 
         }
@@ -158,7 +170,7 @@ public class RefactoringEngine {
     private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) throws IOException {
 
-        return switch (recommendation.strategy()) {
+        return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
                 ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
                 yield refactorer.refactor(cluster, recommendation);
@@ -170,8 +182,8 @@ public class RefactoringEngine {
                 yield new ExtractMethodRefactorer.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to @BeforeEach: " + recommendation.suggestedMethodName());
+                        recommendation.getStrategy(),
+                        "Extracted to @BeforeEach: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
                 ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
@@ -180,8 +192,8 @@ public class RefactoringEngine {
                 yield new ExtractMethodRefactorer.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to @ParameterizedTest: " + recommendation.suggestedMethodName());
+                        recommendation.getStrategy(),
+                        "Extracted to @ParameterizedTest: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_UTILITY_CLASS -> {
                 ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
@@ -189,7 +201,7 @@ public class RefactoringEngine {
                 yield result;
             }
             default -> throw new UnsupportedOperationException(
-                    "Refactoring strategy not yet implemented: " + recommendation.strategy());
+                    "Refactoring strategy not yet implemented: " + recommendation.getStrategy());
         };
     }
 
@@ -198,7 +210,7 @@ public class RefactoringEngine {
      */
     private boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         System.out.println("%n  === PROPOSED REFACTORING ===");
-        System.out.println("  Strategy: " + recommendation.strategy());
+        System.out.println("  Strategy: " + recommendation.getStrategy());
         System.out.println("  Method: " + recommendation.generateMethodSignature());
         System.out.println("  Confidence: " + recommendation.formatConfidence());
         System.out.println("  LOC Reduction: " + cluster.estimatedLOCReduction());
@@ -239,11 +251,11 @@ public class RefactoringEngine {
      * Collect diff for dry-run summary report.
      */
     private void collectDryRunDiff(RefactoringRecommendation recommendation,
-                                   ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
+            ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
         try {
             StringBuilder entry = new StringBuilder();
-            entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.strategy()));
-            entry.append(String.format("Confidence: %.0f%%%n", recommendation.confidenceScore() * 100));
+            entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.getStrategy()));
+            entry.append(String.format("Confidence: %.0f%%%n", recommendation.getConfidenceScore() * 100));
             entry.append(String.format("Files modified: %d%n", result.modifiedFiles().size()));
             entry.append(String.format("Method: %s%n", recommendation.generateMethodSignature()));
 
