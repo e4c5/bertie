@@ -69,17 +69,4 @@ public class MutabilityAnalyzer {
                 "Type '%s' appears to be mutable. Promoting to instance field may cause test isolation issues.",
                 typeName);
     }
-
-    public record MutabilityAnalysis(
-            Set<String> safeToPromote,
-            Set<String> unsafeToPromote,
-            boolean hasMutableTypes) {
-        public boolean allSafe() {
-            return unsafeToPromote.isEmpty();
-        }
-
-        public String getDescription() {
-            return allSafe() ? "All types are safe to promote" : "Mutable types detected: " + unsafeToPromote;
-        }
-    }
 }

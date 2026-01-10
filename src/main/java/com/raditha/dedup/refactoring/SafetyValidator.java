@@ -81,18 +81,16 @@ public class SafetyValidator {
     private boolean hasVariableScopeIssues(DuplicateCluster cluster) {
         EscapeAnalyzer analyzer = new EscapeAnalyzer();
 
-        // Check primary sequence
-        EscapeAnalyzer.EscapeAnalysis primaryAnalysis = analyzer.analyze(cluster.primary());
-        if (primaryAnalysis.hasCapture()) {
+        if (analyzer.analyze(cluster.primary())) {
             return true;
         }
 
         // Check all duplicate sequences
         for (SimilarityPair pair : cluster.duplicates()) {
-            EscapeAnalyzer.EscapeAnalysis analysis1 = analyzer.analyze(pair.seq1());
-            EscapeAnalyzer.EscapeAnalysis analysis2 = analyzer.analyze(pair.seq2());
-
-            if (analysis1.hasCapture() || analysis2.hasCapture()) {
+            if (analyzer.analyze(pair.seq1())) {
+                return true;
+            }
+            if (analyzer.analyze(pair.seq2())) {
                 return true;
             }
         }
