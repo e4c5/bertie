@@ -20,16 +20,16 @@
         <slf4j.version>2.0.13</slf4j.version>
         <javaparser.version>3.27.1</javaparser.version>
         <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
-        <antikythera.version>0.1.2.7</antikythera.version>
+        <antikythera.version>0.1.2.8</antikythera.version>
     </properties>
 
     <dependencies>
         <!-- Antikythera Core -->
-        <dependency>
-            <groupId>sa.com.cloudsolutions</groupId>
-            <artifactId>antikythera</artifactId>
-            <version>${antikythera.version}</version>
-        </dependency>
+	<dependency>
+	    <groupId>com.github.Cloud-Solutions-International</groupId>
+	    <artifactId>antikythera</artifactId>
+	    <version>Tag</version>
+	</dependency>
 
         <!-- JavaParser for code analysis -->
         <dependency>
