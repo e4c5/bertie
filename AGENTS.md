@@ -1,4 +1,4 @@
-# WARP.md
+# AGENTS.md
 Guidance for AI Coding Agents working on **Bertie**.
 
 ## Project Overview
@@ -45,6 +45,25 @@ graph TD
 -   **Dual AST**: `NormalizedNode` (Fuzzy/Anonymized) for detection, `StatementSequence` (Original) for refactoring.
 -   **Type Resolution**: Relies on Antikythera's `Resolver` and `TypeWrapper`.
 -   **Safety**: All refactorings follow: `Validate -> Backup -> Extract -> Apply -> Verify`.
+
+## 🛠️ Antikythera Power Tools
+Leverage these core library utilities to avoid reinventing the wheel:
+
+### `AntikytheraRunTime` (Global Cache)
+Acts as the central runtime state manager. Use `getCompilationUnit(String fqn)` to access cached ASTs instantaneously without re-parsing files.
+It also maintains global type caches, ensuring consistent state across the entire analysis pipeline.
+
+### `AbstractCompiler` (Parser & Resolver)
+The heavyweight wrapper around JavaParser. It provides robust type resolution methods like `findType()` and `findFullyQualifiedName()`,
+handling complex imports, wildcards, and inheritance hierarchies that standard JavaParser calls might miss. Best of all, 
+it integrates seamlessly with Antikythera's `Resolver` for deep type analysis. 
+
+### `Settings` (Configuration)
+Simplifies YAML configuration management. It automatically loads `bertie.yml` (and other configs) at startup. 
+Use `Settings.getProperty("key")` to access any configuration value without writing custom file I/O logic.
+
+### `DepSolver` (Dependency Engine)
+A powerful graph-based dependency extractor. It can build a complete dependency graph for a method or class using Depth-First Search (DFS), allowing you to identify every method, field, and type required to extract a standalone component.
 
 ## Common Commands
 ```bash
