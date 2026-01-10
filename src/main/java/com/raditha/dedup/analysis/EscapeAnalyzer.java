@@ -69,11 +69,11 @@ public class EscapeAnalyzer {
         Set<String> local = new HashSet<>();
 
         for (Statement stmt : sequence.statements()) {
-            stmt.findAll(VariableDeclarationExpr.class).forEach(varDecl -> {
-                varDecl.getVariables().forEach(v -> {
-                    local.add(v.getNameAsString());
-                });
-            });
+            stmt.findAll(VariableDeclarationExpr.class).forEach(varDecl ->
+                varDecl.getVariables().forEach(v ->
+                    local.add(v.getNameAsString())
+                )
+            );
         }
 
         return local;
@@ -123,58 +123,54 @@ public class EscapeAnalyzer {
 
         for (Statement stmt : sequence.statements()) {
             // Find all name expressions (variable references)
-            stmt.findAll(NameExpr.class).forEach(nameExpr -> {
-                read.add(nameExpr.getNameAsString());
-            });
+            stmt.findAll(NameExpr.class).forEach(nameExpr ->
+                read.add(nameExpr.getNameAsString())
+            );
         }
 
         return read;
     }
 
     /**
-     * Check if it's safe to extract this sequence.
-     * 
-     * Unsafe if:
-     * - Sequence modifies variables from outer scope (escaping writes)
-     * - These modifications are needed by code after the sequence
-     */
-    public boolean isSafeToExtract(StatementSequence sequence) {
-        EscapeAnalysis analysis = analyze(sequence);
-
-        // If there are escaping writes, extraction would break behavior
-        // because the extracted method can't modify caller's variables
-        return analysis.escapingWrites().isEmpty();
-    }
-
-    /**
      * Result of escape analysis.
-     * 
-     * @param escapingReads     Variables read from outer scope (can be parameters)
-     * @param escapingWrites    Variables modified from outer scope (UNSAFE!)
-     * @param capturedVariables All variables captured from outer scope
-     * @param localVariables    Variables defined within the sequence
+     *
+     * Fields:
+     * - escapingReads: Variables read from outer scope (can be parameters)
+     * - escapingWrites: Variables modified from outer scope (UNSAFE!)
+     * - capturedVariables: All variables captured from outer scope
+     * - localVariables: Variables defined within the sequence
      */
-    public record EscapeAnalysis(
-            Set<String> escapingReads,
-            Set<String> escapingWrites,
-            Set<String> capturedVariables,
-            Set<String> localVariables) {
+    public static class EscapeAnalysis {
+        private final Set<String> escapingReads;
+        private final Set<String> escapingWrites;
+        private final Set<String> capturedVariables;
+        private final Set<String> localVariables;
+
+        public  EscapeAnalysis() {
+            this (new HashSet<>(), new HashSet<>(), new HashSet<>(), new HashSet<>());
+        }
+
+        public EscapeAnalysis(Set<String> escapingReads,
+                              Set<String> escapingWrites,
+                              Set<String> capturedVariables,
+                              Set<String> localVariables) {
+            // Preserve immutability semantics similar to record
+            this.escapingReads = escapingReads;
+            this.escapingWrites = escapingWrites;
+            this.capturedVariables = capturedVariables;
+            this.localVariables = localVariables;
+        }
+
+        public Set<String> escapingReads() { return escapingReads; }
+        public Set<String> escapingWrites() { return escapingWrites; }
+        public Set<String> capturedVariables() { return capturedVariables; }
+        public Set<String> localVariables() { return localVariables; }
+
         /**
          * Check if this sequence captures (modifies) outer variables.
          */
         public boolean hasCapture() {
             return !escapingWrites.isEmpty();
-        }
-
-        /**
-         * Get a human-readable description of capture issues.
-         */
-        public String getCaptureDescription() {
-            if (!hasCapture()) {
-                return "No variable capture detected";
-            }
-
-            return "Modifies outer variables: " + escapingWrites;
         }
     }
 }

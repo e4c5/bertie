@@ -24,36 +24,17 @@ import java.util.Set;
  */
 public class DataFlowAnalyzer {
 
-    private static void findCandidate(StatementSequence sequence, Set<String> liveOut, VariableDeclarationExpr expr,
+    private static void findCandidate(Set<String> liveOut, Set<String> returnedVars, VariableDeclarationExpr expr,
             List<String> candidates) {
         VariableDeclarationExpr varDecl = expr.asVariableDeclarationExpr();
         for (var variable : varDecl.getVariables()) {
             String varName = variable.getNameAsString();
 
-            // Must be live out OR returned in a return statement within the sequence
-            boolean isLiveOut = liveOut.contains(varName);
-            boolean isReturned = false;
-
-            // Check if this variable is used in any return statement in the sequence
-            for (Statement s : sequence.statements()) {
-                if (s.isReturnStmt() && s.asReturnStmt().getExpression().isPresent()) {
-                    List<NameExpr> nameExprs = s.asReturnStmt().getExpression().get()
-                            .findAll(NameExpr.class);
-                    for (NameExpr nameExpr : nameExprs) {
-                        if (nameExpr.getNameAsString().equals(varName)) {
-                            isReturned = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
             // FIXED: Accept if live-out OR returned, regardless of type
-            if (isLiveOut || isReturned) {
+            if (liveOut.contains(varName) || returnedVars.contains(varName)) {
                 candidates.add(varName);
             }
         }
-
     }
 
     private static String findBestCandidate(List<String> candidates, StatementSequence sequence) {
@@ -197,15 +178,33 @@ public class DataFlowAnalyzer {
 
     public List<String> findCandidates(StatementSequence sequence, Set<String> liveOut) {
         List<String> candidates = new ArrayList<>();
+        Set<String> returnedVars = new HashSet<>();
+        List<VariableDeclarationExpr> varDecls = new ArrayList<>();
 
+        // Optimization: Single pass through statements to collect returns and
+        // declarations
         for (Statement stmt : sequence.statements()) {
+            // Check for Return Statements
+            if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
+                stmt.asReturnStmt().getExpression().get()
+                        .findAll(NameExpr.class)
+                        .forEach(n -> returnedVars.add(n.getNameAsString()));
+            }
+
+            // Check for Variable Declarations
             if (stmt.isExpressionStmt()) {
                 var expr = stmt.asExpressionStmt().getExpression();
                 if (expr.isVariableDeclarationExpr()) {
-                    findCandidate(sequence, liveOut, expr.asVariableDeclarationExpr(), candidates);
+                    varDecls.add(expr.asVariableDeclarationExpr());
                 }
             }
         }
+
+        // Process declarations with the full set of returned variables
+        for (VariableDeclarationExpr expr : varDecls) {
+            findCandidate(liveOut, returnedVars, expr, candidates);
+        }
+
         return candidates;
     }
 
