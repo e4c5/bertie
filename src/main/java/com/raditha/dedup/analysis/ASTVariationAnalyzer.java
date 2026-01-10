@@ -54,11 +54,9 @@ public class ASTVariationAnalyzer {
             findDifferences(stmt1, stmt2, i, variations);
 
             // Find variable references in first sequence (representative)
-            findVariableReferences(stmt1, varRefs, cu1, declaredInternalVars);
+            findVariableReferences(stmt1, varRefs, declaredInternalVars);
         }
 
-        logger.debug("[ASTVariationAnalyzer] Found {} varying expressions, {} variable references",
-                variations.size(), varRefs.size());
 
         // Create VariationAnalysis with AST-based data
         // Filter out parent variations (e.g. if 'assertEquals("a", b)' varies because
@@ -89,10 +87,7 @@ public class ASTVariationAnalyzer {
         for (VaryingExpression v1 : variations) {
             boolean isParent = false;
             for (VaryingExpression v2 : variations) {
-                if (v1 == v2)
-                    continue;
-                // If v1 contains v2, then v1 is a parent
-                if (v1.expr1().isAncestorOf(v2.expr1())) {
+                if (v1 != v2 && v1.expr1().isAncestorOf(v2.expr1())){
                     isParent = true;
                     break;
                 }
@@ -131,16 +126,11 @@ public class ASTVariationAnalyzer {
         // Compare expressions at same positions
         int minExprs = Math.min(exprs1.size(), exprs2.size());
 
-        System.out.println("[DEBUG Diff] Comparing Stmt " + position);
-        System.out.println(" S1: " + stmt1.toString().split("\n")[0]);
-        System.out.println(" S2: " + stmt2.toString().split("\n")[0]);
-
         for (int i = 0; i < minExprs; i++) {
             Expression e1 = exprs1.get(i);
             Expression e2 = exprs2.get(i);
 
             if (!expressionsEquivalent(e1, e2)) {
-                System.out.println(" [Diff] Expr " + i + ": " + e1 + " vs " + e2);
 
                 // Resolve type
                 ResolvedType type1 = resolveExpressionType(e1);
@@ -186,7 +176,6 @@ public class ASTVariationAnalyzer {
     private void findVariableReferences(
             Statement stmt,
             Set<VariableReference> varRefs,
-            CompilationUnit cu,
             Set<String> declaredInternalVars) {
         // Find all NameExpr (variable references)
         stmt.findAll(NameExpr.class).forEach(nameExpr -> {
