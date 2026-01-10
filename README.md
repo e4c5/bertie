@@ -7,6 +7,8 @@
 [![Java 21](https://img.shields.io/badge/Java-21-orange)](https://openjdk.org/projects/jdk/21/)
 [![Maven](https://img.shields.io/badge/Maven-3.6+-blue)](https://maven.apache.org/)
 [![Tests](https://img.shields.io/badge/Tests-166%2F180%20passing-yellow)](https://github.com/)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=e4c5_bertie&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=e4c5_bertie)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=e4c5_bertie&metric=coverage)](https://sonarcloud.io/summary/new_code?id=e4c5_bertie)
 
 **Status**: Detection complete ✅ | Refactoring in beta ⚠️
 
@@ -293,6 +295,21 @@ Please ensure:
 - All new tests pass (`mvn test`)
 - Code follows existing style
 - Documentation is updated
+- SonarQube quality gate passes (see below)
+
+### Code Quality
+
+This project uses SonarCloud for continuous code quality monitoring:
+
+- **Dashboard**: [View SonarCloud Analysis](https://sonarcloud.io/summary/new_code?id=e4c5_bertie)
+- **Setup Guide**: See [docs/SONARQUBE_SETUP.md](docs/SONARQUBE_SETUP.md) for detailed setup instructions
+- **Quick Reference**: See [docs/SONARQUBE_QUICK_REFERENCE.md](docs/SONARQUBE_QUICK_REFERENCE.md) for common issues and fixes
+
+Quality standards:
+- Maintain > 80% code coverage
+- No blocker or critical issues
+- Address security vulnerabilities immediately
+- Keep cognitive complexity under 15
 
 
 ---
