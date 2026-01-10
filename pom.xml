@@ -28,7 +28,7 @@
 	<dependency>
 	    <groupId>com.github.Cloud-Solutions-International</groupId>
 	    <artifactId>antikythera</artifactId>
-	    <version>Tag</version>
+     <version>${antikythera.version}</version>
 	</dependency>
 
         <!-- JavaParser for code analysis -->
