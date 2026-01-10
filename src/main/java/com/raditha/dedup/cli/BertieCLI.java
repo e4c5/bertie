@@ -86,72 +86,50 @@ public class BertieCLI implements Callable<Integer> {
      */
     @Override
     public Integer call() throws Exception {
-        try {
-            // Validate configuration before proceeding
-            validateConfiguration();
+        // Validate configuration before proceeding
+        validateConfiguration();
 
-            // Initialize Settings once, optionally from custom config file
-            if (configFile != null) {
-                Settings.loadConfigMap(new java.io.File(configFile));
-            } else {
-                Settings.loadConfigMap();
-            }
-            if (basePath != null) {
-                Settings.setProperty(Settings.BASE_PATH, basePath);
-            }
-            if (outputPath != null) {
-                Settings.setProperty(Settings.OUTPUT_PATH, outputPath);
-            }
-
-            // Update verifyMode from Settings if present (and not overridden by CLI -
-            // simplified check)
-            // We verify if --verify was passed using spec (if available) or just prefer
-            // config if set
-            Object verifyProp = Settings.getProperty("verify");
-            if (verifyProp != null) {
-                try {
-                    this.verifyMode = VerifyMode.fromString(verifyProp.toString());
-                } catch (Exception e) {
-                    System.err.println("Warning: Invalid verify mode in config: " + verifyProp);
-                }
-            }
-
-            // Parse all source files once
-            AbstractCompiler.preProcess();
-
-            // Run detection or refactoring based on command
-            if (refactorCommand) {
-                runRefactoring();
-            } else {
-                runAnalysis();
-            }
-
-            return 0; // Success
-        } catch (IllegalArgumentException e) {
-            // Configuration or validation errors
-            System.err.println("Configuration error: " + e.getMessage());
-            return 2; // Configuration error
-        } catch (IOException e) {
-            // File I/O errors
-            System.err.println("I/O error: " + e.getMessage());
-            return 3; // I/O error
-        } catch (InterruptedException e) {
-            // Process interruption
-            System.err.println("Process interrupted: " + e.getMessage());
-            Thread.currentThread().interrupt(); // Restore interrupted status
-            return 4; // Interrupted
-        } catch (Exception e) {
-            // General application errors
-            e.printStackTrace(); // ADDED
-            System.err.println("Error: " + e.getMessage());
-            if (e.getCause() != null) {
-                System.err.println("Caused by: " + e.getCause().getMessage());
-            }
-            return 1; // General error
+        // Initialize Settings once, optionally from custom config file
+        if (configFile != null) {
+            Settings.loadConfigMap(new java.io.File(configFile));
+        } else {
+            Settings.loadConfigMap();
         }
+        if (basePath != null) {
+            Settings.setProperty(Settings.BASE_PATH, basePath);
+        }
+        if (outputPath != null) {
+            Settings.setProperty(Settings.OUTPUT_PATH, outputPath);
+        }
+
+        // Update verifyMode from Settings if present (and not overridden by CLI -
+        // simplified check)
+        // We verify if --verify was passed using spec (if available) or just prefer
+        // config if set
+        Object verifyProp = Settings.getProperty("verify");
+        if (verifyProp != null) {
+            try {
+                this.verifyMode = VerifyMode.fromString(verifyProp.toString());
+            } catch (Exception e) {
+                System.err.println("Warning: Invalid verify mode in config: " + verifyProp);
+            }
+        }
+
+        // Parse all source files once
+        AbstractCompiler.preProcess();
+
+        // Run detection or refactoring based on command
+        if (refactorCommand) {
+            runRefactoring();
+        } else {
+            runAnalysis();
+        }
+
+        return 0; // Success
+
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args)  {
         CommandLine cmd = new CommandLine(new BertieCLI());
 
         // Configure error handling
@@ -276,8 +254,6 @@ public class BertieCLI implements Callable<Integer> {
             // Filter by target class if specified
             if (targetClass != null && !targetClass.isEmpty()) {
                 if (!className.equals(targetClass)) {
-                    // System.out.println("Skipping " + className + " (target: " + targetClass +
-                    // ")");
                     continue;
                 } else {
                     System.out.println("MATCHED target class: " + className);
