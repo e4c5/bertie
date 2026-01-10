@@ -1,6 +1,5 @@
 package com.raditha.dedup.normalization;
 
-import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.*;
@@ -74,9 +73,6 @@ public class ASTNormalizer {
         return result;
     }
 
-    private static boolean isPlaceholder(String name) {
-        return name.endsWith("_LIT") || name.equals("VAR") || name.equals("METHOD") || name.equals("FIELD");
-    }
 
     // Private inner visitor implementing single-pass normalization
     private static class NormalizingVisitor extends ModifierVisitor<Void> {
@@ -84,6 +80,11 @@ public class ASTNormalizer {
 
         private NormalizingVisitor(boolean includeIdentifiers) {
             this.includeIdentifiers = includeIdentifiers;
+        }
+
+
+        private static boolean isPlaceholder(String name) {
+            return name.endsWith("_LIT") || name.equals("VAR") || name.equals("METHOD") || name.equals("FIELD");
         }
 
         // --- Literals → placeholders ---
