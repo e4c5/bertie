@@ -313,7 +313,7 @@ public class RefactoringRecommendationGenerator {
         } else {
             // Default return logic
             returnType = determineReturnType(cluster);
-            primaryReturnVariable = findReturnVariable(cluster.primary(), declaredVars);
+            primaryReturnVariable = findReturnVariable(cluster.primary());
         }
 
         // Create empty TypeCompatibility for backward compat
@@ -962,48 +962,12 @@ public class RefactoringRecommendationGenerator {
      * result.
      */
     private boolean hasNestedReturn(StatementSequence seq) {
-        // First check if there ARE any nested returns
-        boolean hasNested = false;
         for (Statement stmt : seq.statements()) {
             if (stmt.isReturnStmt())
                 continue;
             if (!stmt.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class).isEmpty()) {
-                hasNested = true;
-                break;
+                return true;
             }
-        }
-
-        if (!hasNested) {
-            return false;
-        }
-
-        return true; // Not safe
-    }
-
-    /**
-     * Check if the sequence extends to the end of the containing method.
-     */
-    private boolean coversFullMethodTail(StatementSequence seq) {
-        if (seq.containingMethod() == null || !seq.containingMethod().getBody().isPresent()) {
-            return false;
-        }
-
-        var methodStmts = seq.containingMethod().getBody().get().getStatements();
-        if (methodStmts.isEmpty()) {
-            return false;
-        }
-
-        Statement lastMethodStmt = methodStmts.get(methodStmts.size() - 1);
-        Statement lastSeqStmt = seq.statements().get(seq.statements().size() - 1);
-
-        // Check if the last statement of the sequence matches the last statement of the
-        // method
-        // Using object identity might fail if parsing differs, so check ranges or
-        // content
-        // But since seq came from the method, identity or range check should work.
-        // Range check is safer.
-        if (lastMethodStmt.getRange().isPresent() && lastSeqStmt.getRange().isPresent()) {
-            return lastMethodStmt.getRange().get().equals(lastSeqStmt.getRange().get());
         }
 
         return false;
@@ -1089,10 +1053,9 @@ public class RefactoringRecommendationGenerator {
         // CRITICAL FIX: Collect defined variables from ALL sequences in the cluster
         // Previously only checked primary sequence, missing variables defined in other
         // duplicates
-        Set<String> defined = new HashSet<>();
 
         // Check primary sequence
-        defined.addAll(dataFlowAnalyzer.findDefinedVariables(cluster.primary()));
+        Set<String> defined = new HashSet<>(dataFlowAnalyzer.findDefinedVariables(cluster.primary()));
 
         // Check all duplicate sequences
         for (var pair : cluster.duplicates()) {
@@ -1225,7 +1188,7 @@ public class RefactoringRecommendationGenerator {
         return expr.findAncestor(com.github.javaparser.ast.stmt.ReturnStmt.class).isPresent();
     }
 
-    private String findReturnVariable(StatementSequence sequence, Set<String> declaredVars) {
+    private String findReturnVariable(StatementSequence sequence) {
         // declaredVars unused by DFA
         return dataFlowAnalyzer.findReturnVariable(sequence, null);
     }
