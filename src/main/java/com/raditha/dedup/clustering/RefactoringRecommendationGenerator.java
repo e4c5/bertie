@@ -171,8 +171,47 @@ public class RefactoringRecommendationGenerator {
         // Filter out internal parameters (defined in ANY sequence in the cluster)
         parameters = filterInternalParameters(parameters, cluster);
 
-        // Determine strategy
-        RefactoringStrategy strategy = determineStrategy(cluster);
+        // Calculate valid statement count (truncate if internal dependencies found)
+        int validStatementCount = -1;
+        Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
+
+        // Fix for "Greedy Extraction" bug:
+        // Truncate to the minimum sequence length across all duplicates.
+        int minSequenceLength = cluster.primary().statements().size();
+        for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
+            int seq2Size = pair.seq2().statements().size();
+            if (seq2Size < minSequenceLength) {
+                minSequenceLength = seq2Size;
+            }
+        }
+
+        if (minSequenceLength < cluster.primary().statements().size()) {
+            validStatementCount = minSequenceLength;
+        }
+
+        // Fix for "Fuzzy Method Match" bug:
+        int structuralLimit = validateStructuralConsistency(cluster,
+                validStatementCount != -1 ? validStatementCount : minSequenceLength);
+        if (structuralLimit < minSequenceLength
+                || (validStatementCount != -1 && structuralLimit < validStatementCount)) {
+            validStatementCount = structuralLimit;
+        }
+
+        if (validStatementCount == 0) {
+            // Abort if no Valid statements
+            return new RefactoringRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD, "",
+                    java.util.Collections.emptyList(), StaticJavaParser.parseType("void"), "", 0.0, 0, null, 0,
+                    astAnalysis);
+        }
+
+        // Create effective primary sequence for strategy determination
+        StatementSequence effectivePrimary = cluster.primary();
+        if (validStatementCount != -1) {
+            effectivePrimary = createPrefixSequence(cluster.primary(), validStatementCount);
+        }
+
+        // Determine strategy using the EFFECTIVE (truncated) sequence
+        RefactoringStrategy strategy = determineStrategy(cluster, effectivePrimary);
 
         // Refine parameter types
         // If ParameterExtractor defaulted to "Object", try to infer type from example
@@ -213,48 +252,7 @@ public class RefactoringRecommendationGenerator {
         // flow analysis)
         String primaryReturnVariable = null;
 
-        // Calculate valid statement count (truncate if internal dependencies found)
-        // Calculate valid statement count (truncate if internal dependencies found)
-        int validStatementCount = -1;
-        Set<String> declaredVars = astAnalysis.getDeclaredInternalVariables();
-
-        // Fix for "Greedy Extraction" bug:
-        // Truncate to the minimum sequence length across all duplicates.
-        // If the primary sequence is longer (e.g., includes a trailing statement that
-        // matches some but not all duplicates),
-        // we must not include that trailing statement in the helper, or it will be
-        // duplicated in the shorter call sites.
-        int minSequenceLength = cluster.primary().statements().size();
-        for (com.raditha.dedup.model.SimilarityPair pair : cluster.duplicates()) {
-            int seq2Size = pair.seq2().statements().size();
-            if (seq2Size < minSequenceLength) {
-                minSequenceLength = seq2Size;
-            }
-        }
-
-        if (minSequenceLength < cluster.primary().statements().size()) {
-            validStatementCount = minSequenceLength;
-        }
-
-        // Fix for "Fuzzy Method Match" bug (assertTrue vs assertFalse, or different
-        // method calls):
-        // Validate structural consistency. If a duplicate has diverse structure (e.g.
-        // different method name),
-        // we must truncate the extraction BEFORE that point, or invalidate it.
-        int structuralLimit = validateStructuralConsistency(cluster,
-                validStatementCount != -1 ? validStatementCount : minSequenceLength);
-        if (structuralLimit < minSequenceLength
-                || (validStatementCount != -1 && structuralLimit < validStatementCount)) {
-            validStatementCount = structuralLimit;
-        }
-
-        if (validStatementCount == 0) {
-            // If structure differs from the start, we cannot extract anything safely.
-            // Return a low confidence recommendation to effectively abort.
-            return new RefactoringRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD, "",
-                    java.util.Collections.emptyList(), StaticJavaParser.parseType("void"), "", 0.0, 0, null, 0,
-                    astAnalysis);
-        }
+        // Truncation logic moved up before determineStrategy
 
         // Check varying expressions for internal dependency or unsafe return types
         for (VaryingExpression vae : astAnalysis.getVaryingExpressions()) {
@@ -924,12 +922,12 @@ public class RefactoringRecommendationGenerator {
     }
 
     // [Rest of the class remains unchanged - keeping existing methods]
-    private RefactoringStrategy determineStrategy(DuplicateCluster cluster) {
+    private RefactoringStrategy determineStrategy(DuplicateCluster cluster, StatementSequence primarySeq) {
 
         // Check for risky control flow (conditional returns)
         // Extracting blocks with conditional returns (that aren't the final return)
         // helps avoid semantic changes
-        if (hasNestedReturn(cluster.primary())) {
+        if (hasNestedReturn(primarySeq)) {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
         }
 
@@ -941,7 +939,7 @@ public class RefactoringRecommendationGenerator {
         // 2. There's a specific, strong signal for that strategy
 
         boolean hasSourceFiles = cluster.allSequences().stream()
-                .anyMatch(seq -> !isTestFile(seq.sourceFilePath()));
+                .anyMatch(seq -> !isTestFile(seq));
 
         // If ANY source files involved, always use EXTRACT_HELPER_METHOD
         if (hasSourceFiles) {
@@ -957,32 +955,85 @@ public class RefactoringRecommendationGenerator {
      * structures.
      * Nested returns (e.g. inside if/while) imply conditional exit points which are
      * hard to refactor safely.
+     * 
+     * EXCEPTION: If the sequence covers the ENTIRE tail of the method (from start
+     * of sequence to end of method), then nested returns effectively just return
+     * early from the helper, which we can propagate by returning the helper's
+     * result.
      */
     private boolean hasNestedReturn(StatementSequence seq) {
-        // DEBUG: Trace execution
+        // First check if there ARE any nested returns
+        boolean hasNested = false;
         for (Statement stmt : seq.statements()) {
-            // Top-level return is usually fine if it's the last statement
-            // But we specifically want to avoid conditional returns hidden in blocks
             if (stmt.isReturnStmt())
                 continue;
-
-            // Check if this statement contains ANY return statements (nested)
             if (!stmt.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class).isEmpty()) {
-                return true;
+                hasNested = true;
+                break;
             }
         }
+
+        if (!hasNested) {
+            return false;
+        }
+
+        return true; // Not safe
+    }
+
+    /**
+     * Check if the sequence extends to the end of the containing method.
+     */
+    private boolean coversFullMethodTail(StatementSequence seq) {
+        if (seq.containingMethod() == null || !seq.containingMethod().getBody().isPresent()) {
+            return false;
+        }
+
+        var methodStmts = seq.containingMethod().getBody().get().getStatements();
+        if (methodStmts.isEmpty()) {
+            return false;
+        }
+
+        Statement lastMethodStmt = methodStmts.get(methodStmts.size() - 1);
+        Statement lastSeqStmt = seq.statements().get(seq.statements().size() - 1);
+
+        // Check if the last statement of the sequence matches the last statement of the
+        // method
+        // Using object identity might fail if parsing differs, so check ranges or
+        // content
+        // But since seq came from the method, identity or range check should work.
+        // Range check is safer.
+        if (lastMethodStmt.getRange().isPresent() && lastSeqStmt.getRange().isPresent()) {
+            return lastMethodStmt.getRange().get().equals(lastSeqStmt.getRange().get());
+        }
+
         return false;
     }
 
     /**
-     * Check if a file path is a test file.
+     * Check if a sequence belongs to a test file.
+     * Uses AST-based detection (annotations/imports).
      */
-    private boolean isTestFile(java.nio.file.Path filePath) {
-        if (filePath == null) {
+    private boolean isTestFile(StatementSequence seq) {
+        CompilationUnit cu = seq.compilationUnit();
+        if (cu == null)
             return false;
-        }
-        String path = filePath.toString();
-        return path.contains("Test.java") || path.contains("/test/") || path.contains("\\test\\");
+
+        // Check for Test annotations on ANY method in the CU
+        // We look for JUnit 4/5 annotations
+        boolean hasTestAnnotations = cu.findAll(com.github.javaparser.ast.body.MethodDeclaration.class).stream()
+                .anyMatch(m -> m.getAnnotations().stream()
+                        .anyMatch(a -> {
+                            String name = a.getNameAsString();
+                            return name.equals("Test") || name.equals("ParameterizedTest") ||
+                                    name.equals("RepeatedTest") || name.equals("TestFactory");
+                        }));
+
+        if (hasTestAnnotations)
+            return true;
+
+        // Fallback: Check for JUnit imports
+        return cu.getImports().stream()
+                .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy) {

@@ -42,7 +42,7 @@ public class RefactoringEngine {
     public RefactoringSession refactorAll(DuplicationReport report) throws IOException, InterruptedException {
         RefactoringSession session = new RefactoringSession();
 
-        System.out.println("%n=== Refactoring Session Started ===");
+        System.out.println("=== Refactoring Session Started ===");
         System.out.println("Mode: " + mode);
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
