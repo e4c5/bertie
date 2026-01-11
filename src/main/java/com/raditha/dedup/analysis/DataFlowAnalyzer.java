@@ -77,10 +77,6 @@ public class DataFlowAnalyzer {
         // Return intersection: defined in sequence AND used after
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
-
-        System.out.println(
-                "DEBUG DFA: Defined: " + definedVars + ", UsedAfter: " + usedAfter + " -> LiveOut: " + liveOut);
-
         return liveOut;
     }
 
@@ -140,7 +136,6 @@ public class DataFlowAnalyzer {
         int endLine = lastStmt.getRange().map(r -> r.end.line).orElse(sequence.range().endLine());
         int endColumn = lastStmt.getRange().map(r -> r.end.column).orElse(sequence.range().endColumn());
 
-        // System.err.println("DEBUG DFA: Sequence End: " + endLine + ":" + endColumn);
 
         // Scan the entire method body for variable usages
         BlockStmt methodBody = method.getBody().get();
@@ -152,9 +147,6 @@ public class DataFlowAnalyzer {
                         || (range.begin.line == endLine && range.begin.column > endColumn);
 
                 if (isAfter) {
-                    // System.err.println("DEBUG DFA: Found usage of " + nameExpr.getNameAsString()
-                    // + " at " + range.begin.line + ":" + range.begin.column + " (After=" + isAfter
-                    // + ")");
                     usedAfter.add(nameExpr.getNameAsString());
                 }
             }

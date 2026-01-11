@@ -104,7 +104,6 @@ public class ExtractMethodRefactorer {
             MethodCallExpr call = prepareReplacement(seqToRefactor, recommendation.getVariationAnalysis(),
                     methodNameToUse, primary, precomputedPaths, effectiveParams);
             if (call == null) {
-                log.warn("Aborting refactoring for cluster: Argument resolution failed for sequence {}", seq.range());
                 // Remove the potentially added helper method to keep code clean?
                 // Difficult to undo cleanly without transaction, but unused private method is
                 // acceptable failure state.
@@ -194,7 +193,6 @@ public class ExtractMethodRefactorer {
                 seqToAnalyze = createTruncatedSequence(seq, limit);
             }
             Set<String> seqLiveOut = dfa.findLiveOutVariables(seqToAnalyze);
-            System.out.println("DEBUG: Seq " + seq.range() + " (limit=" + limit + ") -> LiveOut: " + seqLiveOut);
             liveOutVars.addAll(seqLiveOut);
         }
 
@@ -207,13 +205,6 @@ public class ExtractMethodRefactorer {
         } else if (liveOutVars.size() == 1) {
             forcedReturnVar = liveOutVars.iterator().next();
             forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
-            if (forcedReturnType == null) {
-                // Fallback: trust recommendation or keep analyzing?
-                // If we can't find type, we can't force it safely. Log warning?
-                log.warn("Live-out variable {} detected but type could not be resolved.", forcedReturnVar);
-            } else {
-                System.out.println("DEBUG: Forced Return Var: " + forcedReturnVar + ", Type: " + forcedReturnType);
-            }
         }
 
         MethodDeclaration method = initializeHelperMethod(recommendation);
@@ -728,10 +719,6 @@ public class ExtractMethodRefactorer {
                 List<ParameterSpec> effectiveParams) {
             NodeList<Expression> arguments = new NodeList<>();
 
-            // DEBUG: Log parameter order
-
-            log.debug("[ArgumentBuilder] Building arguments for {} parameters",
-                    effectiveParams.size());
 
             // Use the effective parameters which are already sorted and filtered
             List<ParameterSpec> sortedParams = effectiveParams;
@@ -741,9 +728,6 @@ public class ExtractMethodRefactorer {
 
                 Expression expr = resolveValue(variations, sequence, param, primarySequence, precomputedPaths);
                 if (expr == null) {
-                    log.warn(
-                            "[ArgumentBuilder] Could not resolve value for parameter: {} (variationIndex={}). Aborting.",
-                            param.getName(), param.getVariationIndex());
                     return null; // cannot resolve safely
                 }
 
@@ -751,13 +735,11 @@ public class ExtractMethodRefactorer {
                 com.github.javaparser.ast.type.Type pType = param.getType();
 
                 if (isNumericType(pType) && expr.isStringLiteralExpr()) {
-                    log.warn("[ArgumentBuilder] Type mismatch: numeric param got string literal");
                     return null;
                 }
 
                 if (isStringType(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() ||
                         expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
-                    log.warn("[ArgumentBuilder] Type mismatch: string param got numeric literal");
                     return null;
                 }
 
@@ -769,7 +751,6 @@ public class ExtractMethodRefactorer {
                         adapted = new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
                     }
                     if (adapted == null) {
-                        log.warn("[ArgumentBuilder] Could not adapt to Class type");
                         return null; // unsafe
                     }
                     expr = adapted;
@@ -1051,9 +1032,6 @@ public class ExtractMethodRefactorer {
 
     private Expression followPath(StatementSequence sequence, ASTNodePath path) {
         if (path.statementIndex < 0 || path.statementIndex >= sequence.statements().size()) {
-            log.warn(
-                    "followPath: Stmt idx {} out of bounds (size {})", path.statementIndex,
-                    sequence.statements().size());
             return null;
         }
         com.github.javaparser.ast.Node current = sequence.statements().get(path.statementIndex);
@@ -1066,10 +1044,6 @@ public class ExtractMethodRefactorer {
                 String childrenTypes = children.stream()
                         .map(n -> n.getClass().getSimpleName() + " [" + n.toString() + "]")
                         .collect(java.util.stream.Collectors.joining(", "));
-                log.warn(
-                        "followPath: Child idx {} out of bounds (size {}). Current: {}. Children: {}", idx,
-                        children.size(),
-                        current.getClass().getSimpleName(), childrenTypes);
                 return null;
             }
             current = children.get(idx);
@@ -1117,24 +1091,17 @@ public class ExtractMethodRefactorer {
         // 1. Find the node in the primary sequence using coordinates
         Expression primaryNode = findNodeByCoordinates(primarySequence, param.getStartLine(), param.getStartColumn());
         if (primaryNode == null) {
-            log.warn("[StructuralExtraction] Primary node not found at {}:{} in primary range {}",
-                    param.getStartLine(), param.getStartColumn(), primarySequence.range());
             return null;
         }
 
         // 2. Compute path in primary
         ASTNodePath path = computePath(primarySequence, primaryNode);
         if (path == null) {
-            log.warn("[StructuralExtraction] Could not compute path for node {} in primary", primaryNode);
             return null;
         }
 
         // 3. Follow path in target
-        Expression found = followPath(targetSequence, path);
-        if (found == null) {
-            log.warn("[StructuralExtraction] Follow path failed in target range {}", targetSequence.range());
-        }
-        return found;
+        return followPath(targetSequence, path);
     }
 
     private Expression findNodeByCoordinates(StatementSequence sequence, Integer line, Integer column) {
