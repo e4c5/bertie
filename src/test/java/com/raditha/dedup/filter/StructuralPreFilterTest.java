@@ -121,9 +121,11 @@ class StructuralPreFilterTest {
                 """);
 
         // Only 50% overlap (save is common, delete/load differ)
-        // Should be skipped with 0.8 threshold
+        // With generic METHOD_CALL tokens, they now look structurally identical
+        // So they should NOT be skipped by pre-filter (VariationTracker will handle the
+        // diff)
         boolean result = strictFilter.shouldCompare(seq1, seq2);
-        assertFalse(result, "Should skip with strict threshold");
+        assertTrue(result, "Should NOT skip with generic tokens (structural match)");
     }
 
     @Test

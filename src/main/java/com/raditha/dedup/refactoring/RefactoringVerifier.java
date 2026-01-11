@@ -41,7 +41,7 @@ public class RefactoringVerifier {
     /**
      * Verify the project after refactoring.
      */
-    public VerificationResult verify() {
+    public VerificationResult verify() throws IOException, InterruptedException {
         List<String> errors = new ArrayList<>();
 
         if (verificationLevel == VerificationLevel.NONE) {
@@ -72,49 +72,38 @@ public class RefactoringVerifier {
     /**
      * Run maven compile.
      */
-    private CompilationResult runMavenCompile() {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("mvn", "compile", "-q");
-            pb.directory(projectRoot.toFile());
-            pb.redirectErrorStream(true);
+    private CompilationResult runMavenCompile() throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder("mvn", "test-compile", "-q");
+        pb.directory(projectRoot.toFile());
+        pb.redirectErrorStream(true);
 
-            Process process = pb.start();
-            String output = readOutput(process);
+        Process process = pb.start();
+        String output = readOutput(process);
 
-            boolean success = process.waitFor(60, TimeUnit.SECONDS) &&
-                    process.exitValue() == 0;
+        boolean success = process.waitFor(60, TimeUnit.SECONDS) &&
+                process.exitValue() == 0;
 
-            List<String> errors = success ? List.of() : extractErrors(output);
-            return new CompilationResult(success, errors, output);
+        List<String> errors = success ? List.of() : extractErrors(output);
+        return new CompilationResult(success, errors, output);
 
-        } catch (IOException | InterruptedException e) {
-            return new CompilationResult(false,
-                    List.of("Failed to run maven: " + e.getMessage()), "");
-        }
     }
 
     /**
      * Run maven test.
      */
-    private TestResult runMavenTest() {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("mvn", "test", "-q");
-            pb.directory(projectRoot.toFile());
-            pb.redirectErrorStream(true);
+    private TestResult runMavenTest() throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder("mvn", "test", "-q");
+        pb.directory(projectRoot.toFile());
+        pb.redirectErrorStream(true);
 
-            Process process = pb.start();
-            String output = readOutput(process);
+        Process process = pb.start();
+        String output = readOutput(process);
 
-            boolean success = process.waitFor(120, TimeUnit.SECONDS) &&
-                    process.exitValue() == 0;
+        boolean success = process.waitFor(120, TimeUnit.SECONDS) &&
+                process.exitValue() == 0;
 
-            List<String> errors = success ? List.of() : extractErrors(output);
-            return new TestResult(success, errors, output);
-
-        } catch (IOException | InterruptedException e) {
-            return new TestResult(false,
-                    List.of("Failed to run tests: " + e.getMessage()), "");
-        }
+        List<String> errors = success ? List.of() : extractErrors(output);
+        return new TestResult(success, errors, output);
     }
 
     /**
@@ -152,18 +141,14 @@ public class RefactoringVerifier {
      * Rollback all changes.
      */
     public void rollback() throws IOException {
-        System.out.println("Rolling back changes...");
-
         for (Map.Entry<Path, String> entry : backups.entrySet()) {
             Path file = entry.getKey();
             String originalContent = entry.getValue();
 
             Files.writeString(file, originalContent);
-            System.out.println("  Restored: " + file.getFileName());
         }
 
         backups.clear();
-        System.out.println("Rollback complete");
     }
 
     /**

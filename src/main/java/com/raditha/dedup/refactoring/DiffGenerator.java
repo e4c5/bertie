@@ -67,7 +67,7 @@ public class DiffGenerator {
         List<String> original = Files.readAllLines(originalFile);
         List<String> revised = Arrays.asList(refactoredCode.split("\n"));
 
-        Patch<String> patch = DiffUtils.diff(original, revised);
+        DiffUtils.diff(original, revised);
 
         StringBuilder result = new StringBuilder();
         result.append(String.format("%-50s | %-50s%n", "ORIGINAL", "REFACTORED"));

@@ -1,31 +1,79 @@
 package com.raditha.dedup.model;
 
 import java.util.List;
+import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.StaticJavaParser;
 
 /**
  * Refactoring recommendation for duplicate code.
  * Generated after similarity analysis and feasibility checks.
- * 
- * @param strategy              Recommended refactoring approach
- * @param suggestedMethodName   Suggested name for extracted method
- * @param suggestedParameters   Parameters to extract
- * @param suggestedReturnType   Return type for extracted method
- * @param targetLocation        Where to insert the extracted method
- * @param confidenceScore       Confidence in this recommendation (0.0-1.0)
- * @param estimatedLOCReduction Estimated lines of code reduction
  */
-public record RefactoringRecommendation(
-        RefactoringStrategy strategy,
-        String suggestedMethodName,
-        List<ParameterSpec> suggestedParameters,
-        String suggestedReturnType,
-        String targetLocation,
-        double confidenceScore,
-        int estimatedLOCReduction,
-        String primaryReturnVariable) {
+public class RefactoringRecommendation {
+
+    private final RefactoringStrategy strategy;
+    private final String suggestedMethodName;
+    private final List<ParameterSpec> suggestedParameters;
+    private final transient Type suggestedReturnType;
+    private final String targetLocation;
+    private final double confidenceScore;
+    private final long estimatedLOCReduction;
+    private final String primaryReturnVariable;
+    private final int validStatementCount; // NEW: Truncate sequence after N statements if < size
+    private final VariationAnalysis variationAnalysis; // NEW: Analysis used to generate this recommendation
+
+    public RefactoringRecommendation(
+            RefactoringStrategy strategy,
+            String suggestedMethodName,
+            List<ParameterSpec> suggestedParameters,
+            Type suggestedReturnType,
+            String targetLocation,
+            double confidenceScore,
+            long estimatedLOCReduction,
+            String primaryReturnVariable,
+            int validStatementCount,
+            VariationAnalysis variationAnalysis) {
+        this.strategy = strategy;
+        this.suggestedMethodName = suggestedMethodName;
+        this.suggestedParameters = suggestedParameters;
+        this.suggestedReturnType = suggestedReturnType;
+        this.targetLocation = targetLocation;
+        this.confidenceScore = confidenceScore;
+        this.estimatedLOCReduction = estimatedLOCReduction;
+        this.primaryReturnVariable = primaryReturnVariable;
+        this.validStatementCount = validStatementCount;
+        this.variationAnalysis = variationAnalysis;
+    }
+
+    public RefactoringRecommendation(
+            RefactoringStrategy strategy,
+            String suggestedMethodName,
+            List<ParameterSpec> suggestedParameters,
+            Type suggestedReturnType,
+            String targetLocation,
+            double confidenceScore,
+            long estimatedLOCReduction,
+            String primaryReturnVariable,
+            int validStatementCount) {
+        this(strategy, suggestedMethodName, suggestedParameters, suggestedReturnType, targetLocation, confidenceScore,
+                estimatedLOCReduction, primaryReturnVariable, validStatementCount, null);
+    }
+
+    public RefactoringRecommendation(
+            RefactoringStrategy strategy,
+            String suggestedMethodName,
+            List<ParameterSpec> suggestedParameters,
+            Type suggestedReturnType,
+            String targetLocation,
+            double confidenceScore,
+            long estimatedLOCReduction,
+            String primaryReturnVariable) {
+        this(strategy, suggestedMethodName, suggestedParameters, suggestedReturnType, targetLocation, confidenceScore,
+                estimatedLOCReduction, primaryReturnVariable, -1, null);
+    }
 
     /**
      * Compatibility constructor for existing codes.
+     * Takes String return type and attempts to parse it.
      */
     public RefactoringRecommendation(
             RefactoringStrategy strategy,
@@ -35,22 +83,56 @@ public record RefactoringRecommendation(
             String targetLocation,
             double confidenceScore,
             int estimatedLOCReduction) {
-        this(strategy, suggestedMethodName, suggestedParameters, suggestedReturnType, targetLocation, confidenceScore,
-                estimatedLOCReduction, null);
+        this(strategy, suggestedMethodName, suggestedParameters,
+                StaticJavaParser.parseType(suggestedReturnType != null ? suggestedReturnType : "void"),
+                targetLocation, confidenceScore, estimatedLOCReduction, null, -1, null);
+    }
+
+    public VariationAnalysis getVariationAnalysis() {
+        return variationAnalysis;
+    }
+
+    public RefactoringStrategy getStrategy() {
+        return strategy;
+    }
+
+    public String getSuggestedMethodName() {
+        return suggestedMethodName;
+    }
+
+    public List<ParameterSpec> getSuggestedParameters() {
+        return suggestedParameters;
+    }
+
+    public Type getSuggestedReturnType() {
+        return suggestedReturnType;
+    }
+
+    public String getTargetLocation() {
+        return targetLocation;
+    }
+
+    public double getConfidenceScore() {
+        return confidenceScore;
+    }
+
+    public long getEstimatedLOCReduction() {
+        return estimatedLOCReduction;
+    }
+
+    public String getPrimaryReturnVariable() {
+        return primaryReturnVariable;
+    }
+
+    public int getValidStatementCount() {
+        return validStatementCount;
     }
 
     /**
      * Check if this recommendation is high confidence (>= 0.90).
      */
     public boolean isHighConfidence() {
-        return confidenceScore >= 0.90;
-    }
-
-    /**
-     * Check if this recommendation is safe for automated refactoring.
-     */
-    public boolean isSafeForAutomation() {
-        return isHighConfidence() && strategy != RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+        return confidenceScore >= 0.50;
     }
 
     /**
@@ -65,7 +147,7 @@ public record RefactoringRecommendation(
                 .orElse("");
 
         return String.format("private %s %s(%s)",
-                suggestedReturnType != null ? suggestedReturnType : "void",
+                suggestedReturnType != null ? suggestedReturnType.asString() : "void",
                 suggestedMethodName,
                 params);
     }

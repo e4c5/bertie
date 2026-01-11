@@ -39,18 +39,10 @@ public class DuplicateClusterer {
      * @return List of clusters sorted by LOC reduction potential (highest first)
      */
     public List<DuplicateCluster> cluster(List<SimilarityPair> pairs) {
-        if (pairs.isEmpty()) {
-            return List.of();
-        }
-
         // Filter by similarity threshold
         List<SimilarityPair> filtered = pairs.stream()
                 .filter(p -> p.similarity().overallScore() >= similarityThreshold)
                 .toList();
-
-        if (filtered.isEmpty()) {
-            return List.of();
-        }
 
         // Group pairs by primary sequence
         Map<StatementSequence, List<SimilarityPair>> groups = groupByPrimary(filtered);

@@ -2,7 +2,7 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
-import com.github.javaparser.ast.NodeList;
+
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -13,11 +13,8 @@ import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.SimilarityPair;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Refactorer that converts duplicate test methods with varying data into
@@ -28,20 +25,12 @@ public class ExtractParameterizedTestRefactorer {
     /**
      * Apply the refactoring to create a parameterized test.
      */
-    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation)
-            throws IOException {
+    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
-        CompilationUnit cu = cluster.primary().compilationUnit();
-        Path sourceFile = cluster.primary().sourceFilePath();
-
-        // Get the test class
-        ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No class found"));
-
-        // Validate this is a test class
-        if (!isTestClass(testClass)) {
-            throw new IllegalArgumentException("Not a test class: " + testClass.getNameAsString());
-        }
+        TestClassHelper.TestClassInfo classInfo = TestClassHelper.getAndValidateTestClass(cluster);
+        CompilationUnit cu = classInfo.compilationUnit();
+        Path sourceFile = classInfo.sourceFile();
+        ClassOrInterfaceDeclaration testClass = classInfo.testClass();
 
         // Extract parameters from all duplicate instances
         List<TestInstance> testInstances = extractTestInstances(cluster);
@@ -57,7 +46,7 @@ public class ExtractParameterizedTestRefactorer {
         // Create the parameterized test method
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
                 cluster.primary().containingMethod(),
-                recommendation.suggestedMethodName(),
+                recommendation.getSuggestedMethodName(),
                 parameters,
                 testInstances);
 
@@ -71,15 +60,6 @@ public class ExtractParameterizedTestRefactorer {
         addParameterizedTestImports(cu);
 
         return new RefactoringResult(sourceFile, cu.toString());
-    }
-
-    /**
-     * Check if this is a test class.
-     */
-    private boolean isTestClass(ClassOrInterfaceDeclaration clazz) {
-        return clazz.getMethods().stream()
-                .anyMatch(m -> m.getAnnotations().stream()
-                        .anyMatch(a -> a.getNameAsString().equals("Test")));
     }
 
     /**

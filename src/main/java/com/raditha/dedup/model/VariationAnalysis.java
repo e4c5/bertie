@@ -3,105 +3,126 @@ package com.raditha.dedup.model;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
  * Analysis of variations between two similar code sequences.
  * Categorizes differences by type for parameter extraction.
- * 
- * FIXED Gap 1&2: Added valueBindings to track actual values per sequence.
- * 
- * @param variations                All detected variations
- * @param hasControlFlowDifferences True if control structures differ
- * @param valueBindings             Map from parameter index to (sequence ->
- *                                  actual value)
- * @param primaryTokens             Tokens from the primary sequence (for
- *                                  token-based location lookup)
  */
-public record VariationAnalysis(
-        List<Variation> variations,
-        boolean hasControlFlowDifferences,
-        Map<Integer, Map<StatementSequence, String>> valueBindings, // BACK-COMPAT for tests
-        List<Token> primaryTokens,
-        Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings // New AST-first bindings
-        ) {
+public class VariationAnalysis {
 
-    /**
-     * Backward-compatibility constructor: no tokens, no exprBindings
-     */
-    public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
-            Map<Integer, Map<StatementSequence, String>> valueBindings) {
-        this(variations, hasControlFlowDifferences, valueBindings, Collections.emptyList(), Collections.emptyMap());
+    // AST-based fields (New)
+    private final List<VaryingExpression> varyingExpressions;
+    private final Set<VariableReference> variableReferences;
+    private final Set<String> declaredInternalVariables; // NEW
+
+    // Legacy fields (Token-based)
+    private final List<Variation> variations;
+    private final boolean hasControlFlowDifferences;
+    private final Map<Integer, Map<StatementSequence, String>> valueBindings;
+
+    private final Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings;
+
+    private VariationAnalysis(Builder builder) {
+        this.varyingExpressions = builder.varyingExpressions != null ? builder.varyingExpressions
+                : Collections.emptyList();
+        this.variableReferences = builder.variableReferences != null ? builder.variableReferences
+                : Collections.emptySet();
+        this.declaredInternalVariables = builder.declaredInternalVariables != null ? builder.declaredInternalVariables
+                : Collections.emptySet();
+
+        this.variations = builder.variations != null ? builder.variations : Collections.emptyList();
+        this.hasControlFlowDifferences = builder.hasControlFlowDifferences;
+        this.valueBindings = builder.valueBindings != null ? builder.valueBindings : Collections.emptyMap();
+        this.exprBindings = builder.exprBindings != null ? builder.exprBindings : Collections.emptyMap();
     }
 
-    /**
-     * Convenience constructor without exprBindings
-     */
-    public VariationAnalysis(List<Variation> variations, boolean hasControlFlowDifferences,
-            Map<Integer, Map<StatementSequence, String>> valueBindings,
-            List<Token> primaryTokens) {
-        this(variations, hasControlFlowDifferences, valueBindings, primaryTokens, Collections.emptyMap());
+    public static Builder builder() {
+        return new Builder();
     }
 
-    /**
-     * Get variations of a specific type.
-     */
-    public List<Variation> getVariationsOfType(VariationType type) {
-        return variations.stream()
-                .filter(v -> v.type() == type)
-                .collect(Collectors.toList());
+    // Accessors
+
+    public List<VaryingExpression> getVaryingExpressions() {
+        return varyingExpressions;
     }
 
-    /**
-     * Get literal variations.
-     */
-    public List<Variation> getLiteralVariations() {
-        return getVariationsOfType(VariationType.LITERAL);
+    // Alias for backward compatibility if needed, though we migrate to getters
+    // usually
+    public List<VaryingExpression> varyingExpressions() {
+        return varyingExpressions;
     }
 
-    /**
-     * Get variable variations.
-     */
-    public List<Variation> getVariableVariations() {
-        return getVariationsOfType(VariationType.VARIABLE);
+    public Set<VariableReference> variableReferences() {
+        return variableReferences;
     }
 
-    /**
-     * Get method call variations.
-     */
-    public List<Variation> getMethodCallVariations() {
-        return getVariationsOfType(VariationType.METHOD_CALL);
+    public Set<String> getDeclaredInternalVariables() {
+        return declaredInternalVariables;
     }
 
-    /**
-     * Get type variations.
-     */
-    public List<Variation> getTypeVariations() {
-        return getVariationsOfType(VariationType.TYPE);
+    public List<Variation> getVariations() {
+        return variations;
     }
 
-    /**
-     * Check if there are any variations.
-     */
+    public boolean hasControlFlowDifferences() {
+        return hasControlFlowDifferences;
+    }
+
     public boolean hasVariations() {
         return !variations.isEmpty() || hasControlFlowDifferences;
     }
 
-    /**
-     * Get total number of variations.
-     */
     public int getVariationCount() {
         return variations.size();
     }
 
-    /**
-     * Check if variations can be parameterized (all have type info, not too many).
-     */
     public boolean canParameterize() {
         if (hasControlFlowDifferences)
             return false;
         if (variations.size() > 5)
-            return false; // Max 5 parameters
+            return false;
         return variations.stream().allMatch(Variation::canParameterize);
+    }
+
+    // Builder Class
+
+    public static class Builder {
+        private List<VaryingExpression> varyingExpressions;
+        private Set<VariableReference> variableReferences;
+        private Set<String> declaredInternalVariables;
+        private List<Variation> variations;
+        private boolean hasControlFlowDifferences;
+        private Map<Integer, Map<StatementSequence, String>> valueBindings;
+        private Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings;
+
+        public Builder varyingExpressions(List<VaryingExpression> varyingExpressions) {
+            this.varyingExpressions = varyingExpressions;
+            return this;
+        }
+
+        public Builder variableReferences(Set<VariableReference> variableReferences) {
+            this.variableReferences = variableReferences;
+            return this;
+        }
+
+        public Builder declaredInternalVariables(Set<String> declaredInternalVariables) {
+            this.declaredInternalVariables = declaredInternalVariables;
+            return this;
+        }
+
+        public Builder variations(List<Variation> variations) {
+            this.variations = variations;
+            return this;
+        }
+
+        public Builder exprBindings(Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
+            this.exprBindings = exprBindings;
+            return this;
+        }
+
+        public VariationAnalysis build() {
+            return new VariationAnalysis(this);
+        }
     }
 }

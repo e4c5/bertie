@@ -1,9 +1,9 @@
 package com.raditha.dedup.filter;
 
 import com.raditha.dedup.model.StatementSequence;
-import com.raditha.dedup.model.Token;
-import com.raditha.dedup.detection.TokenNormalizer;
-import com.raditha.dedup.similarity.StructuralSimilarity;
+import com.raditha.dedup.normalization.ASTNormalizer;
+import com.raditha.dedup.normalization.NormalizedNode;
+import com.raditha.dedup.similarity.ASTStructuralSimilarity;
 
 import java.util.List;
 
@@ -15,8 +15,8 @@ import java.util.List;
 public class StructuralPreFilter {
 
     private final double minJaccardThreshold;
-    private final TokenNormalizer normalizer;
-    private final StructuralSimilarity structuralSimilarity;
+    private final ASTNormalizer normalizer;
+    private final ASTStructuralSimilarity structuralSimilarity;
 
     /**
      * Create filter with default 0.5 Jaccard threshold.
@@ -35,8 +35,8 @@ public class StructuralPreFilter {
             throw new IllegalArgumentException("Jaccard threshold must be between 0.0 and 1.0");
         }
         this.minJaccardThreshold = minJaccardThreshold;
-        this.normalizer = new TokenNormalizer();
-        this.structuralSimilarity = new StructuralSimilarity();
+        this.normalizer = new ASTNormalizer();
+        this.structuralSimilarity = new ASTStructuralSimilarity();
     }
 
     /**
@@ -47,12 +47,12 @@ public class StructuralPreFilter {
      * @return true if sequences should be compared, false if should be skipped
      */
     public boolean shouldCompare(StatementSequence seq1, StatementSequence seq2) {
-        // Normalize both sequences to tokens
-        List<Token> tokens1 = normalizer.normalizeStatements(seq1.statements());
-        List<Token> tokens2 = normalizer.normalizeStatements(seq2.statements());
+        // Normalize both sequences to normalized nodes (using fuzzy/anonymized mode)
+        List<NormalizedNode> nodes1 = normalizer.normalizeFuzzy(seq1.statements());
+        List<NormalizedNode> nodes2 = normalizer.normalizeFuzzy(seq2.statements());
 
         // Calculate structural similarity (Jaccard)
-        double structuralScore = structuralSimilarity.calculate(tokens1, tokens2);
+        double structuralScore = structuralSimilarity.calculate(nodes1, nodes2);
 
         // Only compare if structural similarity meets threshold
         return structuralScore >= minJaccardThreshold;

@@ -39,24 +39,6 @@ public record DuplicateCluster(
     }
 
     /**
-     * Get total duplicate lines across all instances.
-     */
-    public int getTotalDuplicateLines() {
-        int primaryLines = primary.range().getLineCount();
-        return primaryLines * getDuplicateCount();
-    }
-
-    /**
-     * Format cluster summary for display.
-     */
-    public String formatSummary() {
-        return String.format("%d occurrences, avg %.1f%% similar, ~%d LOC reduction",
-                getDuplicateCount(),
-                getAverageSimilarity() * 100,
-                estimatedLOCReduction);
-    }
-
-    /**
      * Get all distinct statement sequences in this cluster.
      * Includes primary and all sequences from similarity pairs.
      */

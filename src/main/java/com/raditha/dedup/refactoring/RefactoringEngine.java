@@ -1,7 +1,9 @@
 package com.raditha.dedup.refactoring;
 
-import com.raditha.dedup.model.*;
 import com.raditha.dedup.analyzer.DuplicationReport;
+import com.raditha.dedup.model.DuplicateCluster;
+import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.RefactoringStrategy;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -13,13 +15,13 @@ import java.util.Map;
  * Main orchestrator for automated refactoring.
  * Coordinates validation, refactoring application, and verification.
  */
+@SuppressWarnings("java:S106")
 public class RefactoringEngine {
 
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
     private final RefactoringMode mode;
-    private final Path projectRoot;
     private final List<String> dryRunDiffs = new ArrayList<>();
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode) {
@@ -28,7 +30,6 @@ public class RefactoringEngine {
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
             RefactoringVerifier.VerificationLevel verificationLevel) {
-        this.projectRoot = projectRoot;
         this.mode = mode;
         this.validator = new SafetyValidator();
         this.verifier = new RefactoringVerifier(projectRoot, verificationLevel);
@@ -38,10 +39,10 @@ public class RefactoringEngine {
     /**
      * Refactor all duplicates in a report.
      */
-    public RefactoringSession refactorAll(DuplicationReport report) {
+    public RefactoringSession refactorAll(DuplicationReport report) throws IOException, InterruptedException {
         RefactoringSession session = new RefactoringSession();
 
-        System.out.println("\n=== Refactoring Session Started ===");
+        System.out.println("=== Refactoring Session Started ===");
         System.out.println("Mode: " + mode);
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
@@ -70,19 +71,19 @@ public class RefactoringEngine {
                 continue;
             }
 
+            if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
+                session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
+                continue;
+            }
+
             System.out.printf("Processing cluster #%d (Strategy: %s, Confidence: %.0f%%)%n",
-                    i + 1, recommendation.strategy(), recommendation.confidenceScore() * 100);
+                    i + 1, recommendation.getStrategy(), recommendation.getConfidenceScore() * 100);
 
             // Safety validation
             SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
             if (!validation.isValid()) {
                 // For dry-run mode, show warnings but don't skip
-                if (mode == RefactoringMode.DRY_RUN) {
-                    System.out.println("  ⚠️  Validation warnings (proceeding anyway in dry-run):");
-                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
-                } else {
-                    System.out.println("  ❌ Validation failed:");
-                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
+                if (mode != RefactoringMode.DRY_RUN) {
                     session.addSkipped(cluster, String.join("; ", validation.getErrors()));
                     continue;
                 }
@@ -107,13 +108,12 @@ public class RefactoringEngine {
                 continue;
             }
 
-            // Apply refactoring based on strategy
             try {
                 ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
                 if (mode == RefactoringMode.DRY_RUN) {
                     // Collect diff for summary report
-                    collectDryRunDiff(cluster, recommendation, result, i + 1);
+                    collectDryRunDiff(recommendation, result, i + 1);
                     System.out.println("  ✓ Dry-run: Changes not applied");
                     session.addSkipped(cluster, "Dry-run mode");
                     continue;
@@ -143,13 +143,12 @@ public class RefactoringEngine {
                 }
             } catch (Exception e) {
                 System.out.println("  ❌ Refactoring failed: " + e.getMessage());
-                session.addFailed(cluster, e.getMessage());
-                try {
-                    verifier.rollback();
-                } catch (IOException rollbackEx) {
-                    System.err.println("  ⚠️  Rollback failed: " + rollbackEx.getMessage());
-                }
+                // Ensure checking if rollback is needed in case files offered partial writes
+                // (unlikely based on implementation but safe)
+                verifier.rollback();
+                session.addFailed(cluster, "Exception: " + e.getMessage());
             }
+
         }
 
         // Show dry-run diff report if in dry-run mode
@@ -157,7 +156,7 @@ public class RefactoringEngine {
             printDryRunReport();
         }
 
-        System.out.println("\n=== Session Summary ===");
+        System.out.println("%n=== Session Summary ===");
         System.out.println("Successful: " + session.successful.size());
         System.out.println("Skipped: " + session.skipped.size());
         System.out.println("Failed: " + session.failed.size());
@@ -171,7 +170,7 @@ public class RefactoringEngine {
     private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) throws IOException {
 
-        return switch (recommendation.strategy()) {
+        return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
                 ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
                 yield refactorer.refactor(cluster, recommendation);
@@ -183,8 +182,8 @@ public class RefactoringEngine {
                 yield new ExtractMethodRefactorer.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to @BeforeEach: " + recommendation.suggestedMethodName());
+                        recommendation.getStrategy(),
+                        "Extracted to @BeforeEach: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
                 ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
@@ -193,8 +192,8 @@ public class RefactoringEngine {
                 yield new ExtractMethodRefactorer.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
-                        recommendation.strategy(),
-                        "Extracted to @ParameterizedTest: " + recommendation.suggestedMethodName());
+                        recommendation.getStrategy(),
+                        "Extracted to @ParameterizedTest: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_UTILITY_CLASS -> {
                 ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
@@ -202,7 +201,7 @@ public class RefactoringEngine {
                 yield result;
             }
             default -> throw new UnsupportedOperationException(
-                    "Refactoring strategy not yet implemented: " + recommendation.strategy());
+                    "Refactoring strategy not yet implemented: " + recommendation.getStrategy());
         };
     }
 
@@ -210,8 +209,8 @@ public class RefactoringEngine {
      * Show diff and ask user for confirmation (interactive mode).
      */
     private boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
-        System.out.println("\n  === PROPOSED REFACTORING ===");
-        System.out.println("  Strategy: " + recommendation.strategy());
+        System.out.println("%n  === PROPOSED REFACTORING ===");
+        System.out.println("  Strategy: " + recommendation.getStrategy());
         System.out.println("  Method: " + recommendation.generateMethodSignature());
         System.out.println("  Confidence: " + recommendation.formatConfidence());
         System.out.println("  LOC Reduction: " + cluster.estimatedLOCReduction());
@@ -246,6 +245,48 @@ public class RefactoringEngine {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    /**
+     * Collect diff for dry-run summary report.
+     */
+    private void collectDryRunDiff(RefactoringRecommendation recommendation,
+            ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
+        try {
+            StringBuilder entry = new StringBuilder();
+            entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.getStrategy()));
+            entry.append(String.format("Confidence: %.0f%%%n", recommendation.getConfidenceScore() * 100));
+            entry.append(String.format("Files modified: %d%n", result.modifiedFiles().size()));
+            entry.append(String.format("Method: %s%n", recommendation.generateMethodSignature()));
+
+            // Show diff for each modified file
+            for (Map.Entry<Path, String> fileEntry : result.modifiedFiles().entrySet()) {
+                entry.append(String.format("%n--- File: %s ---%n", fileEntry.getKey().getFileName()));
+                String diff = diffGenerator.generateUnifiedDiff(fileEntry.getKey(), fileEntry.getValue());
+                entry.append(diff);
+            }
+            entry.append("%n");
+
+            dryRunDiffs.add(entry.toString());
+        } catch (Exception e) {
+            dryRunDiffs.add(String.format("%n### Cluster #%d: ERROR ###%n%s%n", clusterNum, e.getMessage()));
+        }
+    }
+
+    /**
+     * Print dry-run summary report with all diffs.
+     */
+    private void printDryRunReport() {
+        System.out.println("%n" + "=".repeat(80));
+        System.out.println("DRY-RUN SUMMARY REPORT");
+        System.out.println("=".repeat(80));
+        System.out.println("The following changes would be applied:");
+
+        dryRunDiffs.forEach(System.out::println);
+
+        System.out.println("=".repeat(80));
+        System.out.println("Total refactorings previewed: " + dryRunDiffs.size());
+        System.out.println("=".repeat(80));
     }
 
     /**
@@ -305,47 +346,5 @@ public class RefactoringEngine {
     }
 
     public record RefactoringFailure(DuplicateCluster cluster, String error) {
-    }
-
-    /**
-     * Collect diff for dry-run summary report.
-     */
-    private void collectDryRunDiff(DuplicateCluster cluster, RefactoringRecommendation recommendation,
-            ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
-        try {
-            StringBuilder entry = new StringBuilder();
-            entry.append(String.format("\n### Cluster #%d: %s ###\n", clusterNum, recommendation.strategy()));
-            entry.append(String.format("Confidence: %.0f%%\n", recommendation.confidenceScore() * 100));
-            entry.append(String.format("Files modified: %d\n", result.modifiedFiles().size()));
-            entry.append(String.format("Method: %s\n", recommendation.generateMethodSignature()));
-
-            // Show diff for each modified file
-            for (Map.Entry<Path, String> fileEntry : result.modifiedFiles().entrySet()) {
-                entry.append(String.format("\n--- File: %s ---\n", fileEntry.getKey().getFileName()));
-                String diff = diffGenerator.generateUnifiedDiff(fileEntry.getKey(), fileEntry.getValue());
-                entry.append(diff);
-            }
-            entry.append("\n");
-
-            dryRunDiffs.add(entry.toString());
-        } catch (Exception e) {
-            dryRunDiffs.add(String.format("\n### Cluster #%d: ERROR ###\n%s\n", clusterNum, e.getMessage()));
-        }
-    }
-
-    /**
-     * Print dry-run summary report with all diffs.
-     */
-    private void printDryRunReport() {
-        System.out.println("\n" + "=".repeat(80));
-        System.out.println("DRY-RUN SUMMARY REPORT");
-        System.out.println("=".repeat(80));
-        System.out.println("The following changes would be applied:");
-
-        dryRunDiffs.forEach(System.out::println);
-
-        System.out.println("=".repeat(80));
-        System.out.println("Total refactorings previewed: " + dryRunDiffs.size());
-        System.out.println("=".repeat(80));
     }
 }

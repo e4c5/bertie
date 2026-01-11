@@ -1,0 +1,19 @@
+variables:
+  projects_folder: ${HOME}/csi/Antikythera
+
+base_path: ${projects_folder}/bertie/test-bed
+base_package: com.raditha.bertie.testbed.testisolation
+
+# Only analyze this specific class
+target_class: com.raditha.bertie.testbed.testisolation.ServiceWithImmutableConfiguration
+
+output_path: /tmp/bertie-debug-output
+
+# Use lenient settings
+min_lines: 3
+threshold: 70
+
+skip_getters_setters: true
+
+# DEBUG level logging
+log_level: DEBUG

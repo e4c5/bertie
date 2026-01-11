@@ -31,23 +31,15 @@ public class MutabilityAnalyzer {
             "Mock", "Spy", "InjectMocks", "Captor");
 
     public boolean isSafeToPromote(String typeName) {
-        if (isImmutableType(typeName)) {
-            return true;
-        }
-
-        if (isMockType(typeName)) {
+        if (isImmutableType(typeName) || isMockType(typeName)) {
             return true;
         }
 
         // Allow test infrastructure patterns
         String baseType = stripGenerics(typeName);
-        if (baseType.endsWith("Service") || baseType.endsWith("Mock") ||
+        return (baseType.endsWith("Service") || baseType.endsWith("Mock") ||
                 baseType.endsWith("Stub") || baseType.endsWith("Test") ||
-                baseType.endsWith("Helper")) {
-            return true;
-        }
-
-        return false; // Default: mutable, not safe
+                baseType.endsWith("Helper"));
     }
 
     public boolean isImmutableType(String typeName) {
@@ -76,18 +68,5 @@ public class MutabilityAnalyzer {
         return String.format(
                 "Type '%s' appears to be mutable. Promoting to instance field may cause test isolation issues.",
                 typeName);
-    }
-
-    public record MutabilityAnalysis(
-            Set<String> safeToPromote,
-            Set<String> unsafeToPromote,
-            boolean hasMutableTypes) {
-        public boolean allSafe() {
-            return unsafeToPromote.isEmpty();
-        }
-
-        public String getDescription() {
-            return allSafe() ? "All types are safe to promote" : "Mutable types detected: " + unsafeToPromote;
-        }
     }
 }

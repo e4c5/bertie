@@ -1,11 +1,8 @@
 # Bertie test configuration
 # Used for analyzer unit tests
 
-variables:
-  projects_folder: ${HOME}/csi/Antikythera
-
 # Point to test-bed sources
-base_path: ${projects_folder}/bertie/test-bed/src/test/java
+base_path: test-bed/
 base_package: com.raditha.bertie.testbed
 
 # Test-bed scanner will parse all test sources

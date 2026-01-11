@@ -5,6 +5,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.StatementSequence;
 
@@ -103,15 +104,11 @@ public class StatementExtractor {
             super.visit(method, arg);
             
             // Skip methods without body (abstract, interface methods)
-            if (method.getBody().isEmpty()) {
-                return;
+            if (method.getBody().isPresent()) {
+                BlockStmt body = method.getBody().get();
+                List<Statement> statements = body.getStatements();
+                extractSlidingWindows(statements, method);
             }
-            
-            BlockStmt body = method.getBody().get();
-            List<Statement> statements = body.getStatements();
-            
-            // Apply sliding window
-            extractSlidingWindows(statements, method);
         }
         
         /**
@@ -195,20 +192,9 @@ public class StatementExtractor {
             // Get range from first to last statement
             Statement first = statements.getFirst();
             Statement last = statements.getLast();
-            
-            com.github.javaparser.Range firstRange = first.getRange()
-                .orElseThrow(() -> new IllegalStateException("Statement missing range"));
-            com.github.javaparser.Range lastRange = last.getRange()
-                .orElseThrow(() -> new IllegalStateException("Statement missing range"));
-            
-            // Create combined range (note: Range record takes startLine, endLine, startColumn, endColumn)
-            Range range = new Range(
-                firstRange.begin.line,
-                lastRange.end.line,
-                firstRange.begin.column,
-                lastRange.end.column
-            );
-            
+
+            Range range = BoundaryRefiner.createRange(first, last);
+
             // Calculate start offset (approximate - could be improved)
             int startOffset = calculateOffset(first);
             

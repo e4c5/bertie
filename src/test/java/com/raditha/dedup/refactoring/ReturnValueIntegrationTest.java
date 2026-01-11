@@ -7,9 +7,15 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,8 +28,23 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ReturnValueIntegrationTest {
 
+    @TempDir
+    Path tempDir;
+
     private DuplicationAnalyzer analyzer;
     private static final Path TEST_BED = Paths.get("test-bed/src/main/java/com/raditha/bertie/testbed/returnvalue");
+
+    @BeforeAll()
+    static void setupClass() throws IOException {
+        // Load test configuration pointing to test-bed
+        File configFile = new File("src/test/resources/analyzer-tests.yml");
+        Settings.loadConfigMap(configFile);
+
+        // Reset and parse test sources
+        AntikytheraRunTime.resetAll();
+        AbstractCompiler.reset();
+        AbstractCompiler.preProcess();
+    }
 
     @BeforeEach
     void setUp() {
@@ -31,14 +52,11 @@ class ReturnValueIntegrationTest {
     }
 
     @Test
-    void testSimpleReturnValueDetected() throws IOException {
-        // Test REAL file: ServiceWithSimpleReturn.java
-        // Variable 'user' is used after duplicate → should return User
-        Path sourceFile = TEST_BED.resolve("ServiceWithSimpleReturn.java");
-        assertTrue(Files.exists(sourceFile), "Test-bed file should exist: " + sourceFile);
+    void testSimpleReturnValueDetected() {
+        CompilationUnit cu = AntikytheraRunTime
+                .getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
 
-        String code = Files.readString(sourceFile);
-        CompilationUnit cu = StaticJavaParser.parse(code);
+        Path sourceFile = tempDir.resolve("ServiceWithSimpleReturn.java");
 
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithSimpleReturn");
@@ -48,7 +66,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("User", rec.suggestedReturnType(),
+        assertEquals("User", rec.getSuggestedReturnType().asString(),
                 "Should return User type as 'user' is used after duplicate code");
     }
 
@@ -69,7 +87,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("void", rec.suggestedReturnType(),
+        assertEquals("void", rec.getSuggestedReturnType().asString(),
                 "Should return void as no variable is used after");
     }
 
@@ -96,14 +114,12 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = intCluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("int", rec.suggestedReturnType(),
+        assertEquals("int", rec.getSuggestedReturnType().asString(),
                 "Should return int as 'total' is used after duplicate code");
     }
 
     @Test
     void testCollectionReturnTypes() throws IOException {
-        // Test REAL file: ServiceWithCollectionReturns.java
-        // Stream/lambda code may be too complex for lenient duplicate detection
         Path sourceFile = TEST_BED.resolve("ServiceWithCollectionReturns.java");
         assertTrue(Files.exists(sourceFile), "Test-bed file should exist: " + sourceFile);
 
@@ -122,21 +138,15 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertTrue(rec.suggestedReturnType().contains("List"),
+        assertTrue(rec.getSuggestedReturnType().asString().contains("List"),
                 "Should return List type as 'filtered' is used after duplicate code");
     }
 
     @Test
-    void testMultipleVariablesReturnsCorrectOne() throws IOException {
-        // Test REAL file: ServiceWithMultipleReturnCandidates.java
-        // Multiple User variables, only finalUser used → should return User
-        Path sourceFile = Paths.get("test-bed/src/main/java/com/raditha/bertie/testbed/wrongreturnvalue")
-                .resolve("ServiceWithMultipleReturnCandidates.java");
-        assertTrue(Files.exists(sourceFile), "Test-bed file should exist: " + sourceFile);
-
-        String code = Files.readString(sourceFile);
-        CompilationUnit cu = StaticJavaParser.parse(code);
-
+    void testMultipleVariablesReturnsCorrectOne() {
+        CompilationUnit cu = AntikytheraRunTime
+                .getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
+        Path sourceFile = tempDir.resolve("ServiceWithMultipleReturnCandidates.java");
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithMultipleReturnCandidates");
 
@@ -144,7 +154,7 @@ class ReturnValueIntegrationTest {
         RefactoringRecommendation rec = cluster.recommendation();
 
         assertNotNull(rec);
-        assertEquals("User", rec.suggestedReturnType(),
+        assertEquals("User", rec.getSuggestedReturnType().asString(),
                 "Should return User and select finalUser (used after), not tempUser");
     }
 }
