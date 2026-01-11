@@ -684,17 +684,10 @@ public class RefactoringRecommendationGenerator {
 
         for (String varName : capturedVars) {
             // Skip pseudo-variables and duplicates
-            if (varName == null || varName.isEmpty())
-                continue;
-            if (varName.equals("this") || varName.equals("super"))
-                continue;
-            if (existingParamNames.contains(varName))
+            if (varName == null || varName.isEmpty() || varName.equals("this") || varName.equals("super")
+                    || existingParamNames.contains(varName) || Character.isUpperCase(varName.charAt(0)))
                 continue;
 
-            // Heuristic: Skip names that look like type/class names (e.g., System)
-            if (Character.isUpperCase(varName.charAt(0))) {
-                continue;
-            }
             // Explicitly skip well-known java.lang types referenced statically
             if ("System".equals(varName) || "Math".equals(varName) || "Integer".equals(varName)) {
                 continue;
@@ -735,38 +728,6 @@ public class RefactoringRecommendationGenerator {
         }
 
         return capturedParams;
-    }
-
-    /**
-     * Check if a statement represents an unconditional exit (return or throw).
-     * Handles blocks and if/else structures recursively.
-     */
-    private boolean isUnconditionalExit(Statement stmt) {
-        if (stmt.isReturnStmt() || stmt.isThrowStmt()) {
-            return true;
-        }
-
-        if (stmt.isBlockStmt()) {
-            var stmts = stmt.asBlockStmt().getStatements();
-            if (stmts.isEmpty())
-                return false;
-            // Check the last statement of the block
-            return isUnconditionalExit(stmts.get(stmts.size() - 1));
-        }
-
-        if (stmt.isIfStmt()) {
-            var ifStmt = stmt.asIfStmt();
-            // Must have both then and else parts, and both must be unconditional exits
-            if (ifStmt.getElseStmt().isPresent()) {
-                return isUnconditionalExit(ifStmt.getThenStmt()) &&
-                        isUnconditionalExit(ifStmt.getElseStmt().get());
-            }
-            return false;
-        }
-
-        // Other control structures (Try, Switch, etc.) could be added here
-        // For now, assume they are not unconditional exits
-        return false;
     }
 
     private String findTypeInContext(StatementSequence sequence, String varName) {
@@ -1243,7 +1204,7 @@ public class RefactoringRecommendationGenerator {
     private com.github.javaparser.ast.type.Type convertResolvedTypeToJavaParserType(
             com.github.javaparser.resolution.types.ResolvedType resolvedType) {
         if (resolvedType == null) {
-            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, "Object");
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, OBJECT);
         }
 
         try {
