@@ -152,8 +152,6 @@ public class DuplicationAnalyzer {
         List<SimilarityPair> candidates = new ArrayList<>();
 
         // 1. Pre-compute maps for O(1) lookups and caching
-        // Map: StatementSequence -> Integer ID (for stable pair keys)
-        IdentityHashMap<StatementSequence, Integer> sequenceIds = new IdentityHashMap<>();
         // Map: StatementSequence -> NormalizedSequence (for O(1) retrieval)
         IdentityHashMap<StatementSequence, NormalizedSequence> seqToNorm = new IdentityHashMap<>();
         // Map: StatementSequence -> Tokens (avoid repeated fuzzy normalization)
@@ -163,7 +161,6 @@ public class DuplicationAnalyzer {
             NormalizedSequence norm = normalizedSequences.get(i);
             StatementSequence seq = norm.sequence();
 
-            sequenceIds.put(seq, i); // Stable ID based on list index
             seqToNorm.put(seq, norm);
             seqToTokens.put(seq, extractTokens(norm)); // Computed once per sequence
         }
@@ -187,16 +184,12 @@ public class DuplicationAnalyzer {
 
             for (StatementSequence seq2 : potentialMatches) {
                 // Self-check redundant with query-past-only logic but fast to keep
-                if (seq1 == seq2)
+                if (seq1 == seq2 || areSameMethodOrOverlapping(seq1, seq2)) {
                     continue;
+                }
 
                 // No need for processedPairs set!
                 // We only match against previous items, so (seq1, seq2) is seen exactly once.
-
-                // Robust same-method check
-                if (areSameMethodOrOverlapping(seq1, seq2)) {
-                    continue;
-                }
 
                 // Pre-filter
                 if (!preFilter.shouldCompare(seq1, seq2)) {
