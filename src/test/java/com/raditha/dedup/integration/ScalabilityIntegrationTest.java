@@ -11,13 +11,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 
-public class ScalabilityIntegrationTest {
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ScalabilityIntegrationTest {
 
     @Test
-    public void comparePerformance() {
+    void comparePerformance() {
         // 1. Generate a large CompilationUnit
         int numMethods = 10000; // Enough to make O(N^2) painful
-        System.out.println("Generating source with " + numMethods + " methods...");
         String sourceCode = generateSourceCode(numMethods);
 
         JavaParser parser = new JavaParser();
@@ -25,10 +26,9 @@ public class ScalabilityIntegrationTest {
         if (!res.isSuccessful()) {
             throw new RuntimeException("Failed to parse generated code: " + res.getProblems());
         }
-        CompilationUnit cu = res.getResult().get();
+        CompilationUnit cu = res.getResult().orElseThrow();
         Path dummyPath = Paths.get("LargeFile.java");
 
-        System.out.println("Benchmarking analyzeFile()...");
 
         // 2. Measure Brute Force
         DuplicationConfig configBF = new DuplicationConfig(5, 0.75,
@@ -40,7 +40,6 @@ public class ScalabilityIntegrationTest {
         long startBF = System.currentTimeMillis();
         analyzerBF.analyzeFile(cu, dummyPath);
         long durationBF = System.currentTimeMillis() - startBF;
-        System.out.println("Brute Force Time: " + durationBF + " ms");
 
         // 3. Measure LSH
         DuplicationConfig configLSH = new DuplicationConfig(5, 0.75,
@@ -54,12 +53,7 @@ public class ScalabilityIntegrationTest {
         long durationLSH = System.currentTimeMillis() - startLSH;
         System.out.println("LSH Time:         " + durationLSH + " ms");
 
-        if (durationLSH < durationBF) {
-            double speedup = (double) durationBF / (durationLSH == 0 ? 1 : durationLSH);
-            System.out.println("SUCCESS: LSH was " + String.format("%.2f", speedup) + "x faster.");
-        } else {
-            System.out.println("WARNING: LSH was slower. Overhead might dominate.");
-        }
+        assertTrue(durationLSH <= durationBF, "LSH was slower. Overhead might dominate. %d vs %d".formatted(durationLSH, durationBF));
     }
 
     private String generateSourceCode(int numMethods) {
