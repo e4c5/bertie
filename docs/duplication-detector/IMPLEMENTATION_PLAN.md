@@ -34,12 +34,33 @@
 ### 11.1 LSH Infrastructure
 - [ ] **Implement MinHash**: Create `MinHash` class to generate signatures from token sequences (k-shingles).
 - [ ] **Implement LSH Index**: Create `LSHIndex` class using Banding technique (bands/rows configuration).
-- [ ] **Parameter Tuning**: Calibrate hash functions (100) and bands (20) for Jaccard threshold ~0.5.
+- [ ] **Add Unit Tests**:
+    - [ ] `MinHashTest`: Verify deterministic signatures for identical sequences.
+    - [ ] `LSHIndexTest`:
+        - [ ] `testExactMatch`: Identical sequences must collide.
+        - [ ] `testNoMatch`: Completely distinct sequences (Jaccard=0) must NOT collide.
+        - [ ] `testNearMatch`: Sequences with high Jaccard (>0.8) should collide with high probability.
+        - [ ] `testThreshold`: Verify cutoff behavior (approximate).
 
 ### 11.2 Integration
 - [ ] **Update DuplicationAnalyzer**: Replace nested loop with `LSHIndex` candidate generation.
 - [ ] **Pipeline Update**: Ensure Pre-Filters (Size/Structural) run *after* LSH candidate generation to verify matches.
-- [ ] **Performance Testing**: Benchmark on large codebase (>50k LOC) to verify <100ms/file overhead.
+- [ ] **Add Integration Tests**:
+    - [ ] `ScalabilityIntegrationTest`: Run on 50k generated sequences, assert time < 5s.
+    - [ ] `RecallVerificationTest`: Ensure known duplicates in `commons-lang` sample are still found.
+
+### 11.3 Tuning & Benchmarking
+- [ ] **Parameter Sweep**:
+    - Vary `numHashFunctions` (e.g., 64, 100, 128, 256).
+    - Vary `numBands` (e.g., 10, 20, 25, 50).
+    - **Target**: Find configuration yielding >95% recall for Jaccard > 0.5 with minimal candidates.
+- [ ] **Benchmark Harness**:
+    - **Command**: `java -jar bertie.jar benchmark --mode lsh --input /path/to/large/repo`
+    - **Metrics**:
+        - Indexing Time (ms)
+        - Candidate Pair Count
+        - Candidate/Total Ratio (Filtering Power)
+        - Recall (vs Brute Force baseline)
 
 ---
 

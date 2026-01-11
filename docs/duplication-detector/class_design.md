@@ -420,17 +420,63 @@ public class ScopeAnalyzer {
 }
 
 /**
- * MinHash-based LSH Index for scalable candidate generation.
+ * Generates MinHash signatures for token sequences.
  */
-public class LSHIndex<T> {
-    public LSHIndex(int numHashFunctions, int numBands, int shingleSize) { ... }
+public class MinHash {
+    private final int numHashFunctions;
+    private final long[][] hashCoefficients; // a, b for (ax + b) % p
+    private static final long PRIME = 2147483647L;
 
-    public void index(List<T> items, Function<T, List<Token>> tokenProvider) {
-        // Compute MinHash signature -> Add to LSH buckets
+    public MinHash(int numHashFunctions) {
+        this.numHashFunctions = numHashFunctions;
+        // Initialize coefficients with seeded random
     }
 
+    /**
+     * Compute signature for a list of tokens.
+     * 1. Generate k-shingles (normalized values)
+     * 2. Hash each shingle
+     * 3. Compute min hash for each function
+     */
+    public int[] computeSignature(List<Token> tokens, int k) { ... }
+}
+
+/**
+ * LSH Index using Banding technique.
+ */
+public class LSHIndex<T> {
+    private final MinHash minHash;
+    private final int numBands;
+    private final int rowsPerBand;
+    private final int shingleSize;
+
+    // Band -> BucketHash -> List of Items
+    private final Map<Integer, List<T>>[] hashTables;
+
+    public LSHIndex(int numHashFunctions, int numBands, int shingleSize) {
+        this.minHash = new MinHash(numHashFunctions);
+        this.numBands = numBands;
+        this.rowsPerBand = numHashFunctions / numBands;
+        this.shingleSize = shingleSize;
+        // Initialize hash tables
+    }
+
+    /**
+     * Index a list of items.
+     */
+    public void index(List<T> items, Function<T, List<Token>> tokenProvider) {
+        items.parallelStream().forEach(item -> {
+            int[] signature = minHash.computeSignature(tokenProvider.apply(item), shingleSize);
+            addToBuckets(item, signature);
+        });
+    }
+
+    /**
+     * Retrieve candidate pairs that collide in at least one band.
+     * Uses canonical ordering to avoid (A,B) and (B,A) duplicates.
+     */
     public Set<Pair<T>> getCandidates() {
-        // Retrieve colliding pairs from buckets
+        // Iterate buckets, generate pairs for items in same bucket
     }
 }
 ```
