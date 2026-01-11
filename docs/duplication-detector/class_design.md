@@ -37,12 +37,16 @@ com.raditha.dedup/
 │   ├── SimilarityCalculator.java         (LCS + Levenshtein + Structural)
 │   └── PreFilterChain.java               (Size + Structural filters)
 │
+├── filter/
+│   └── LSHIndex.java                     (MinHash + LSH candidate generation)
+│
 ├── analysis/
 │   ├── VariationTracker.java             (Find differences)
 │   ├── TypeAnalyzer.java                 (Type compatibility)
 │   ├── ScopeAnalyzer.java                (Extract scope info from AST)
 │   ├── DuplicateClusterer.java           (Group similar sequences)
-│   └── ParameterExtractor.java           (Infer method signatures)
+│   ├── ParameterExtractor.java           (Infer method signatures)
+│   └── BoundaryRefiner.java              (Trim usage-only statements)
 │
 ├── refactoring/                          (Phase 2)
 │   ├── RefactoringEngine.java
@@ -195,12 +199,14 @@ public class DuplicationAnalyzer {
     private final StatementExtractor extractor;
     private final SimilarityCalculator similarity;
     private final DuplicateClusterer clusterer;
+    private final BoundaryRefiner boundaryRefiner;
     
     public DuplicationAnalyzer(DuplicationConfig config) {
         this.config = config;
         this.extractor = new StatementExtractor(config.minLines());
         this.similarity = new SimilarityCalculator(config.weights());
         this.clusterer = new DuplicateClusterer(config.threshold());
+        this.boundaryRefiner = new BoundaryRefiner(new DataFlowAnalyzer(), config.minLines(), config.threshold());
     }
     
     /**
@@ -217,6 +223,11 @@ public class DuplicationAnalyzer {
         // Find duplicates
         List<DuplicateCluster> clusters = findDuplicates(sequences);
         
+        // Refine boundaries (trim usage-only statements)
+        if (config.enableBoundaryRefinement()) {
+            clusters = boundaryRefiner.refineBoundaries(clusters);
+        }
+
         return new DuplicationReport(clusters);
     }
     
@@ -252,12 +263,15 @@ public class DuplicationAnalyzer {
     }
     
     private List<DuplicateCluster> findDuplicates(List<StatementSequence> sequences) {
-        // Pre-filter pairs
-        List<SequencePair> candidates = generateCandidates(sequences);
+        // 1. LSH Candidate Generation (Global, O(N))
+        LSHIndex<StatementSequence> lsh = new LSHIndex<>();
+        lsh.index(sequences, seq -> normalize(seq)); // Normalize on the fly or pre-compute
+        Set<Pair<StatementSequence>> lshCandidates = lsh.getCandidates();
         
-        // Calculate similarities (parallel)
-        List<SimilarityResult> results = candidates.parallelStream()
-            .map(pair -> similarity.compare(pair.seq1(), pair.seq2()))
+        // 2. Precise Filtering & Comparison (Parallel, O(C))
+        List<SimilarityResult> results = lshCandidates.parallelStream()
+            .filter(pair -> preFilter.shouldCompare(pair.first(), pair.second())) // Size/Struct filter
+            .map(pair -> similarity.compare(pair.first(), pair.second()))
             .filter(r -> r.overallScore() > config.threshold())
             .toList();
         
@@ -316,23 +330,11 @@ public class StatementExtractor {
         List<Statement> statements = body.getStatements();
         List<StatementSequence> sequences = new ArrayList<>();
         
-        // Sliding window
-        for (int i = 0; i <= statements.size() - minLines; i++) {
-            for (int windowSize = minLines; i + windowSize <= statements.size(); windowSize++) {
-                List<Statement> window = statements.subList(i, i + windowSize);
-                
-                StatementSequence seq = new StatementSequence(
-                    window,
-                    Range.range(window.get(0).getRange().get(), 
-                               window.get(windowSize-1).getRange().get()),
-                    i,
-                    method,      // Direct reference - no wrapper!
-                    cu,          // Direct reference - no wrapper!
-                    filePath
-                );
-                
-                sequences.add(seq);
-            }
+        // Sliding window (Optimized)
+        if (maximalOnly) {
+            extractMaximalSequences(statements, method, sequences);
+        } else {
+            extractLimitedWindowSizes(statements, method, sequences);
         }
         
         return sequences;
@@ -415,6 +417,67 @@ public class ScopeAnalyzer {
         boolean isField,
         boolean isFinal
     ) {}
+}
+
+/**
+ * Generates MinHash signatures for token sequences.
+ */
+public class MinHash {
+    private final int numHashFunctions;
+    private final long[][] hashCoefficients; // a, b for (ax + b) % p
+    private static final long PRIME = 2147483647L;
+
+    public MinHash(int numHashFunctions) {
+        this.numHashFunctions = numHashFunctions;
+        // Initialize coefficients with seeded random
+    }
+
+    /**
+     * Compute signature for a list of tokens.
+     * 1. Generate k-shingles (normalized values)
+     * 2. Hash each shingle
+     * 3. Compute min hash for each function
+     */
+    public int[] computeSignature(List<Token> tokens, int k) { ... }
+}
+
+/**
+ * LSH Index using Banding technique.
+ */
+public class LSHIndex<T> {
+    private final MinHash minHash;
+    private final int numBands;
+    private final int rowsPerBand;
+    private final int shingleSize;
+
+    // Band -> BucketHash -> List of Items
+    private final Map<Integer, List<T>>[] hashTables;
+
+    public LSHIndex(int numHashFunctions, int numBands, int shingleSize) {
+        this.minHash = new MinHash(numHashFunctions);
+        this.numBands = numBands;
+        this.rowsPerBand = numHashFunctions / numBands;
+        this.shingleSize = shingleSize;
+        // Initialize hash tables
+    }
+
+    /**
+     * Index a list of items.
+     */
+    public void index(List<T> items, Function<T, List<Token>> tokenProvider) {
+        items.parallelStream().forEach(item -> {
+            int[] signature = minHash.computeSignature(tokenProvider.apply(item), shingleSize);
+            addToBuckets(item, signature);
+        });
+    }
+
+    /**
+     * Retrieve candidate pairs that collide in at least one band.
+     * Uses canonical ordering to avoid (A,B) and (B,A) duplicates.
+     */
+    public Set<Pair<T>> getCandidates() {
+        // Iterate buckets, generate pairs for items in same bucket
+    }
 }
 ```
 
