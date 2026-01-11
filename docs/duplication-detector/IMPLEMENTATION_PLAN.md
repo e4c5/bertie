@@ -47,7 +47,7 @@
 - [ ] **Pipeline Update**: Ensure Pre-Filters (Size/Structural) run *after* LSH candidate generation to verify matches.
 - [ ] **Add Integration Tests**:
     - [ ] `ScalabilityIntegrationTest`: Run on 50k generated sequences, assert time < 5s.
-    - [ ] `RecallVerificationTest`: Ensure known duplicates in `commons-lang` sample are still found.
+    - [ ] `RecallVerificationTest`: Ensure known duplicates in the `test-bed` submodule (and `commons-lang` sample) are still found.
 
 ### 11.3 Tuning & Benchmarking
 - [ ] **Parameter Sweep**:

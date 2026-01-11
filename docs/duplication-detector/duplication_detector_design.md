@@ -1266,11 +1266,11 @@ Rather than competing directly with CPD/SonarQube, consider:
 **Objective**: Empirically tune similarity weights and validate detection quality
 
 **Dataset Sources**:
-1. **Spring Petclinic** (~5K LOC, 20 test files) - Small project validation
-2. **Sample Enterprise Service** (~50K LOC, 150 test files) - Real-world production code
-3. **Apache Commons Lang** (~100K LOC, 300 test files) - Large library
-4. **JHipster Sample App** (~80K LOC, 200 test files) - Enterprise application
-5. **Open-source test suites** - Additional examples from GitHub
+1. **Bertie Test-Bed** (Submodule) - Integration testing corpus with known duplicate patterns.
+2. **Spring Petclinic** (~5K LOC, 20 test files) - Small project validation
+3. **Sample Enterprise Service** (~50K LOC, 150 test files) - Real-world production code
+4. **Apache Commons Lang** (~100K LOC, 300 test files) - Large library
+5. **JHipster Sample App** (~80K LOC, 200 test files) - Enterprise application
 
 **Total**: ~235K LOC, ~670 test files, estimated ~40-50K sequences
 
