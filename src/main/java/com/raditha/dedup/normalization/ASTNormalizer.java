@@ -84,7 +84,16 @@ public class ASTNormalizer {
 
 
         private static boolean isPlaceholder(String name) {
-            return name.endsWith("_LIT") || name.equals("VAR") || name.equals("METHOD") || name.equals("FIELD");
+            return name.equals("STRING_LIT")
+                    || name.equals("INT_LIT")
+                    || name.equals("LONG_LIT")
+                    || name.equals("DOUBLE_LIT")
+                    || name.equals("BOOL_LIT")
+                    || name.equals("NULL_LIT")
+                    || name.equals("CHAR_LIT")
+                    || name.equals("VAR")
+                    || name.equals("METHOD")
+                    || name.equals("FIELD");
         }
 
         // --- Literals → placeholders ---
