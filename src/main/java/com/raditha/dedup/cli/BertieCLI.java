@@ -129,7 +129,7 @@ public class BertieCLI implements Callable<Integer> {
 
     }
 
-    public static void main(String[] args)  {
+    public static void main(String[] args) {
         CommandLine cmd = new CommandLine(new BertieCLI());
 
         // Configure error handling
@@ -145,6 +145,7 @@ public class BertieCLI implements Callable<Integer> {
                 commandLine.getErr().println("Process interrupted: " + ex.getMessage());
                 return 4;
             } else {
+                ex.printStackTrace(commandLine.getErr());
                 commandLine.getErr().println("Error: " + ex.getMessage());
                 return 1;
             }

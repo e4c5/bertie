@@ -2,6 +2,7 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -125,7 +126,6 @@ public class RefactoringRecommendationGenerator {
                     int pos = v.position();
                     if (uniqueVariations.containsKey(pos)) {
                         Expression e2 = v.expr2();
-                        System.out.println("DEBUG: Binding pos=" + pos + " seqN=" + seqN.hashCode() + " expr=" + e2);
                         exprBindings.computeIfAbsent(pos, k -> new java.util.HashMap<>())
                                 .put(seqN, com.raditha.dedup.model.ExprInfo.fromExpression(e2));
                     }
@@ -150,12 +150,15 @@ public class RefactoringRecommendationGenerator {
         // CRITICAL: Also convert arguments (variable references) to parameters
         // These are variables like 'userName' that are used but not defined in the
         // block
-        for (com.raditha.dedup.model.ArgumentSpec arg : extractionPlan.arguments()) {
+        for (com.raditha.dedup.model.VariableReference arg : extractionPlan.arguments()) {
             // Only add if not already present (avoid duplicates)
             if (parameters.stream().noneMatch(p -> p.getName().equals(arg.name()))) {
+                // Convert ResolvedType to JavaParser Type
+                com.github.javaparser.ast.type.Type paramType = convertResolvedTypeToJavaParserType(arg.type());
+
                 parameters.add(new ParameterSpec(
                         arg.name(),
-                        arg.type(),
+                        paramType,
                         java.util.Collections.emptyList(), // No variations, it's consistent
                         -1, // No specific variation position
                         null, null // No specific AST node to replace
@@ -522,7 +525,8 @@ public class RefactoringRecommendationGenerator {
                 String scopeName = methodCall.getScope().get().toString();
 
                 // NEW: Track generic type from field declaration
-                String genericTypeParam = extractGenericTypeFromScope(sequence, scopeName).toString();
+                Optional<Type> genericTypeOpt = extractGenericTypeFromScope(sequence, scopeName);
+                String genericTypeParam = genericTypeOpt.map(Node::toString).orElse(null);
 
                 CompilationUnit typeCU = findCompilationUnit(sequence, scopeName);
 
@@ -805,10 +809,6 @@ public class RefactoringRecommendationGenerator {
                     }
                 }
             }
-        }
-
-        // 3. Check parameters of the containing method
-        if (sequence.containingMethod() != null) {
             for (var param : sequence.containingMethod().getParameters()) {
                 if (param.getNameAsString().equals(varName)) {
                     return resolveType(param.getType(), param, sequence);
@@ -878,7 +878,7 @@ public class RefactoringRecommendationGenerator {
         return typeCU;
     }
 
-    private String resolveType(com.github.javaparser.ast.type.Type type, com.github.javaparser.ast.Node contextNode,
+    private String resolveType(Type type, Node contextNode,
             StatementSequence sequence) {
         // Attempt to resolve using AbstractCompiler
         var classDecl = contextNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
@@ -1237,14 +1237,30 @@ public class RefactoringRecommendationGenerator {
         return safeLimit;
     }
 
+    /**
+     * Convert ResolvedType to JavaParser Type for use in method signatures.
+     */
+    private com.github.javaparser.ast.type.Type convertResolvedTypeToJavaParserType(
+            com.github.javaparser.resolution.types.ResolvedType resolvedType) {
+        if (resolvedType == null) {
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, "Object");
+        }
+
+        try {
+            String typeDesc = resolvedType.describe();
+            return StaticJavaParser.parseType(typeDesc);
+        } catch (Exception e) {
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, resolvedType.describe());
+        }
+    }
+
     private boolean areStructurallyCompatible(com.github.javaparser.ast.Node n1, com.github.javaparser.ast.Node n2) {
         if (n1.getMetaModel() != n2.getMetaModel()) {
             return false;
         }
 
         // METHOD CALLS: Must have same method name!
-        if (n1 instanceof MethodCallExpr) {
-            MethodCallExpr mc1 = (MethodCallExpr) n1;
+        if (n1 instanceof MethodCallExpr mc1) {
             MethodCallExpr mc2 = (MethodCallExpr) n2;
             if (!mc1.getNameAsString().equals(mc2.getNameAsString())) {
                 // Method name mismatch (e.g. assertTrue vs assertFalse, processUser vs

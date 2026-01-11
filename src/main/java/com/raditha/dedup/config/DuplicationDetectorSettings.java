@@ -176,37 +176,6 @@ public class DuplicationDetectorSettings {
         return null;
     }
 
-    private static DuplicationConfig createFromCLI(int minLinesCLI, int thresholdCLI, String presetCLI) {
-        // Use preset if specified
-        if (presetCLI != null) {
-            return switch (presetCLI) {
-                case "strict" -> DuplicationConfig.strict();
-                case "lenient" -> DuplicationConfig.lenient();
-                default -> DuplicationConfig.moderate();
-            };
-        }
-
-        // Use CLI values or defaults
-        int minLines = minLinesCLI != 0 ? minLinesCLI : 5;
-        double threshold = thresholdCLI != 0 ? thresholdCLI / 100.0 : 0.75;
-        boolean includeTests = false;
-        List<String> excludePatterns = getDefaultExcludes();
-        int maxWindowGrowth = 5; // default
-        boolean maximalOnly = true; // default
-
-        SimilarityWeights weights = SimilarityWeights.balanced();
-
-        return new DuplicationConfig(
-                minLines,
-                threshold,
-                weights,
-                includeTests,
-                excludePatterns,
-                maxWindowGrowth,
-                maximalOnly,
-                true); // enableBoundaryRefinement
-    }
-
     private static SimilarityWeights buildWeights(Map<String, Object> config) {
         if (config == null) {
             return SimilarityWeights.balanced();

@@ -4,7 +4,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Analysis of variations between two similar code sequences.
@@ -54,10 +53,6 @@ public class VariationAnalysis {
         return varyingExpressions;
     }
 
-    public Set<VariableReference> getVariableReferences() {
-        return variableReferences;
-    }
-
     public Set<VariableReference> variableReferences() {
         return variableReferences;
     }
@@ -72,49 +67,6 @@ public class VariationAnalysis {
 
     public boolean hasControlFlowDifferences() {
         return hasControlFlowDifferences;
-    }
-
-    public Map<Integer, Map<StatementSequence, String>> getValueBindings() {
-        return valueBindings;
-    }
-
-    public Map<Integer, Map<StatementSequence, String>> valueBindings() {
-        return valueBindings;
-    }
-
-    public Map<Integer, Map<StatementSequence, ExprInfo>> getExprBindings() {
-        return exprBindings;
-    }
-
-    public Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings() {
-        return exprBindings;
-    }
-
-    // Legacy Helper Methods
-
-    /**
-     * Get variations of a specific type.
-     */
-    public List<Variation> getVariationsOfType(VariationType type) {
-        return variations.stream()
-                .filter(v -> v.type() == type)
-                .collect(Collectors.toList());
-    }
-
-    public List<Variation> getLiteralVariations() {
-        return getVariationsOfType(VariationType.LITERAL);
-    }
-
-    public List<Variation> getVariableVariations() {
-        return getVariationsOfType(VariationType.VARIABLE);
-    }
-
-    public List<Variation> getMethodCallVariations() {
-        return getVariationsOfType(VariationType.METHOD_CALL);
-    }
-
-    public List<Variation> getTypeVariations() {
-        return getVariationsOfType(VariationType.TYPE);
     }
 
     public boolean hasVariations() {
@@ -161,16 +113,6 @@ public class VariationAnalysis {
 
         public Builder variations(List<Variation> variations) {
             this.variations = variations;
-            return this;
-        }
-
-        public Builder hasControlFlowDifferences(boolean hasControlFlowDifferences) {
-            this.hasControlFlowDifferences = hasControlFlowDifferences;
-            return this;
-        }
-
-        public Builder valueBindings(Map<Integer, Map<StatementSequence, String>> valueBindings) {
-            this.valueBindings = valueBindings;
             return this;
         }
 

@@ -105,4 +105,67 @@ class ExtractMethodRefactorerTest {
         String methodName = recommendation.getSuggestedMethodName();
         assertTrue(refactoredCode.contains(methodName + "("), "Should call the extracted method");
     }
+
+
+    @Test
+    void testMultipleLiveOutVariablesAbort() {
+        String code = """
+                package com.example;
+                public class MultiLiveOut {
+                    public void process() {
+                        int a = 1;
+                        int b = 2;
+                        // Start
+                        a = a + 1;
+                        b = b + 1;
+                        // End
+                        System.out.println(a);
+                        System.out.println(b);
+                    }
+                }
+                """;
+        CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
+        
+        var method = cu.findFirst(com.github.javaparser.ast.body.MethodDeclaration.class).orElseThrow();
+        var statements = method.getBody().get().getStatements();
+        
+        var seqStatements = new com.github.javaparser.ast.NodeList<com.github.javaparser.ast.stmt.Statement>();
+        seqStatements.add(statements.get(2)); // a=a+1
+        seqStatements.add(statements.get(3)); // b=b+1
+        
+        var seq = new com.raditha.dedup.model.StatementSequence(
+                seqStatements,
+                new com.raditha.dedup.model.Range(6, 1, 8, 1),
+                0,
+                method,
+                cu,
+                java.nio.file.Paths.get("src/main/java/com/example/MultiLiveOut.java"));
+
+        var recommendation = new com.raditha.dedup.model.RefactoringRecommendation(
+                com.raditha.dedup.model.RefactoringStrategy.EXTRACT_HELPER_METHOD,
+                "helper",
+                java.util.List.of(),
+                "void",
+                null,
+                1.0,
+                2);
+
+        // Dummy SimilarityResult
+        var simResult = new com.raditha.dedup.model.SimilarityResult(
+            1.0, 1.0, 1.0, 1.0, 0, 0, null, null, true
+        );
+
+        // MOCKING DUPLICATES: Self-reference to ensure analysis runs on this sequence
+        var cluster = new com.raditha.dedup.model.DuplicateCluster(
+                seq,
+                java.util.List.of(new com.raditha.dedup.model.SimilarityPair(seq, seq, simResult)), 
+                recommendation,
+                100);
+
+        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
+        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        
+        assertTrue(result.modifiedFiles().isEmpty(), "Should abort and return empty modifications");
+        assertTrue(result.description().contains("aborted"), "Message should indicate abort");
+    }
 }

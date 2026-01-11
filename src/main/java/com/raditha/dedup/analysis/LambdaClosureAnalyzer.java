@@ -24,7 +24,7 @@ public class LambdaClosureAnalyzer {
         for (Statement stmt : sequence.statements()) {
             List<LambdaExpr> lambdas = stmt.findAll(LambdaExpr.class);
             for (LambdaExpr lambda : lambdas) {
-                allCaptured.addAll(findCapturedVariables(lambda, sequence));
+                allCaptured.addAll(findCapturedVariables(lambda));
             }
         }
 
@@ -34,7 +34,7 @@ public class LambdaClosureAnalyzer {
     /**
      * Find variables captured by a specific lambda expression.
      */
-    private static Set<String> findCapturedVariables(LambdaExpr lambda, StatementSequence sequence) {
+    private static Set<String> findCapturedVariables(LambdaExpr lambda) {
         Set<String> captured = new HashSet<>();
 
         // Get lambda parameters (these are NOT captured, they're internal)
@@ -47,12 +47,7 @@ public class LambdaClosureAnalyzer {
             String varName = nameExpr.getNameAsString();
 
             // Skip if it's a lambda parameter
-            if (lambdaParams.contains(varName)) {
-                continue;
-            }
-
-            // Skip if it's declared inside the lambda itself
-            if (isDeclaredInLambda(lambda, varName)) {
+            if (lambdaParams.contains(varName) || isDeclaredInLambda(lambda, varName)) {
                 continue;
             }
 

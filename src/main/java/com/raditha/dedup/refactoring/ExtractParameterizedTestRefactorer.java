@@ -26,20 +26,12 @@ public class ExtractParameterizedTestRefactorer {
     /**
      * Apply the refactoring to create a parameterized test.
      */
-    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation)
-            throws IOException {
+    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
-        CompilationUnit cu = cluster.primary().compilationUnit();
-        Path sourceFile = cluster.primary().sourceFilePath();
-
-        // Get the test class
-        ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No class found"));
-
-        // Validate this is a test class
-        if (!isTestClass(testClass)) {
-            throw new IllegalArgumentException("Not a test class: " + testClass.getNameAsString());
-        }
+        TestClassHelper.TestClassInfo classInfo = TestClassHelper.getAndValidateTestClass(cluster);
+        CompilationUnit cu = classInfo.compilationUnit();
+        Path sourceFile = classInfo.sourceFile();
+        ClassOrInterfaceDeclaration testClass = classInfo.testClass();
 
         // Extract parameters from all duplicate instances
         List<TestInstance> testInstances = extractTestInstances(cluster);
@@ -69,15 +61,6 @@ public class ExtractParameterizedTestRefactorer {
         addParameterizedTestImports(cu);
 
         return new RefactoringResult(sourceFile, cu.toString());
-    }
-
-    /**
-     * Check if this is a test class.
-     */
-    private boolean isTestClass(ClassOrInterfaceDeclaration clazz) {
-        return clazz.getMethods().stream()
-                .anyMatch(m -> m.getAnnotations().stream()
-                        .anyMatch(a -> a.getNameAsString().equals("Test")));
     }
 
     /**

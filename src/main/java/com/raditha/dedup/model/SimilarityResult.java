@@ -37,25 +37,4 @@ public record SimilarityResult(
     public double getSimilarityPercentage() {
         return overallScore * 100.0;
     }
-
-    /**
-     * Format score as percentage string.
-     */
-    public String formatScore() {
-        return String.format("%.1f%%", getSimilarityPercentage());
-    }
-
-    /**
-     * Check if this is a high-confidence duplicate (>= 90%).
-     */
-    public boolean isHighConfidence() {
-        return overallScore >= 0.90;
-    }
-
-    /**
-     * Check if this is a moderate duplicate (70-90%).
-     */
-    public boolean isModerateConfidence() {
-        return overallScore >= 0.70 && overallScore < 0.90;
-    }
 }

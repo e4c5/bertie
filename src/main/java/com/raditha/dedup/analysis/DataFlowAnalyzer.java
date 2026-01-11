@@ -77,7 +77,6 @@ public class DataFlowAnalyzer {
         // Return intersection: defined in sequence AND used after
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
-
         return liveOut;
     }
 
@@ -88,9 +87,14 @@ public class DataFlowAnalyzer {
         Set<String> defined = new HashSet<>();
 
         for (Statement stmt : sequence.statements()) {
-            // 1. Variable declarations (including nested ones)
-            stmt.findAll(VariableDeclarationExpr.class)
-                    .forEach(vde -> vde.getVariables().forEach(v -> defined.add(v.getNameAsString())));
+            // 1. Variable declarations (Explicit check + findAll for nested)
+            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+                stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()
+                        .forEach(v -> defined.add(v.getNameAsString()));
+            } else {
+                stmt.findAll(VariableDeclarationExpr.class)
+                        .forEach(vde -> vde.getVariables().forEach(v -> defined.add(v.getNameAsString())));
+            }
 
             // 2. Assignments (target variables)
             stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class).forEach(ae -> {
@@ -132,6 +136,7 @@ public class DataFlowAnalyzer {
         int endLine = lastStmt.getRange().map(r -> r.end.line).orElse(sequence.range().endLine());
         int endColumn = lastStmt.getRange().map(r -> r.end.column).orElse(sequence.range().endColumn());
 
+
         // Scan the entire method body for variable usages
         BlockStmt methodBody = method.getBody().get();
         methodBody.findAll(NameExpr.class).forEach(nameExpr -> {
@@ -170,9 +175,11 @@ public class DataFlowAnalyzer {
         // declarations
         for (Statement stmt : sequence.statements()) {
             // Check for Return Statements
+            // Check for Return Statements
             if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
                 stmt.asReturnStmt().getExpression().get()
-                        .findAll(NameExpr.class)
+                        .findAll(NameExpr.class) // Restored original logic to support extracting vars from complex
+                                                 // returns
                         .forEach(n -> returnedVars.add(n.getNameAsString()));
             }
 
@@ -276,7 +283,11 @@ public class DataFlowAnalyzer {
      * Check if a variable's type is compatible with the expected return type.
      * Uses AbstractCompiler and TypeWrapper for robust type checking.
      */
-    private boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
+    /**
+     * Check if a variable's type is compatible with the expected return type.
+     * Uses AbstractCompiler and TypeWrapper for robust type checking.
+     */
+    public boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
         // 1. Find the variable declaration to get its types
 
         com.github.javaparser.ast.body.VariableDeclarator targetVar = null;
