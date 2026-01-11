@@ -33,76 +33,80 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * without creating redundant helper methods.
  */
 class DuplicateEliminationIntegrationTest {
-    @TempDir
-    Path tempDir;
+        @TempDir
+        Path tempDir;
 
-    @BeforeAll()
-    static void setupClass() throws IOException {
-        // Load test configuration pointing to test-bed
-        File configFile = new File("src/test/resources/analyzer-tests.yml");
-        Settings.loadConfigMap(configFile);
+        @BeforeAll()
+        static void setupClass() throws IOException {
+                // Load test configuration pointing to test-bed
+                File configFile = new File("src/test/resources/analyzer-tests.yml");
+                Settings.loadConfigMap(configFile);
 
-        // Reset and parse test sources
-        AntikytheraRunTime.resetAll();
-        AbstractCompiler.reset();
-        AbstractCompiler.preProcess();
-    }
-
-
-    @Test
-    void testRefactoringAvoidsDuplicateMethods() throws IOException, InterruptedException {
-        Map<String, CompilationUnit> cus = AntikytheraRunTime.getResolvedCompilationUnits();
-
-        String className = "com.raditha.bertie.testbed.statementremoval.ServiceWithDuplicatesAtDifferentPositions";
-        CompilationUnit cu = cus.get(className);
-
-        Path sourceFile = tempDir.resolve("SimpleTest.java");
-        Files.writeString(sourceFile, cu.toString());
-
-        // 2. Configure Analyzer
-        DuplicationConfig config = new DuplicationConfig(3, 0.70, com.raditha.dedup.config.SimilarityWeights.balanced(),
-                false, List.of(), 5, true, true);
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(config, cus);
-
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
-        assertTrue(report.hasDuplicates(), "Should have found duplicates");
-
-        // 4. Refactor
-        RefactoringEngine engine = new RefactoringEngine(
-                Paths.get(Settings.getBasePath()),
-                RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE // Skip compilation for unit test speed
-        );
-
-        RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
-
-        // 5. Verify Results
-        CompilationUnit refactoredCU = session.getSuccessful().get(0).cluster().primary().compilationUnit();
-
-        // Count private helper methods that return User
-        List<MethodDeclaration> helperMethods = refactoredCU.findAll(MethodDeclaration.class).stream()
-                .filter(m -> m.getModifiers().stream().anyMatch(mod -> mod.getKeyword().name().equals("PRIVATE")))
-                .filter(m -> m.getType().asString().equals("User"))
-                .filter(m -> m.getBody().isPresent() && m.getBody().get().toString().contains("new User()"))
-                .collect(Collectors.toList());
-
-        // We expect exactly ONE such helper method to handle all duplicates
-        assertEquals(1, helperMethods.size(),
-                "Should have exactly one extracted helper method, but found: " +
-                        helperMethods.stream().map(MethodDeclaration::getNameAsString)
-                                .collect(Collectors.joining(", ")));
-
-        // Check for duplicate signatures explicitly
-        Map<String, Integer> signatureCounts = new HashMap<>();
-        for (MethodDeclaration m : helperMethods) {
-            // Normalize signature (param types only)
-            String sig = m.getParameters().stream().map(p -> p.getType().asString()).collect(Collectors.joining(","));
-            signatureCounts.merge(sig, 1, Integer::sum);
+                // Reset and parse test sources
+                AntikytheraRunTime.resetAll();
+                AbstractCompiler.reset();
+                AbstractCompiler.preProcess();
         }
 
-        for (Map.Entry<String, Integer> entry : signatureCounts.entrySet()) {
-            assertEquals(1, entry.getValue(),
-                    "Found " + entry.getValue() + " methods with signature types: " + entry.getKey());
+        @Test
+        void testRefactoringAvoidsDuplicateMethods() throws IOException, InterruptedException {
+                Map<String, CompilationUnit> cus = AntikytheraRunTime.getResolvedCompilationUnits();
+
+                String className = "com.raditha.bertie.testbed.statementremoval.ServiceWithDuplicatesAtDifferentPositions";
+                CompilationUnit cu = cus.get(className);
+
+                Path sourceFile = tempDir.resolve("SimpleTest.java");
+                Files.writeString(sourceFile, cu.toString());
+
+                // 2. Configure Analyzer
+                DuplicationConfig config = new DuplicationConfig(3, 0.70,
+                                com.raditha.dedup.config.SimilarityWeights.balanced(),
+                                true, List.of(), 5, true, true, true);
+                DuplicationAnalyzer analyzer = new DuplicationAnalyzer(config, cus);
+
+                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                assertTrue(report.hasDuplicates(), "Should have found duplicates");
+
+                // 4. Refactor
+                RefactoringEngine engine = new RefactoringEngine(
+                                Paths.get(Settings.getBasePath()),
+                                RefactoringEngine.RefactoringMode.BATCH,
+                                RefactoringVerifier.VerificationLevel.NONE // Skip compilation for unit test speed
+                );
+
+                RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
+
+                // 5. Verify Results
+                CompilationUnit refactoredCU = session.getSuccessful().get(0).cluster().primary().compilationUnit();
+
+                // Count private helper methods that return User
+                List<MethodDeclaration> helperMethods = refactoredCU.findAll(MethodDeclaration.class).stream()
+                                .filter(m -> m.getModifiers().stream()
+                                                .anyMatch(mod -> mod.getKeyword().name().equals("PRIVATE")))
+                                .filter(m -> m.getType().asString().equals("User"))
+                                .filter(m -> m.getBody().isPresent()
+                                                && m.getBody().get().toString().contains("new User()"))
+                                .collect(Collectors.toList());
+
+                // We expect exactly ONE such helper method to handle all duplicates
+                assertEquals(1, helperMethods.size(),
+                                "Should have exactly one extracted helper method, but found: " +
+                                                helperMethods.stream().map(MethodDeclaration::getNameAsString)
+                                                                .collect(Collectors.joining(", ")));
+
+                // Check for duplicate signatures explicitly
+                Map<String, Integer> signatureCounts = new HashMap<>();
+                for (MethodDeclaration m : helperMethods) {
+                        // Normalize signature (param types only)
+                        String sig = m.getParameters().stream().map(p -> p.getType().asString())
+                                        .collect(Collectors.joining(","));
+                        signatureCounts.merge(sig, 1, Integer::sum);
+                }
+
+                for (Map.Entry<String, Integer> entry : signatureCounts.entrySet()) {
+                        assertEquals(1, entry.getValue(),
+                                        "Found " + entry.getValue() + " methods with signature types: "
+                                                        + entry.getKey());
+                }
         }
-    }
 }
