@@ -171,4 +171,16 @@ class DuplicationDetectorSettingsTest {
         Settings.setProperty("target_class", "com.example.GlobalClass");
         assertEquals("com.example.GlobalClass", DuplicationDetectorSettings.getTargetClass());
     }
+
+    @Test
+    void testLoadConfig_InvalidInt_ThrowsException() {
+        Settings.setProperty("min_lines", "invalid_int");
+        assertThrows(NumberFormatException.class, () -> DuplicationDetectorSettings.loadConfig(0, 0, null));
+    }
+
+    @Test
+    void testLoadConfig_InvalidDouble_ThrowsException() {
+        Settings.setProperty("threshold", "invalid_double");
+        assertThrows(NumberFormatException.class, () -> DuplicationDetectorSettings.loadConfig(0, 0, null));
+    }
 }

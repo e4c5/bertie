@@ -136,10 +136,7 @@ public class DuplicationDetectorSettings {
         if (val instanceof Number n)
             return n.intValue();
         if (val instanceof String s) {
-            try {
-                return Integer.parseInt(s);
-            } catch (NumberFormatException e) {
-            }
+            return Integer.parseInt(s);
         }
         return defaultValue;
     }
@@ -149,10 +146,7 @@ public class DuplicationDetectorSettings {
         if (val instanceof Number n)
             return n.doubleValue();
         if (val instanceof String s) {
-            try {
-                return Double.parseDouble(s);
-            } catch (NumberFormatException e) {
-            }
+            return Double.parseDouble(s);
         }
         return defaultValue;
     }
