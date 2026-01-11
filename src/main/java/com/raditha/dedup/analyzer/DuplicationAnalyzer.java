@@ -13,7 +13,7 @@ import com.raditha.dedup.model.*;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
+
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -168,51 +168,37 @@ public class DuplicationAnalyzer {
             seqToTokens.put(seq, extractTokens(norm)); // Computed once per sequence
         }
 
-        // 2. Initialize and Populate LSH Index
-        // Using 100 permutations for MinHash
-        // Using k-shingles of size 3 (trigrams)
-        // Using 20 bands of 5 rows each (requires 100 permutations)
-        // This threshold ~ (1/20)^(1/5) = 0.55 similarity
+        // 2. Initialize LSH Index
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
         com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
 
-        for (NormalizedSequence normSeq : normalizedSequences) {
-            StatementSequence seq = normSeq.sequence();
-            lshIndex.add(seqToTokens.get(seq), seq);
-        }
-
-        // 3. Query LSH and Collect Candidates
-        Set<String> processedPairs = new HashSet<>();
-
+        // 3. Fused Loop: Query and Add
+        // Iterate through sequences, finding candidates among those already processed,
+        // then add current.
         for (int i = 0; i < normalizedSequences.size(); i++) {
             NormalizedSequence normSeq = normalizedSequences.get(i);
             StatementSequence seq1 = normSeq.sequence();
 
             List<String> tokens = seqToTokens.get(seq1);
 
-            // Get candidates from LSH bucket
-            Set<StatementSequence> potentialMatches = lshIndex.query(tokens);
+            // OPTIMIZATION: Query and Add in single pass
+            // Returns matches from *already processed* sequences
+            Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, seq1);
 
             for (StatementSequence seq2 : potentialMatches) {
-                // Avoid self-comparison
+                // Self-check redundant with query-past-only logic but fast to keep
                 if (seq1 == seq2)
                     continue;
 
-                Integer id2 = sequenceIds.get(seq2);
+                // No need for processedPairs set!
+                // We only match against previous items, so (seq1, seq2) is seen exactly once.
 
-                // Stable pair key using sorted integer IDs
-                String pairKey = getPairKey(i, id2);
-                if (processedPairs.contains(pairKey))
-                    continue;
-                processedPairs.add(pairKey);
-
-                // Skip sequences from the same method (overlapping windows)
-                if (seq1.containingMethod() != null &&
-                        seq1.containingMethod().equals(seq2.containingMethod())) {
+                // Robust same-method check
+                if (areSameMethodOrOverlapping(seq1, seq2)) {
                     continue;
                 }
 
-                // Pre-filter to skip unlikely matches
+                // Pre-filter
                 if (!preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
@@ -221,7 +207,10 @@ public class DuplicationAnalyzer {
                 NormalizedSequence norm2 = seqToNorm.get(seq2);
 
                 if (norm2 != null) {
-                    SimilarityPair pair = analyzePair(normSeq, norm2);
+                    // Maintain (Earlier, Later) order to match original behavior
+                    // seq2 is from the index (already processed, so earlier)
+                    // seq1 is current (later)
+                    SimilarityPair pair = analyzePair(norm2, normSeq);
                     candidates.add(pair);
                 }
             }
@@ -230,8 +219,25 @@ public class DuplicationAnalyzer {
         return candidates;
     }
 
-    private String getPairKey(int id1, int id2) {
-        return (id1 < id2) ? id1 + "-" + id2 : id2 + "-" + id1;
+    /**
+     * robustness check: returns true if sequences are in the same method
+     * or if method is null (e.g. static block) and they are in same file
+     */
+    private boolean areSameMethodOrOverlapping(StatementSequence s1, StatementSequence s2) {
+        var m1 = s1.containingMethod();
+        var m2 = s2.containingMethod();
+
+        if (m1 != null && m2 != null) {
+            return m1.equals(m2);
+        }
+
+        // If one or both methods are null (e.g. static initializer logic),
+        // check if they are in the same file to be safe against overlap
+        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null) {
+            return s1.sourceFilePath().equals(s2.sourceFilePath());
+        }
+
+        return false;
     }
 
     private List<String> extractTokens(NormalizedSequence normSeq) {
