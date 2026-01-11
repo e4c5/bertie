@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DuplicationAnalyzerTest {
 
     private DuplicationAnalyzer analyzer;
+
     @BeforeAll
     static void setUpClass() throws IOException {
         // Load test configuration
@@ -69,7 +70,8 @@ class DuplicationAnalyzerTest {
 
     @Test
     void testSimpleDuplicate() {
-        CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
+        CompilationUnit cu = AntikytheraRunTime
+                .getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
         DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("Test.java"));
 
         assertNotNull(report);
@@ -94,7 +96,8 @@ class DuplicationAnalyzerTest {
                 java.util.List.of(), // excludePatterns
                 5, // maxWindowGrowth
                 false, // maximalOnly - need to extract sub-sequences to find partial match
-                true // enableBoundaryRefinement
+                true, // enableBoundaryRefinement
+                true // enableLSH
         );
         DuplicationAnalyzer partialAnalyzer = new DuplicationAnalyzer(config);
 

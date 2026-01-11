@@ -24,7 +24,8 @@ public record DuplicationConfig(
         List<String> excludePatterns,
         int maxWindowGrowth,
         boolean maximalOnly,
-        boolean enableBoundaryRefinement) {
+        boolean enableBoundaryRefinement,
+        boolean enableLSH) {
     /**
      * Validate configuration.
      */
@@ -59,7 +60,8 @@ public record DuplicationConfig(
                 List.of(), // excludePatterns
                 5, // maxWindowGrowth - creates windows from 5 to 10 statements
                 true, // maximalOnly - only extract largest sequences
-                true); // enableBoundaryRefinement - trim usage-only statements
+                true, // enableBoundaryRefinement - trim usage-only statements
+                true); // enableLSH - use Locality Sensitive Hashing for scalability
     }
 
     /**
@@ -75,7 +77,8 @@ public record DuplicationConfig(
                 List.of(), // excludePatterns
                 3, // maxWindowGrowth - smaller for strict mode
                 true, // maximalOnly
-                true); // enableBoundaryRefinement
+                true, // enableBoundaryRefinement
+                true); // enableLSH
     }
 
     /**
@@ -91,7 +94,8 @@ public record DuplicationConfig(
                 List.of(), // excludePatterns
                 7, // maxWindowGrowth - larger for lenient mode
                 false, // maximalOnly - extract more variations in lenient mode
-                true); // enableBoundaryRefinement
+                true, // enableBoundaryRefinement
+                true); // enableLSH
     }
 
     /**
@@ -109,7 +113,8 @@ public record DuplicationConfig(
                 defaultExcludePatterns(),
                 10, // maxWindowGrowth - largest for aggressive mode
                 false, // maximalOnly - extract all variations in aggressive mode
-                true); // enableBoundaryRefinement
+                true, // enableBoundaryRefinement
+                true); // enableLSH
     }
 
     /**
@@ -127,7 +132,8 @@ public record DuplicationConfig(
                 defaultExcludePatterns(),
                 7, // maxWindowGrowth
                 true, // maximalOnly
-                true); // enableBoundaryRefinement
+                true, // enableBoundaryRefinement
+                true); // enableLSH
     }
 
     /**

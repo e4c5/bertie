@@ -31,8 +31,6 @@ import java.util.Set;
  * This is the most common and safest refactoring strategy.
  */
 public class ExtractMethodRefactorer {
-    Logger log = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
-
     public static final String Boolean = "Boolean";
 
     private record HelperMethodResult(MethodDeclaration method, List<ParameterSpec> usedParameters,
@@ -947,7 +945,7 @@ public class ExtractMethodRefactorer {
                 });
             }
             if (typedCandidates.size() == 1) {
-                varName = typedCandidates.get(0);
+                varName = typedCandidates.getFirst();
             }
         }
         return varName;

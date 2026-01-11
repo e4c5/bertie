@@ -588,15 +588,29 @@ public record SimilarityWeights(
 - ✅ Text/JSON reports with refactoring recommendations
 - ✅ CLI interface with CI/CD exit codes
 
-### 9.2 Pre-Filtering Strategy (Critical for Performance)
+### 9.2 Scalable Detection Strategy (LSH + Pre-Filtering)
 
-Without pre-filtering, comparing all sequence pairs results in O(N²) complexity that is prohibitive for large code bases.
+To ensure scalability for large codebases ($N > 10,000$ sequences), we employ a **Locality Sensitive Hashing (LSH)** strategy as the primary candidate generation mechanism, followed by precise filtering.
 
-**Three-Stage Filtering**:
+**Core Workflow**:
 
-**Stage 1: Size Filter** (Cheap, ~95% reduction)
-- Skip pairs where size difference > 30%
-- If `|len(seq1) - len(seq2)| / max(len(seq1), len(seq2)) > 0.3` → skip
+1.  **LSH Candidate Generation** (Global, $O(N)$)
+    *   **Technique**: MinHash with Banding
+    *   **Process**:
+        1.  Convert normalized token sequences into k-shingles (e.g., k=3).
+        2.  Generate MinHash signatures (e.g., 100 hash functions).
+        3.  Organize signatures into bands (e.g., 20 bands of 5 rows).
+        4.  Hash bands to buckets.
+    *   **Output**: A set of "candidate pairs" that collide in at least one bucket.
+    *   **Guarantee**: High probability of finding pairs with Jaccard similarity > 0.5.
+
+2.  **Size Filter** (Local, $O(1)$ per candidate)
+    *   Apply to candidate pairs from LSH.
+    *   Skip if `|len(seq1) - len(seq2)| / max(len(seq1), len(seq2)) > 0.3`.
+
+3.  **Structural Pre-Filter** (Local, $O(1)$ per candidate)
+    *   Apply to remaining candidates.
+    *   Skip if `Jaccard(patterns1, patterns2) < 0.5`.
 
 **Important: How Sliding Window Ensures We Don't Miss Partial Duplicates**
 
@@ -633,59 +647,14 @@ void processRegistration() {
 **How extraction works:**
 - From `setupUser()`: 1 sequence (all 5 statements)
 - From `processRegistration()`: 120 sequences extracted via sliding window:
-  - Window [0-4]: statements 1-5 (5 statements)
-  - Window [1-5]: statements 2-6 (5 statements)
-  - ...
-  - **Window [10-14]: statements 11-15 (5 statements)** ← This matches setupUser()!
-  - ...
-  - Window [0-19]: all 20 statements
-
-**Size filter comparison:**
-```
-setupUser (5 stmts) vs processRegistration[10-14] (5 stmts)
-Size difference: 0% → ✅ Passes filter, comparison proceeds
-```
-
-**Key insight:** The size filter compares *extracted sequences*, not *entire methods*. This ensures:
-- ✅ Small duplicates within large methods are detected
-- ✅ Size filter still eliminates 95% of impossible matches (e.g., 5-stmt vs 50-stmt sequences)
-- ✅ Only genuinely similar-sized code blocks are compared
-
-**What WOULD be skipped (correctly):**
-```
-setupUser (5 stmts) vs processRegistration[full] (20 stmts)
-Size difference: 75% → ⏭️ Skip (a 5-line block can't be 75%+ similar to a 20-line block)
-```
-
-
-**Stage 2: Structural Pre-Filter** (Moderate, additional ~50% reduction)
-- Compare control flow patterns (if/for/while counts)
-- If Jaccard(patterns1, patterns2) < 0.5 → skip
-- Structural signature computation is O(n), very fast
-
-**Stage 3: LSH Bucketing** (Optional, for cross-file analysis)
-- Generate w-shingles (w=5) for each normalized sequence
-- Compute MinHash signature (128 hash functions)
-- LSH bucketing with band size=4, rows=32
-- Only compare sequences in same LSH bucket
-- **Expected reduction**: 99%+ of comparisons eliminated
-
-**MVP Approach** (Phase 1 initial):
-- Per-file analysis: Compare sequences within same file only
-- Use Stage 1 + Stage 2 filtering
-- Target: <1 million comparisons for 10K sequences
-
-**Enhanced Approach** (Phase 1 if MVP insufficient):
-- Add Stage 3 (LSH) for cross-file comparisons
-- Module-level sharding for monorepos
-- Target: <100K meaningful comparisons
+  - **Window [10-14]: statements 11-15** ← This matches setupUser()!
 
 **Performance Impact**:
-| Scenario | Sequences | Without Filtering | WithStages 1+2 | With LSH (Stages 1+2+3) |
-|----------|-----------|-------------------|----------------|------------------------|
-| Small project | 2K | 4M comparisons | 200K | 20K |
-| Medium project | 10K | 100M comparisons | 5M | 200K |
-| Large project | 50K | 2.5B comparisons | 125M | 2.5M |
+| Scenario | Sequences | Brute Force ($O(N^2)$) | With LSH ($O(N)$) | Improvement |
+|----------|-----------|------------------------|-------------------|-------------|
+| Small project | 2K | 4M comparisons | ~20K candidates | 200x |
+| Medium project | 10K | 100M comparisons | ~200K candidates | 500x |
+| Large project | 50K | 2.5B comparisons | ~2.5M candidates | 1000x |
 
 ### 9.3 Example Output
 
@@ -1297,11 +1266,11 @@ Rather than competing directly with CPD/SonarQube, consider:
 **Objective**: Empirically tune similarity weights and validate detection quality
 
 **Dataset Sources**:
-1. **Spring Petclinic** (~5K LOC, 20 test files) - Small project validation
-2. **Sample Enterprise Service** (~50K LOC, 150 test files) - Real-world production code
-3. **Apache Commons Lang** (~100K LOC, 300 test files) - Large library
-4. **JHipster Sample App** (~80K LOC, 200 test files) - Enterprise application
-5. **Open-source test suites** - Additional examples from GitHub
+1. **Bertie Test-Bed** (Submodule) - Integration testing corpus with known duplicate patterns.
+2. **Spring Petclinic** (~5K LOC, 20 test files) - Small project validation
+3. **Sample Enterprise Service** (~50K LOC, 150 test files) - Real-world production code
+4. **Apache Commons Lang** (~100K LOC, 300 test files) - Large library
+5. **JHipster Sample App** (~80K LOC, 200 test files) - Enterprise application
 
 **Total**: ~235K LOC, ~670 test files, estimated ~40-50K sequences
 

@@ -92,6 +92,9 @@ public class DuplicationDetectorSettings {
         boolean maximalOnly = (config != null ? getBoolean(config, "maximal_only", true)
                 : getGlobalBoolean("maximal_only", true));
 
+        boolean enableLSH = (config != null ? getBoolean(config, "enable_lsh", true)
+                : getGlobalBoolean("enable_lsh", true));
+
         return new DuplicationConfig(
                 minLines,
                 threshold,
@@ -100,7 +103,8 @@ public class DuplicationDetectorSettings {
                 excludePatterns,
                 maxWindowGrowth,
                 maximalOnly,
-                true); // enableBoundaryRefinement
+                true, // enableBoundaryRefinement
+                enableLSH); // enableLSH
     }
 
     /**
@@ -132,10 +136,7 @@ public class DuplicationDetectorSettings {
         if (val instanceof Number n)
             return n.intValue();
         if (val instanceof String s) {
-            try {
-                return Integer.parseInt(s);
-            } catch (NumberFormatException e) {
-            }
+            return Integer.parseInt(s);
         }
         return defaultValue;
     }
@@ -145,10 +146,7 @@ public class DuplicationDetectorSettings {
         if (val instanceof Number n)
             return n.doubleValue();
         if (val instanceof String s) {
-            try {
-                return Double.parseDouble(s);
-            } catch (NumberFormatException e) {
-            }
+            return Double.parseDouble(s);
         }
         return defaultValue;
     }

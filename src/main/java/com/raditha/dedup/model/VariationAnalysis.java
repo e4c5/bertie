@@ -19,9 +19,6 @@ public class VariationAnalysis {
     // Legacy fields (Token-based)
     private final List<Variation> variations;
     private final boolean hasControlFlowDifferences;
-    private final Map<Integer, Map<StatementSequence, String>> valueBindings;
-
-    private final Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings;
 
     private VariationAnalysis(Builder builder) {
         this.varyingExpressions = builder.varyingExpressions != null ? builder.varyingExpressions
@@ -33,8 +30,6 @@ public class VariationAnalysis {
 
         this.variations = builder.variations != null ? builder.variations : Collections.emptyList();
         this.hasControlFlowDifferences = builder.hasControlFlowDifferences;
-        this.valueBindings = builder.valueBindings != null ? builder.valueBindings : Collections.emptyMap();
-        this.exprBindings = builder.exprBindings != null ? builder.exprBindings : Collections.emptyMap();
     }
 
     public static Builder builder() {

@@ -51,16 +51,24 @@ sequenceDiagram
     
     Analyzer->>Analyzer: findDuplicates(sequences)
     activate Analyzer
-    Analyzer->>Analyzer: generateCandidates(sequences)
     
-    loop For each candidate pair
-        Analyzer->>Similarity: compare(seq1, seq2)
-        activate Similarity
-        Similarity->>Similarity: calculateLCS()
-        Similarity->>Similarity: calculateLevenshtein()
-        Similarity->>Similarity: calculateStructural()
-        Similarity-->>Analyzer: SimilarityResult
-        deactivate Similarity
+    Analyzer->>LSH: index(sequences)
+    activate LSH
+    LSH-->>Analyzer: candidatePairs
+    deactivate LSH
+
+    loop For each LSH candidate pair
+        Analyzer->>PreFilter: shouldCompare(seq1, seq2)
+
+        opt Passed PreFilter
+            Analyzer->>Similarity: compare(seq1, seq2)
+            activate Similarity
+            Similarity->>Similarity: calculateLCS()
+            Similarity->>Similarity: calculateLevenshtein()
+            Similarity->>Similarity: calculateStructural()
+            Similarity-->>Analyzer: SimilarityResult
+            deactivate Similarity
+        end
     end
     
     Analyzer->>Clusterer: cluster(results)
@@ -125,15 +133,10 @@ sequenceDiagram
     Analyzer->>Analyzer: allClusters.addAll()
     
     opt Cross-file clustering
-        Analyzer->>PreFilter: filterCrossPairs(allClusters)
-        activate PreFilter
-        PreFilter->>PreFilter: sizeFilter()
-        PreFilter->>PreFilter: structuralFilter()
-        PreFilter->>PreFilter: lshBucketingFilter()
-        PreFilter-->>Analyzer: filtered candidates
-        deactivate PreFilter
+        Analyzer->>LSH: indexAll(allClusters)
+        LSH-->>Analyzer: globalCandidates
         
-        Analyzer->>Clusterer: clusterAll(allClusters)
+        Analyzer->>Clusterer: clusterAll(globalCandidates)
         activate Clusterer
         Clusterer->>Clusterer: mergeSimilarClusters()
         Clusterer-->>Analyzer: merged clusters
@@ -466,8 +469,6 @@ sequenceDiagram
     
     PreFilter-->>Analyzer: final candidates
     deactivate PreFilter
-    
-    Note over Analyzer: Performance Impact:<br/>2K sequences: 4M → 20K comparisons<br/>10K sequences: 100M → 200K comparisons<br/>50K sequences: 2.5B → 2.5M comparisons
 ```
 
 **Key Points**:
