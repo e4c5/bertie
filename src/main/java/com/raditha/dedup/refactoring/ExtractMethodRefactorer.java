@@ -63,6 +63,11 @@ public class ExtractMethodRefactorer {
 
         // 1. Create the new helper method (tentative)
         HelperMethodResult helperResult = createHelperMethod(primary, uniqueSequences, recommendation);
+        if (helperResult == null) {
+            return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                    "Refactoring aborted: Multiple live-out variables detected " + uniqueSequences.size()
+                            + " sequences analyzed");
+        }
         MethodDeclaration helperMethod = helperResult.method();
         List<ParameterSpec> effectiveParams = helperResult.usedParameters();
         String forcedReturnVar = helperResult.forcedReturnVar();
@@ -200,8 +205,9 @@ public class ExtractMethodRefactorer {
         com.github.javaparser.ast.type.Type forcedReturnType = null;
 
         if (liveOutVars.size() > 1) {
-            throw new IllegalStateException(
-                    "Cannot extract method: Multiple variables used after the block " + liveOutVars);
+            // log.warn("Cannot extract method: Multiple variables used after the block {}",
+            // liveOutVars);
+            return null; // Controlled abort
         } else if (liveOutVars.size() == 1) {
             forcedReturnVar = liveOutVars.iterator().next();
             forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
@@ -718,7 +724,6 @@ public class ExtractMethodRefactorer {
                 Map<ParameterSpec, ASTNodePath> precomputedPaths,
                 List<ParameterSpec> effectiveParams) {
             NodeList<Expression> arguments = new NodeList<>();
-
 
             // Use the effective parameters which are already sorted and filtered
             List<ParameterSpec> sortedParams = effectiveParams;
