@@ -13,8 +13,11 @@ import com.raditha.dedup.model.*;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Main orchestrator for duplicate detection.
@@ -150,11 +153,11 @@ public class DuplicationAnalyzer {
 
         // 1. Pre-compute maps for O(1) lookups and caching
         // Map: StatementSequence -> Integer ID (for stable pair keys)
-        java.util.IdentityHashMap<StatementSequence, Integer> sequenceIds = new java.util.IdentityHashMap<>();
+        IdentityHashMap<StatementSequence, Integer> sequenceIds = new IdentityHashMap<>();
         // Map: StatementSequence -> NormalizedSequence (for O(1) retrieval)
-        java.util.IdentityHashMap<StatementSequence, NormalizedSequence> seqToNorm = new java.util.IdentityHashMap<>();
+        IdentityHashMap<StatementSequence, NormalizedSequence> seqToNorm = new IdentityHashMap<>();
         // Map: StatementSequence -> Tokens (avoid repeated fuzzy normalization)
-        java.util.IdentityHashMap<StatementSequence, List<String>> seqToTokens = new java.util.IdentityHashMap<>();
+        IdentityHashMap<StatementSequence, List<String>> seqToTokens = new IdentityHashMap<>();
 
         for (int i = 0; i < normalizedSequences.size(); i++) {
             NormalizedSequence norm = normalizedSequences.get(i);
@@ -179,17 +182,16 @@ public class DuplicationAnalyzer {
         }
 
         // 3. Query LSH and Collect Candidates
-        java.util.Set<String> processedPairs = new java.util.HashSet<>();
+        Set<String> processedPairs = new HashSet<>();
 
         for (int i = 0; i < normalizedSequences.size(); i++) {
             NormalizedSequence normSeq = normalizedSequences.get(i);
             StatementSequence seq1 = normSeq.sequence();
-            int id1 = i;
 
             List<String> tokens = seqToTokens.get(seq1);
 
             // Get candidates from LSH bucket
-            java.util.Set<StatementSequence> potentialMatches = lshIndex.query(tokens);
+            Set<StatementSequence> potentialMatches = lshIndex.query(tokens);
 
             for (StatementSequence seq2 : potentialMatches) {
                 // Avoid self-comparison
@@ -197,11 +199,9 @@ public class DuplicationAnalyzer {
                     continue;
 
                 Integer id2 = sequenceIds.get(seq2);
-                if (id2 == null)
-                    continue; // Should effectively never happen
 
                 // Stable pair key using sorted integer IDs
-                String pairKey = getPairKey(id1, id2);
+                String pairKey = getPairKey(i, id2);
                 if (processedPairs.contains(pairKey))
                     continue;
                 processedPairs.add(pairKey);
