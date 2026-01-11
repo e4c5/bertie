@@ -45,7 +45,8 @@ com.raditha.dedup/
 │   ├── TypeAnalyzer.java                 (Type compatibility)
 │   ├── ScopeAnalyzer.java                (Extract scope info from AST)
 │   ├── DuplicateClusterer.java           (Group similar sequences)
-│   └── ParameterExtractor.java           (Infer method signatures)
+│   ├── ParameterExtractor.java           (Infer method signatures)
+│   └── BoundaryRefiner.java              (Trim usage-only statements)
 │
 ├── refactoring/                          (Phase 2)
 │   ├── RefactoringEngine.java
@@ -198,12 +199,14 @@ public class DuplicationAnalyzer {
     private final StatementExtractor extractor;
     private final SimilarityCalculator similarity;
     private final DuplicateClusterer clusterer;
+    private final BoundaryRefiner boundaryRefiner;
     
     public DuplicationAnalyzer(DuplicationConfig config) {
         this.config = config;
         this.extractor = new StatementExtractor(config.minLines());
         this.similarity = new SimilarityCalculator(config.weights());
         this.clusterer = new DuplicateClusterer(config.threshold());
+        this.boundaryRefiner = new BoundaryRefiner(new DataFlowAnalyzer(), config.minLines(), config.threshold());
     }
     
     /**
@@ -220,6 +223,11 @@ public class DuplicationAnalyzer {
         // Find duplicates
         List<DuplicateCluster> clusters = findDuplicates(sequences);
         
+        // Refine boundaries (trim usage-only statements)
+        if (config.enableBoundaryRefinement()) {
+            clusters = boundaryRefiner.refineBoundaries(clusters);
+        }
+
         return new DuplicationReport(clusters);
     }
     
@@ -322,23 +330,11 @@ public class StatementExtractor {
         List<Statement> statements = body.getStatements();
         List<StatementSequence> sequences = new ArrayList<>();
         
-        // Sliding window
-        for (int i = 0; i <= statements.size() - minLines; i++) {
-            for (int windowSize = minLines; i + windowSize <= statements.size(); windowSize++) {
-                List<Statement> window = statements.subList(i, i + windowSize);
-                
-                StatementSequence seq = new StatementSequence(
-                    window,
-                    Range.range(window.get(0).getRange().get(), 
-                               window.get(windowSize-1).getRange().get()),
-                    i,
-                    method,      // Direct reference - no wrapper!
-                    cu,          // Direct reference - no wrapper!
-                    filePath
-                );
-                
-                sequences.add(seq);
-            }
+        // Sliding window (Optimized)
+        if (maximalOnly) {
+            extractMaximalSequences(statements, method, sequences);
+        } else {
+            extractLimitedWindowSizes(statements, method, sequences);
         }
         
         return sequences;
@@ -421,6 +417,21 @@ public class ScopeAnalyzer {
         boolean isField,
         boolean isFinal
     ) {}
+}
+
+/**
+ * MinHash-based LSH Index for scalable candidate generation.
+ */
+public class LSHIndex<T> {
+    public LSHIndex(int numHashFunctions, int numBands, int shingleSize) { ... }
+
+    public void index(List<T> items, Function<T, List<Token>> tokenProvider) {
+        // Compute MinHash signature -> Add to LSH buckets
+    }
+
+    public Set<Pair<T>> getCandidates() {
+        // Retrieve colliding pairs from buckets
+    }
 }
 ```
 
