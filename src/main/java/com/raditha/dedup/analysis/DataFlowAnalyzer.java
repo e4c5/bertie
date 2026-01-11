@@ -78,6 +78,9 @@ public class DataFlowAnalyzer {
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
 
+        System.out.println(
+                "DEBUG DFA: Defined: " + definedVars + ", UsedAfter: " + usedAfter + " -> LiveOut: " + liveOut);
+
         return liveOut;
     }
 
@@ -88,9 +91,14 @@ public class DataFlowAnalyzer {
         Set<String> defined = new HashSet<>();
 
         for (Statement stmt : sequence.statements()) {
-            // 1. Variable declarations (including nested ones)
-            stmt.findAll(VariableDeclarationExpr.class)
-                    .forEach(vde -> vde.getVariables().forEach(v -> defined.add(v.getNameAsString())));
+            // 1. Variable declarations (Explicit check + findAll for nested)
+            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+                stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()
+                        .forEach(v -> defined.add(v.getNameAsString()));
+            } else {
+                stmt.findAll(VariableDeclarationExpr.class)
+                        .forEach(vde -> vde.getVariables().forEach(v -> defined.add(v.getNameAsString())));
+            }
 
             // 2. Assignments (target variables)
             stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class).forEach(ae -> {
@@ -132,6 +140,8 @@ public class DataFlowAnalyzer {
         int endLine = lastStmt.getRange().map(r -> r.end.line).orElse(sequence.range().endLine());
         int endColumn = lastStmt.getRange().map(r -> r.end.column).orElse(sequence.range().endColumn());
 
+        // System.err.println("DEBUG DFA: Sequence End: " + endLine + ":" + endColumn);
+
         // Scan the entire method body for variable usages
         BlockStmt methodBody = method.getBody().get();
         methodBody.findAll(NameExpr.class).forEach(nameExpr -> {
@@ -142,6 +152,9 @@ public class DataFlowAnalyzer {
                         || (range.begin.line == endLine && range.begin.column > endColumn);
 
                 if (isAfter) {
+                    // System.err.println("DEBUG DFA: Found usage of " + nameExpr.getNameAsString()
+                    // + " at " + range.begin.line + ":" + range.begin.column + " (After=" + isAfter
+                    // + ")");
                     usedAfter.add(nameExpr.getNameAsString());
                 }
             }

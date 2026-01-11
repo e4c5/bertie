@@ -525,7 +525,8 @@ public class RefactoringRecommendationGenerator {
                 String scopeName = methodCall.getScope().get().toString();
 
                 // NEW: Track generic type from field declaration
-                String genericTypeParam = extractGenericTypeFromScope(sequence, scopeName).toString();
+                Optional<Type> genericTypeOpt = extractGenericTypeFromScope(sequence, scopeName);
+                String genericTypeParam = genericTypeOpt.map(Node::toString).orElse(null);
 
                 CompilationUnit typeCU = findCompilationUnit(sequence, scopeName);
 
