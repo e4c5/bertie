@@ -80,7 +80,12 @@ public class DuplicationAnalyzer {
                 .toList();
 
         // Step 2: Compare all pairs (with pre-filtering)
-        List<SimilarityPair> candidates = findCandidates(normalizedSequences);
+        List<SimilarityPair> candidates;
+        if (config.enableLSH()) {
+            candidates = findCandidatesLSH(normalizedSequences);
+        } else {
+            candidates = findCandidatesBruteForce(normalizedSequences);
+        }
 
         // Step 3: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
@@ -137,9 +142,9 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Find candidate duplicate pairs using pre-filtering.
+     * Find candidate duplicate pairs using LSH and pre-filtering.
      */
-    private List<SimilarityPair> findCandidates(List<NormalizedSequence> normalizedSequences) {
+    private List<SimilarityPair> findCandidatesLSH(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
 
         // Compare all pairs
@@ -169,6 +174,41 @@ public class DuplicationAnalyzer {
             }
         }
 
+        return candidates;
+    }
+
+    /**
+     * Find candidate duplicate pairs using O(N^2) brute force comparison.
+     * Fallback when LSH is disabled.
+     */
+    private List<SimilarityPair> findCandidatesBruteForce(List<NormalizedSequence> normalizedSequences) {
+        List<SimilarityPair> candidates = new ArrayList<>();
+
+        // Compare all pairs
+        for (int i = 0; i < normalizedSequences.size(); i++) {
+            for (int j = i + 1; j < normalizedSequences.size(); j++) {
+                NormalizedSequence norm1 = normalizedSequences.get(i);
+                NormalizedSequence norm2 = normalizedSequences.get(j);
+
+                StatementSequence seq1 = norm1.sequence();
+                StatementSequence seq2 = norm2.sequence();
+
+                // Skip sequences from the same method
+                if (seq1.containingMethod() != null &&
+                        seq1.containingMethod().equals(seq2.containingMethod())) {
+                    continue;
+                }
+
+                // Pre-filter
+                if (!preFilter.shouldCompare(seq1, seq2)) {
+                    continue;
+                }
+
+                // Calculate similarity
+                SimilarityPair pair = analyzePair(norm1, norm2);
+                candidates.add(pair);
+            }
+        }
         return candidates;
     }
 
