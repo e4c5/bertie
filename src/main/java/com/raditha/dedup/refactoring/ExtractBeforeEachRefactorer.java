@@ -34,17 +34,10 @@ public class ExtractBeforeEachRefactorer {
     public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation)
             throws IOException {
 
-        CompilationUnit cu = cluster.primary().compilationUnit();
-        Path sourceFile = cluster.primary().sourceFilePath();
-
-        // Get the test class
-        ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No class found"));
-
-        // Validate this is a test class
-        if (!isTestClass(testClass)) {
-            throw new IllegalArgumentException("Not a test class: " + testClass.getNameAsString());
-        }
+        TestClassHelper.TestClassInfo classInfo = TestClassHelper.getAndValidateTestClass(cluster);
+        CompilationUnit cu = classInfo.compilationUnit();
+        Path sourceFile = classInfo.sourceFile();
+        ClassOrInterfaceDeclaration testClass = classInfo.testClass();
 
         // Extract variables that need to be promoted to fields
         Map<String, String> variablesToPromote = extractVariablesToPromote(cluster.primary());
@@ -63,16 +56,6 @@ public class ExtractBeforeEachRefactorer {
         removeDuplicatesFromTests(cluster, testClass);
 
         return new RefactoringResult(sourceFile, cu.toString());
-    }
-
-    /**
-     * Check if this is a test class.
-     */
-    private boolean isTestClass(ClassOrInterfaceDeclaration clazz) {
-        // Check for JUnit annotations on methods
-        return clazz.getMethods().stream()
-                .anyMatch(m -> m.getAnnotations().stream()
-                        .anyMatch(a -> a.getNameAsString().equals("Test")));
     }
 
     /**
