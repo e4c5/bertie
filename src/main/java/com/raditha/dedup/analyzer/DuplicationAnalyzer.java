@@ -143,11 +143,29 @@ public class DuplicationAnalyzer {
 
     /**
      * Find candidate duplicate pairs using LSH and pre-filtering.
+     * Optimized with pre-computed maps and stable IDs.
      */
     private List<SimilarityPair> findCandidatesLSH(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
 
-        // 1. Initialize LSH
+        // 1. Pre-compute maps for O(1) lookups and caching
+        // Map: StatementSequence -> Integer ID (for stable pair keys)
+        java.util.IdentityHashMap<StatementSequence, Integer> sequenceIds = new java.util.IdentityHashMap<>();
+        // Map: StatementSequence -> NormalizedSequence (for O(1) retrieval)
+        java.util.IdentityHashMap<StatementSequence, NormalizedSequence> seqToNorm = new java.util.IdentityHashMap<>();
+        // Map: StatementSequence -> Tokens (avoid repeated fuzzy normalization)
+        java.util.IdentityHashMap<StatementSequence, List<String>> seqToTokens = new java.util.IdentityHashMap<>();
+
+        for (int i = 0; i < normalizedSequences.size(); i++) {
+            NormalizedSequence norm = normalizedSequences.get(i);
+            StatementSequence seq = norm.sequence();
+
+            sequenceIds.put(seq, i); // Stable ID based on list index
+            seqToNorm.put(seq, norm);
+            seqToTokens.put(seq, extractTokens(norm)); // Computed once per sequence
+        }
+
+        // 2. Initialize and Populate LSH Index
         // Using 100 permutations for MinHash
         // Using k-shingles of size 3 (trigrams)
         // Using 20 bands of 5 rows each (requires 100 permutations)
@@ -155,19 +173,20 @@ public class DuplicationAnalyzer {
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
         com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
 
-        // 2. Index all sequences
         for (NormalizedSequence normSeq : normalizedSequences) {
-            List<String> tokens = extractTokens(normSeq);
-            lshIndex.add(tokens, normSeq.sequence());
+            StatementSequence seq = normSeq.sequence();
+            lshIndex.add(seqToTokens.get(seq), seq);
         }
 
-        // 3. Query for each sequence
-        // We use a Set to avoid duplicate pairs and self-matches
+        // 3. Query LSH and Collect Candidates
         java.util.Set<String> processedPairs = new java.util.HashSet<>();
 
-        for (NormalizedSequence normSeq : normalizedSequences) {
+        for (int i = 0; i < normalizedSequences.size(); i++) {
+            NormalizedSequence normSeq = normalizedSequences.get(i);
             StatementSequence seq1 = normSeq.sequence();
-            List<String> tokens = extractTokens(normSeq);
+            int id1 = i;
+
+            List<String> tokens = seqToTokens.get(seq1);
 
             // Get candidates from LSH bucket
             java.util.Set<StatementSequence> potentialMatches = lshIndex.query(tokens);
@@ -177,9 +196,12 @@ public class DuplicationAnalyzer {
                 if (seq1 == seq2)
                     continue;
 
-                // Avoid processing same pair twice (seq1-seq2 vs seq2-seq1)
-                // Use consistent ordering based on some ID or hash
-                String pairKey = generatePairKey(seq1, seq2);
+                Integer id2 = sequenceIds.get(seq2);
+                if (id2 == null)
+                    continue; // Should effectively never happen
+
+                // Stable pair key using sorted integer IDs
+                String pairKey = getPairKey(id1, id2);
                 if (processedPairs.contains(pairKey))
                     continue;
                 processedPairs.add(pairKey);
@@ -190,17 +212,13 @@ public class DuplicationAnalyzer {
                     continue;
                 }
 
-                // Pre-filter to skip unlikely matches (still useful for refinement)
+                // Pre-filter to skip unlikely matches
                 if (!preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
 
-                // Find the NormalizedSequence for seq2 (needed for analyzePair)
-                // Since we only have StatementSequence from LSH, we need to map back
-                // Performance Note: This linear search inside the loop is bad O(N).
-                // We should improve this by mapping StatementSequence -> NormalizedSequence
-                // beforehand.
-                NormalizedSequence norm2 = findNormalizedSequence(normalizedSequences, seq2);
+                // Retrieve NormalizedSequence from map (O(1))
+                NormalizedSequence norm2 = seqToNorm.get(seq2);
 
                 if (norm2 != null) {
                     SimilarityPair pair = analyzePair(normSeq, norm2);
@@ -212,26 +230,13 @@ public class DuplicationAnalyzer {
         return candidates;
     }
 
-    private String generatePairKey(StatementSequence s1, StatementSequence s2) {
-        int h1 = System.identityHashCode(s1);
-        int h2 = System.identityHashCode(s2);
-        return h1 < h2 ? h1 + "-" + h2 : h2 + "-" + h1;
-    }
-
-    // Optimization helper
-    private NormalizedSequence findNormalizedSequence(List<NormalizedSequence> list, StatementSequence target) {
-        // Ideally replace List<NormalizedSequence> with a Map in the main flow or here
-        for (NormalizedSequence ns : list) {
-            if (ns.sequence() == target)
-                return ns;
-        }
-        return null;
+    private String getPairKey(int id1, int id2) {
+        return (id1 < id2) ? id1 + "-" + id2 : id2 + "-" + id1;
     }
 
     private List<String> extractTokens(NormalizedSequence normSeq) {
         // Use FUZZY normalization for LSH to robustly find candidates with variable
         // renames
-        // LSH should be high-recall; precise filtering happens in analyzePair
         List<com.raditha.dedup.normalization.NormalizedNode> fuzzyNodes = astNormalizer
                 .normalizeFuzzy(normSeq.sequence().statements());
 
