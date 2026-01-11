@@ -37,7 +37,7 @@ class MinHashTest {
         int[] sig1 = minHash.computeSignature(tokens1);
         int[] sig2 = minHash.computeSignature(tokens2);
 
-        double similarity = minHash.estimateSimilarity(sig1, sig2);
+        double similarity = estimateSimilarity(sig1, sig2);
         assertTrue(similarity > 0.8, "Similarity should be high for nearly identical sequences. Found: " + similarity);
     }
 
@@ -51,7 +51,7 @@ class MinHashTest {
         int[] sig1 = minHash.computeSignature(tokens1);
         int[] sig2 = minHash.computeSignature(tokens2);
 
-        double similarity = minHash.estimateSimilarity(sig1, sig2);
+        double similarity = estimateSimilarity(sig1, sig2);
         assertTrue(similarity < 0.2, "Similarity should be low for different sequences. Found: " + similarity);
     }
 
@@ -62,7 +62,20 @@ class MinHashTest {
 
         int[] sig1 = minHash.computeSignature(tokens);
 
-        double similarity = minHash.estimateSimilarity(sig1, sig1);
+        double similarity = estimateSimilarity(sig1, sig1);
         assertEquals(1.0, similarity, 0.001, "Similarity of identical object should be 1.0");
+    }
+
+    private double estimateSimilarity(int[] sig1, int[] sig2) {
+        if (sig1.length != sig2.length) {
+            throw new IllegalArgumentException("Signatures must have same length");
+        }
+        int matches = 0;
+        for (int i = 0; i < sig1.length; i++) {
+            if (sig1[i] == sig2[i]) {
+                matches++;
+            }
+        }
+        return (double) matches / sig1.length;
     }
 }
