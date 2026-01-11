@@ -190,9 +190,10 @@ public class ExtractMethodRefactorer {
         List<ParameterSpec> usedParams = new ArrayList<>();
         for (ParameterSpec param : sortedParams) {
             String targetName = paramNameOverrides.getOrDefault(param, param.getName());
-            // Check if targetName is used in the body
-            boolean isUsed = tempBody.findAll(NameExpr.class).stream()
-                    .anyMatch(n -> n.getNameAsString().equals(targetName));
+            // Check if targetName is used in the body (as any identifier, e.g. method
+            // scope, field access)
+            boolean isUsed = tempBody.findAll(com.github.javaparser.ast.expr.SimpleName.class).stream()
+                    .anyMatch(n -> n.getIdentifier().equals(targetName));
             if (isUsed) {
                 usedParams.add(param);
             }
@@ -454,6 +455,11 @@ public class ExtractMethodRefactorer {
                     return true;
                 }
 
+                // CRITICAL FIX: We allow complex return expressions (e.g. x + 1) as long as
+                // they
+                // don't reference external variables. The previous check overly aggressively
+                // rejected anything that wasn't a simple NameExpr.
+
                 // Check all variable references in the return expression
                 for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
                     String varName = nameExpr.getNameAsString();
@@ -625,7 +631,6 @@ public class ExtractMethodRefactorer {
             // Use the effective parameters which are already sorted and filtered
             List<ParameterSpec> sortedParams = effectiveParams;
 
-
             int argIndex = 0;
             for (ParameterSpec param : sortedParams) {
 
@@ -637,7 +642,7 @@ public class ExtractMethodRefactorer {
                     return null; // cannot resolve safely
                 }
 
-                     // AST-based type guardrails
+                // AST-based type guardrails
                 com.github.javaparser.ast.type.Type pType = param.getType();
 
                 if (isNumericType(pType) && expr.isStringLiteralExpr()) {
@@ -1061,7 +1066,8 @@ public class ExtractMethodRefactorer {
                 continue; // done for this parameter
             }
 
-            // 2) Value-based fallback: replace matching expressions that lack location metadata
+            // 2) Value-based fallback: replace matching expressions that lack location
+            // metadata
             if (!param.getExampleValues().isEmpty()) {
                 String exampleValue = param.getExampleValues().get(0);
                 for (Expression expr : stmt.findAll(Expression.class)) {

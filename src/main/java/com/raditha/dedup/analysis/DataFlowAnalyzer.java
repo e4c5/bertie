@@ -170,9 +170,11 @@ public class DataFlowAnalyzer {
         // declarations
         for (Statement stmt : sequence.statements()) {
             // Check for Return Statements
+            // Check for Return Statements
             if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
                 stmt.asReturnStmt().getExpression().get()
-                        .findAll(NameExpr.class)
+                        .findAll(NameExpr.class) // Restored original logic to support extracting vars from complex
+                                                 // returns
                         .forEach(n -> returnedVars.add(n.getNameAsString()));
             }
 
@@ -276,7 +278,11 @@ public class DataFlowAnalyzer {
      * Check if a variable's type is compatible with the expected return type.
      * Uses AbstractCompiler and TypeWrapper for robust type checking.
      */
-    private boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
+    /**
+     * Check if a variable's type is compatible with the expected return type.
+     * Uses AbstractCompiler and TypeWrapper for robust type checking.
+     */
+    public boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
         // 1. Find the variable declaration to get its types
 
         com.github.javaparser.ast.body.VariableDeclarator targetVar = null;

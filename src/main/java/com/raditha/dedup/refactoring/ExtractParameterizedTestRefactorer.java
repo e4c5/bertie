@@ -26,8 +26,7 @@ public class ExtractParameterizedTestRefactorer {
     /**
      * Apply the refactoring to create a parameterized test.
      */
-    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation)
-            throws IOException {
+    public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
         TestClassHelper.TestClassInfo classInfo = TestClassHelper.getAndValidateTestClass(cluster);
         CompilationUnit cu = classInfo.compilationUnit();
