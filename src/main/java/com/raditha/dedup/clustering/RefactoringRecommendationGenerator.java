@@ -150,12 +150,15 @@ public class RefactoringRecommendationGenerator {
         // CRITICAL: Also convert arguments (variable references) to parameters
         // These are variables like 'userName' that are used but not defined in the
         // block
-        for (com.raditha.dedup.model.ArgumentSpec arg : extractionPlan.arguments()) {
+        for (com.raditha.dedup.model.VariableReference arg : extractionPlan.arguments()) {
             // Only add if not already present (avoid duplicates)
             if (parameters.stream().noneMatch(p -> p.getName().equals(arg.name()))) {
+                // Convert ResolvedType to JavaParser Type
+                com.github.javaparser.ast.type.Type paramType = convertResolvedTypeToJavaParserType(arg.type());
+
                 parameters.add(new ParameterSpec(
                         arg.name(),
-                        arg.type(),
+                        paramType,
                         java.util.Collections.emptyList(), // No variations, it's consistent
                         -1, // No specific variation position
                         null, null // No specific AST node to replace
@@ -1231,6 +1234,23 @@ public class RefactoringRecommendationGenerator {
             }
         }
         return safeLimit;
+    }
+
+    /**
+     * Convert ResolvedType to JavaParser Type for use in method signatures.
+     */
+    private com.github.javaparser.ast.type.Type convertResolvedTypeToJavaParserType(
+            com.github.javaparser.resolution.types.ResolvedType resolvedType) {
+        if (resolvedType == null) {
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, "Object");
+        }
+
+        try {
+            String typeDesc = resolvedType.describe();
+            return StaticJavaParser.parseType(typeDesc);
+        } catch (Exception e) {
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, resolvedType.describe());
+        }
     }
 
     private boolean areStructurallyCompatible(com.github.javaparser.ast.Node n1, com.github.javaparser.ast.Node n2) {
