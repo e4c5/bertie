@@ -121,11 +121,30 @@ class StructuralPreFilterTest {
                 """);
 
         // Only 50% overlap (save is common, delete/load differ)
-        // With generic METHOD_CALL tokens, they now look structurally identical
-        // So they should NOT be skipped by pre-filter (VariationTracker will handle the
-        // diff)
+        // Previous behavior (incorrect): method names were normalized to "METHOD", making these 100% similar.
+        // Correct behavior: method names are preserved ("delete" vs "load"), so similarity is ~0.5.
+        // With 0.8 threshold, this should now be SKIPPED.
         boolean result = strictFilter.shouldCompare(seq1, seq2);
-        assertTrue(result, "Should NOT skip with generic tokens (structural match)");
+        assertFalse(result, "Should skip because 'delete' and 'load' are structurally distinct methods");
+    }
+
+    @Test
+    void testCustomThresholdPassesForIdenticalStructure() {
+        StructuralPreFilter strictFilter = new StructuralPreFilter(0.8);
+
+        StatementSequence seq1 = createSequence("""
+                user.save();
+                user.delete();
+                """);
+
+        StatementSequence seq2 = createSequence("""
+                customer.save();
+                customer.delete();
+                """);
+
+        // Identical methods, different vars. Should pass strict filter.
+        boolean result = strictFilter.shouldCompare(seq1, seq2);
+        assertTrue(result, "Should pass when method names match (structural identity)");
     }
 
     @Test

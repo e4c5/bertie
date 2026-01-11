@@ -28,7 +28,8 @@ class ASTNormalizerFuzzyTest {
         var fuzzy = normalizer.normalizeFuzzy(List.of(s));
 
         assertEquals("user.getName();", norm.get(0).normalized().toString(), "normalize (literals-only) should not change identifiers");
-        assertEquals("VAR.METHOD();", fuzzy.get(0).normalized().toString(), "normalizeFuzzy should anonymize identifiers");
+        // Method name "getName" should be preserved!
+        assertEquals("VAR.getName();", fuzzy.get(0).normalized().toString(), "normalizeFuzzy should anonymize variables but preserve method names");
         assertNotEquals(norm.get(0).normalized().toString(), fuzzy.get(0).normalized().toString());
     }
 
@@ -51,7 +52,8 @@ class ASTNormalizerFuzzyTest {
         var fuzzy = normalizer.normalizeFuzzy(List.of(s));
 
         assertEquals("logger.info(STRING_LIT + name);", norm.get(0).normalized().toString());
-        assertEquals("VAR.METHOD(STRING_LIT + VAR);", fuzzy.get(0).normalized().toString());
+        // "info" should be preserved
+        assertEquals("VAR.info(STRING_LIT + VAR);", fuzzy.get(0).normalized().toString());
     }
 
     @Test
@@ -59,6 +61,7 @@ class ASTNormalizerFuzzyTest {
         // If code already contains tokens like VAR or STRING_LIT as identifiers, they shouldn't be re-mapped
         Statement s = stmt("VAR.set(STRING_LIT);");
         var fuzzy = normalizer.normalizeFuzzy(List.of(s));
-        assertEquals("VAR.METHOD(STRING_LIT);", fuzzy.get(0).normalized().toString());
+        // "set" should be preserved
+        assertEquals("VAR.set(STRING_LIT);", fuzzy.get(0).normalized().toString());
     }
 }

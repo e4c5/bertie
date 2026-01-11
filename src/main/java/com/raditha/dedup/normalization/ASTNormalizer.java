@@ -143,11 +143,11 @@ public class ASTNormalizer {
 
         @Override
         public Visitable visit(MethodCallExpr n, Void arg) {
-            // Visit scope/args first, then set name if enabled
+            // Visit scope/args first
             super.visit(n, arg);
-            if (includeIdentifiers) {
-                n.setName("METHOD");
-            }
+            // Do NOT normalize method names!
+            // Design requires preserving "save", "delete", etc. for semantic meaning.
+            // Only the scope (variable) and arguments are normalized via their own visit methods.
             return n;
         }
 
