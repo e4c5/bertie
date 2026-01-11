@@ -104,19 +104,4 @@ public class MinHash {
         return (int) h;
     }
 
-    /**
-     * Estimate Jaccard similarity between two signatures.
-     */
-    public double estimateSimilarity(int[] sig1, int[] sig2) {
-        if (sig1.length != sig2.length) {
-            throw new IllegalArgumentException("Signatures must have same length");
-        }
-        int matches = 0;
-        for (int i = 0; i < sig1.length; i++) {
-            if (sig1[i] == sig2[i]) {
-                matches++;
-            }
-        }
-        return (double) matches / sig1.length;
-    }
 }
