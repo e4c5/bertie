@@ -207,9 +207,9 @@ public class ExtractBeforeEachRefactorer {
         removeStatementsFromSequence(cluster.primary(), testClass);
 
         // Remove statements from duplicate sequences
-        cluster.duplicates().forEach(dup -> {
-            removeStatementsFromSequence(dup.seq2(), testClass);
-        });
+        cluster.duplicates().forEach(dup ->
+            removeStatementsFromSequence(dup.seq2(), testClass)
+        );
     }
 
     /**

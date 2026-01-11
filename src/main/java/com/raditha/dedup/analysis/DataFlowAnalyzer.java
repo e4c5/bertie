@@ -1,12 +1,14 @@
 package com.raditha.dedup.analysis;
 
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
+import org.jspecify.annotations.Nullable;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
@@ -283,28 +285,10 @@ public class DataFlowAnalyzer {
      * Check if a variable's type is compatible with the expected return type.
      * Uses AbstractCompiler and TypeWrapper for robust type checking.
      */
-    /**
-     * Check if a variable's type is compatible with the expected return type.
-     * Uses AbstractCompiler and TypeWrapper for robust type checking.
-     */
     public boolean isTypeCompatible(StatementSequence sequence, String varName, String expectedType) {
         // 1. Find the variable declaration to get its types
 
-        com.github.javaparser.ast.body.VariableDeclarator targetVar = null;
-
-        for (Statement stmt : sequence.statements()) {
-            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
-                var decl = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
-                for (var v : decl.getVariables()) {
-                    if (v.getNameAsString().equals(varName)) {
-                        targetVar = v;
-                        break;
-                    }
-                }
-            }
-            if (targetVar != null)
-                break;
-        }
+        VariableDeclarator targetVar = getVariableDeclarator(sequence, varName);
 
         if (targetVar == null)
             return false;
@@ -337,5 +321,20 @@ public class DataFlowAnalyzer {
 
         // 4. Check compatibility
         return expectedWrapper.isAssignableFrom(varWrapper);
+    }
+
+    private static @Nullable VariableDeclarator getVariableDeclarator(StatementSequence sequence, String varName) {
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+                var decl = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
+                for (var v : decl.getVariables()) {
+                    if (v.getNameAsString().equals(varName)) {
+                        return v;
+                    }
+                }
+            }
+
+        }
+        return null;
     }
 }

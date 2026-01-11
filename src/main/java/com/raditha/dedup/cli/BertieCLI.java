@@ -145,7 +145,6 @@ public class BertieCLI implements Callable<Integer> {
                 commandLine.getErr().println("Process interrupted: " + ex.getMessage());
                 return 4;
             } else {
-                ex.printStackTrace(commandLine.getErr());
                 commandLine.getErr().println("Error: " + ex.getMessage());
                 return 1;
             }

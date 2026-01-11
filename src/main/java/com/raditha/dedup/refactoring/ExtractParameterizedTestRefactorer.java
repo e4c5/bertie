@@ -13,7 +13,6 @@ import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.SimilarityPair;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 

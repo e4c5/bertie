@@ -188,25 +188,12 @@ public class ExtractMethodRefactorer {
         // Check ALL sequences in the cluster. If ANY has a live-out variable, we must
         // return it.
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-        Set<String> liveOutVars = new HashSet<>();
-
-        int limit = recommendation.getValidStatementCount();
-
-        for (StatementSequence seq : allSequences) {
-            StatementSequence seqToAnalyze = seq;
-            if (limit != -1 && limit < seq.size()) {
-                seqToAnalyze = createTruncatedSequence(seq, limit);
-            }
-            Set<String> seqLiveOut = dfa.findLiveOutVariables(seqToAnalyze);
-            liveOutVars.addAll(seqLiveOut);
-        }
+        Set<String> liveOutVars = getLiveOuts(allSequences, recommendation, dfa);
 
         String forcedReturnVar = null;
         com.github.javaparser.ast.type.Type forcedReturnType = null;
 
         if (liveOutVars.size() > 1) {
-            // log.warn("Cannot extract method: Multiple variables used after the block {}",
-            // liveOutVars);
             return null; // Controlled abort
         } else if (liveOutVars.size() == 1) {
             forcedReturnVar = liveOutVars.iterator().next();
@@ -287,6 +274,22 @@ public class ExtractMethodRefactorer {
 
         method.setBody(body);
         return new HelperMethodResult(method, usedParams, effectiveTargetVar);
+    }
+
+    private Set<String> getLiveOuts(Set<StatementSequence> allSequences, RefactoringRecommendation recommendation, DataFlowAnalyzer dfa) {
+        Set<String> liveOutVars = new HashSet<>();
+
+        int limit = recommendation.getValidStatementCount();
+
+        for (StatementSequence seq : allSequences) {
+            StatementSequence seqToAnalyze = seq;
+            if (limit != -1 && limit < seq.size()) {
+                seqToAnalyze = createTruncatedSequence(seq, limit);
+            }
+            Set<String> seqLiveOut = dfa.findLiveOutVariables(seqToAnalyze);
+            liveOutVars.addAll(seqLiveOut);
+        }
+        return liveOutVars;
     }
 
     private MethodDeclaration initializeHelperMethod(RefactoringRecommendation recommendation) {
@@ -692,7 +695,7 @@ public class ExtractMethodRefactorer {
         boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
 
-        insertValueReplacement(block, startIdx, recommendation, methodCall, originalReturnValues, varName,
+        insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
                 shouldReturnDirectly, nextIsReturn, returnType);
 
     }
@@ -731,7 +734,7 @@ public class ExtractMethodRefactorer {
             int argIndex = 0;
             for (ParameterSpec param : sortedParams) {
 
-                Expression expr = resolveValue(variations, sequence, param, primarySequence, precomputedPaths);
+                Expression expr = resolveValue(sequence, param, primarySequence, precomputedPaths);
                 if (expr == null) {
                     return null; // cannot resolve safely
                 }
@@ -814,8 +817,33 @@ public class ExtractMethodRefactorer {
             return name.equals("Class") || name.startsWith("Class<");
         }
 
-        private Expression resolveValue(VariationAnalysis variations,
-                StatementSequence sequence,
+
+        /**
+         * Extract the actual value using Structural Path logic.
+         * Requires primarySequence to identify the node from coordinates.
+         */
+        private Expression extractActualValue(StatementSequence targetSequence, ParameterSpec param,
+                                              StatementSequence primarySequence) {
+            if (primarySequence == null)
+                return null;
+
+            // 1. Find the node in the primary sequence using coordinates
+            Expression primaryNode = findNodeByCoordinates(primarySequence, param.getStartLine(), param.getStartColumn());
+            if (primaryNode == null) {
+                return null;
+            }
+
+            // 2. Compute path in primary
+            ASTNodePath path = computePath(primarySequence, primaryNode);
+            if (path == null) {
+                return null;
+            }
+
+            // 3. Follow path in target
+            return followPath(targetSequence, path);
+        }
+
+        private Expression resolveValue(StatementSequence sequence,
                 ParameterSpec param,
                 StatementSequence primarySequence,
                 Map<ParameterSpec, ASTNodePath> precomputedPaths) {
@@ -944,7 +972,7 @@ public class ExtractMethodRefactorer {
                 (blockEmptyAfterRemoval && !methodIsVoid && originalReturnValues != null));
     }
 
-    private void insertValueReplacement(BlockStmt block, int startIdx, RefactoringRecommendation recommendation,
+    private void insertValueReplacement(BlockStmt block, int startIdx,
             MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
             boolean shouldReturnDirectly, boolean nextIsReturn, com.github.javaparser.ast.type.Type returnType) {
 
@@ -1046,9 +1074,6 @@ public class ExtractMethodRefactorer {
                     .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
                     .collect(java.util.stream.Collectors.toList());
             if (idx < 0 || idx >= children.size()) {
-                String childrenTypes = children.stream()
-                        .map(n -> n.getClass().getSimpleName() + " [" + n.toString() + "]")
-                        .collect(java.util.stream.Collectors.joining(", "));
                 return null;
             }
             current = children.get(idx);
@@ -1084,30 +1109,6 @@ public class ExtractMethodRefactorer {
         return -1;
     }
 
-    /**
-     * Extract the actual value using Structural Path logic.
-     * Requires primarySequence to identify the node from coordinates.
-     */
-    private Expression extractActualValue(StatementSequence targetSequence, ParameterSpec param,
-            StatementSequence primarySequence) {
-        if (primarySequence == null)
-            return null;
-
-        // 1. Find the node in the primary sequence using coordinates
-        Expression primaryNode = findNodeByCoordinates(primarySequence, param.getStartLine(), param.getStartColumn());
-        if (primaryNode == null) {
-            return null;
-        }
-
-        // 2. Compute path in primary
-        ASTNodePath path = computePath(primarySequence, primaryNode);
-        if (path == null) {
-            return null;
-        }
-
-        // 3. Follow path in target
-        return followPath(targetSequence, path);
-    }
 
     private Expression findNodeByCoordinates(StatementSequence sequence, Integer line, Integer column) {
         if (line == null || column == null)
