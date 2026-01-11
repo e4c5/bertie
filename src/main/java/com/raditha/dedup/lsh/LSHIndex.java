@@ -25,12 +25,22 @@ public class LSHIndex {
      * @param minHash     MinHash instance to use for signature generation.
      * @param numBands    Number of bands to split the signature into.
      * @param rowsPerBand Number of rows (hash values) per band.
+     * @throws IllegalArgumentException if signature length doesn't match band configuration
      */
     public LSHIndex(MinHash minHash, int numBands, int rowsPerBand) {
         this.minHash = minHash;
         this.numBands = numBands;
         this.rowsPerBand = rowsPerBand;
         this.buckets = new HashMap<>();
+
+        // Validate that configuration is consistent
+        int requiredSignatureLength = numBands * rowsPerBand;
+        if (minHash.getNumHashFunctions() != requiredSignatureLength) {
+            throw new IllegalArgumentException(
+                String.format("MinHash signature length (%d) must equal numBands * rowsPerBand (%d * %d = %d)",
+                    minHash.getNumHashFunctions(), numBands, rowsPerBand, requiredSignatureLength)
+            );
+        }
     }
 
     /**

@@ -104,4 +104,8 @@ public class MinHash {
         return (int) h;
     }
 
+    public int getNumHashFunctions() {
+        return numHashFunctions;
+    }
+
 }
