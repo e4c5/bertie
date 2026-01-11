@@ -14,13 +14,6 @@ public record ExtractionPlan(
         List<ParameterSpec> parameters,
         List<VariableReference> arguments) {
     /**
-     * Get total number of method parameters (parameters + arguments).
-     */
-    public int totalParameterCount() {
-        return parameters.size() + arguments.size();
-    }
-
-    /**
      * Check if there are any parameters or arguments.
      */
     public boolean hasParameters() {
