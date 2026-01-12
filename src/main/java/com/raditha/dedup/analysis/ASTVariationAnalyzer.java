@@ -210,8 +210,7 @@ public class ASTVariationAnalyzer {
         }
 
         // Check if current node is EnclosedExpr
-        if (node instanceof com.github.javaparser.ast.expr.EnclosedExpr) {
-            com.github.javaparser.ast.expr.EnclosedExpr enclosed = (com.github.javaparser.ast.expr.EnclosedExpr) node;
+        if (node instanceof com.github.javaparser.ast.expr.EnclosedExpr enclosed) {
             Expression inner = enclosed.getInner();
 
             // We need to replace 'enclosed' with 'inner' in the parent
