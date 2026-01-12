@@ -628,8 +628,8 @@ public class ExtractMethodRefactorer {
         // 1) Build arguments using precomputed paths (avoiding AST traversal issues)
         NodeList<Expression> arguments = buildArgumentsForCall(variations, sequence, primarySequence,
                 precomputedPaths, effectiveParams);
-        if (arguments == null) {
-            return null; // Could not resolve args safely
+        if (arguments.size() != effectiveParams.size()) {
+            return null; // Could not resolve args safely (mismatch indicates failure)
         }
 
         // Clone arguments to avoid detaching nodes from the AST (especially primary
@@ -736,7 +736,7 @@ public class ExtractMethodRefactorer {
 
                 Expression expr = resolveValue(sequence, param, primarySequence, precomputedPaths);
                 if (expr == null) {
-                    return null; // cannot resolve safely
+                    return new NodeList<>(); // cannot resolve safely
                 }
 
                 // Robust Type Checking using TypeWrapper
@@ -747,7 +747,7 @@ public class ExtractMethodRefactorer {
                     if (exprTypeWrapper != null) {
                         if (!paramTypeWrapper.isAssignableFrom(exprTypeWrapper)) {
                             // Incompatible type: e.g., passing String to int parameter
-                            return null;
+                            return new NodeList<>();
                         }
                     } else {
                         // Fallback: If we can't resolve expression type (complex expression?),
@@ -756,20 +756,20 @@ public class ExtractMethodRefactorer {
                         // (though AbstractCompiler should handle literals well).
 
                         if (isNumericType(param.getType()) && expr.isStringLiteralExpr()) {
-                             return null;
+                             return new NodeList<>();
                         }
                     }
                 } else {
                     // Fallback to old heuristic if param type cannot be resolved
                     if (isNumericType(param.getType())) {
                         if (expr.isStringLiteralExpr()) {
-                            return null;
+                            return new NodeList<>();
                         }
                         // Also check if expression resolves to String type (for variables)
                         TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
                         if (exprTypeWrapper != null &&
                             ("java.lang.String".equals(exprTypeWrapper.getName()) || "String".equals(exprTypeWrapper.getName()))) {
-                            return null;
+                            return new NodeList<>();
                         }
                     }
                 }
@@ -783,7 +783,7 @@ public class ExtractMethodRefactorer {
                         adapted = new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
                     }
                     if (adapted == null) {
-                        return null; // unsafe
+                        return new NodeList<>(); // unsafe
                     }
                     expr = adapted;
                 }
