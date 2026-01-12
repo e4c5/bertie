@@ -13,6 +13,8 @@ import com.github.javaparser.ast.type.ReferenceType;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 
 import com.raditha.dedup.model.*;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -737,19 +739,43 @@ public class ExtractMethodRefactorer {
                     return null; // cannot resolve safely
                 }
 
-                // AST-based type guardrails
-                com.github.javaparser.ast.type.Type pType = param.getType();
+                // Robust Type Checking using TypeWrapper
+                TypeWrapper paramTypeWrapper = AbstractCompiler.findType(sequence.compilationUnit(), param.getType());
 
-                if (isNumericType(pType) && expr.isStringLiteralExpr()) {
-                    return null;
+                if (paramTypeWrapper != null) {
+                    TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
+                    if (exprTypeWrapper != null) {
+                        if (!paramTypeWrapper.isAssignableFrom(exprTypeWrapper)) {
+                            // Incompatible type: e.g., passing String to int parameter
+                            return null;
+                        }
+                    } else {
+                        // Fallback: If we can't resolve expression type (complex expression?),
+                        // we might rely on existing weak checks or assume it's unsafe if it looks obviously wrong.
+                        // For now, let's keep previous heuristic for literals if wrapper resolution failed
+                        // (though AbstractCompiler should handle literals well).
+
+                        if (isNumericType(param.getType()) && expr.isStringLiteralExpr()) {
+                             return null;
+                        }
+                    }
+                } else {
+                    // Fallback to old heuristic if param type cannot be resolved
+                    if (isNumericType(param.getType())) {
+                        if (expr.isStringLiteralExpr()) {
+                            return null;
+                        }
+                        // Also check if expression resolves to String type (for variables)
+                        TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
+                        if (exprTypeWrapper != null &&
+                            ("java.lang.String".equals(exprTypeWrapper.getName()) || "String".equals(exprTypeWrapper.getName()))) {
+                            return null;
+                        }
+                    }
                 }
 
-                if (isStringType(pType) && (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr() ||
-                        expr.isDoubleLiteralExpr() || expr.isBooleanLiteralExpr())) {
-                    return null;
-                }
-
-                if (isClassType(pType) && !(expr.isClassExpr() ||
+                // Specific check for Class<?> types to ensure adaptations work
+                if (isClassType(param.getType()) && !(expr.isClassExpr() ||
                         (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
                     // Try to adapt NameExpr or other simple forms into ClassExpr
                     Expression adapted = null;
@@ -769,49 +795,65 @@ public class ExtractMethodRefactorer {
             return arguments;
         }
 
-        /**
-         * Check if the given AST Type represents a String type.
-         */
-        private boolean isStringType(com.github.javaparser.ast.type.Type type) {
-            if (!type.isClassOrInterfaceType()) {
-                return false;
+        private TypeWrapper resolveExprTypeWrapper(Expression expr, StatementSequence sequence) {
+            if (expr.isLiteralExpr()) {
+                com.github.javaparser.ast.type.Type litType = AbstractCompiler.convertLiteralToType(expr.asLiteralExpr());
+                return AbstractCompiler.findType(sequence.compilationUnit(), litType);
             }
-            String name = type.asClassOrInterfaceType().getNameAsString();
-            return sa.com.cloudsolutions.antikythera.evaluator.Reflect.STRING.equals(name) ||
-                    sa.com.cloudsolutions.antikythera.evaluator.Reflect.JAVA_LANG_STRING.equals(name);
+            if (expr.isNameExpr()) {
+                String varName = expr.asNameExpr().getNameAsString();
+                if (isLocalVariable(sequence, varName)) {
+                     com.github.javaparser.ast.type.Type type = resolveVariableInMethod(sequence.containingMethod(), varName);
+                     if (type != null) {
+                         return AbstractCompiler.findType(sequence.compilationUnit(), type);
+                     }
+                }
+                // Check local variables in sequence scope?
+                // Use outer class method for resolving in sequence
+                com.github.javaparser.ast.type.Type type = ExtractMethodRefactorer.this.resolveVariableType(sequence, varName);
+                if (type != null) {
+                     return AbstractCompiler.findType(sequence.compilationUnit(), type);
+                }
+            }
+            // For other expressions, maybe we can assume they are compatible if we can't prove otherwise?
+            // Or return null to indicate unknown type.
+            return null;
         }
 
-        /**
-         * Check if the given AST Type represents a numeric type (primitive or wrapper).
-         * Includes: int, Integer, long, Long, double, Double, boolean, Boolean
-         */
-        private boolean isNumericType(com.github.javaparser.ast.type.Type type) {
-            // Check primitive types first
-            if (type.isPrimitiveType()) {
-                return true;
-            }
+        private com.github.javaparser.ast.type.Type resolveVariableInMethod(MethodDeclaration method, String varName) {
+             if (method == null || method.getBody().isEmpty()) return null;
+             // Check parameters
+             for (Parameter p : method.getParameters()) {
+                 if (p.getNameAsString().equals(varName)) return p.getType();
+             }
+             // Check body
+             for (Statement stmt : method.getBody().get().getStatements()) {
+                  if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
+                      for (com.github.javaparser.ast.body.VariableDeclarator v : stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()) {
+                          if (v.getNameAsString().equals(varName)) return v.getType();
+                      }
+                  }
+             }
+             return null;
+        }
 
-            // Check wrapper types
-            if (type.isClassOrInterfaceType()) {
+        private boolean isNumericType(com.github.javaparser.ast.type.Type type) {
+            if (type.isPrimitiveType()) return true;
+             if (type.isClassOrInterfaceType()) {
                 String name = type.asClassOrInterfaceType().getNameAsString();
                 return sa.com.cloudsolutions.antikythera.evaluator.Reflect.INTEGER.equals(name) ||
                         sa.com.cloudsolutions.antikythera.evaluator.Reflect.LONG.equals(name) ||
                         sa.com.cloudsolutions.antikythera.evaluator.Reflect.DOUBLE.equals(name) ||
                         sa.com.cloudsolutions.antikythera.evaluator.Reflect.BOOLEAN.equals(name);
             }
-
             return false;
         }
 
-        /**
-         * Check if the given AST Type represents a Class<?> type.
-         */
         private boolean isClassType(com.github.javaparser.ast.type.Type type) {
             if (!type.isClassOrInterfaceType()) {
                 return false;
             }
             String name = type.asClassOrInterfaceType().getNameAsString();
-            // Match "Class" or "Class<?>" or "Class<SomeType>"
             return name.equals("Class") || name.startsWith("Class<");
         }
 
