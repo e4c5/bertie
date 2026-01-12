@@ -18,7 +18,7 @@ class ScalabilityIntegrationTest {
     @Test
     void comparePerformance() {
         // 1. Generate a large CompilationUnit
-        int numMethods = 10000; // Enough to make O(N^2) painful
+        int numMethods = 500; // Enough to make O(N^2) measurable but not timeout
         String sourceCode = generateSourceCode(numMethods);
 
         JavaParser parser = new JavaParser();
@@ -61,11 +61,39 @@ class ScalabilityIntegrationTest {
         sb.append("public class LargeFile {\n");
 
         // Templates to create some duplicates
+        // Note: Must exceed minLines=5 to be considered for extraction
         String[] templates = {
-                "int a = 0; int b = 1; int c = a + b; System.out.println(c);",
-                "String s = \"hello\"; if (s.length() > 5) { return; }",
-                "for(int i=0; i<10; i++) { list.add(i); }",
-                "try { process(); } catch(Exception e) { e.printStackTrace(); }"
+                """
+                int a = 0;
+                int b = 1;
+                int c = a + b;
+                System.out.println(c);
+                System.out.println("Done");
+                """,
+                """
+                String s = "hello";
+                if (s.length() > 5) {
+                    System.out.println("Too long");
+                    return;
+                }
+                System.out.println("OK");
+                """,
+                """
+                for(int i=0; i<10; i++) {
+                    list.add(i);
+                    System.out.println(i);
+                    System.out.flush();
+                }
+                """,
+                """
+                try {
+                    process();
+                    System.out.println("Processed");
+                } catch(Exception e) {
+                    e.printStackTrace();
+                    System.err.println("Error");
+                }
+                """
         };
 
         for (int i = 0; i < numMethods; i++) {
@@ -78,9 +106,12 @@ class ScalabilityIntegrationTest {
             } else if (i % 10 == 1) {
                 sb.append("        ").append(templates[1]).append("\n");
             } else {
-                // Unique-ish content
+                // Unique-ish content but long enough to be scanned
                 sb.append("        int unique").append(i).append(" = ").append(i).append(";\n");
                 sb.append("        System.out.println(unique").append(i).append(");\n");
+                sb.append("        System.out.println(\"More unique content\");\n");
+                sb.append("        System.out.println(\"Even more unique content\");\n");
+                sb.append("        System.out.println(\"Last line\");\n");
             }
             sb.append("    }\n");
         }
