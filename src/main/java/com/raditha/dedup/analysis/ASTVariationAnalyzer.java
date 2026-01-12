@@ -119,9 +119,10 @@ public class ASTVariationAnalyzer {
             Statement stmt2,
             int position,
             List<VaryingExpression> variations) {
-        // Get all expressions from both statements
-        List<Expression> exprs1 = stmt1.findAll(Expression.class);
-        List<Expression> exprs2 = stmt2.findAll(Expression.class);
+        // Get all expressions from both statements, excluding EnclosedExpr (parentheses)
+        // to ensure alignment between "(x+1)" and "x+1"
+        List<Expression> exprs1 = stmt1.findAll(Expression.class, e -> !e.isEnclosedExpr());
+        List<Expression> exprs2 = stmt2.findAll(Expression.class, e -> !e.isEnclosedExpr());
 
         // Compare expressions at same positions
         int minExprs = Math.min(exprs1.size(), exprs2.size());
@@ -163,11 +164,73 @@ public class ASTVariationAnalyzer {
 
     /**
      * Check if two expressions are semantically equivalent.
-     * For now, uses string comparison (can be improved).
+     * Uses AST comparison, ignoring parentheses and comments.
      */
     private boolean expressionsEquivalent(Expression e1, Expression e2) {
-        // Simple structural comparison
-        return e1.toString().equals(e2.toString());
+        // Create clones to avoid modifying original AST
+        Expression u1 = e1.clone();
+        Expression u2 = e2.clone();
+
+        // Recursively remove parentheses and comments
+        removeAllParentheses(u1);
+        removeAllParentheses(u2);
+
+        removeComments(u1);
+        removeComments(u2);
+
+        // Unwrap top-level parentheses if any remained (should be handled by removeAllParentheses but safe to ensure)
+        u1 = unwrap(u1);
+        u2 = unwrap(u2);
+
+        // Use toString() which uses the pretty printer.
+        // Since we removed comments and parentheses, this should be robust.
+        return u1.toString().equals(u2.toString());
+    }
+
+    /**
+     * Unwrap EnclosedExpr (parentheses) recursively.
+     */
+    private Expression unwrap(Expression expr) {
+        if (expr.isEnclosedExpr()) {
+            return unwrap(expr.asEnclosedExpr().getInner());
+        }
+        return expr;
+    }
+
+    /**
+     * Recursively remove EnclosedExpr (parentheses) from a node and its children.
+     * This modifies the node structure in place.
+     */
+    private void removeAllParentheses(com.github.javaparser.ast.Node node) {
+        // Process children first
+        // We use a safe list copy to iterate because we might modify the children
+        List<com.github.javaparser.ast.Node> children = new ArrayList<>(node.getChildNodes());
+        for (com.github.javaparser.ast.Node child : children) {
+            removeAllParentheses(child);
+        }
+
+        // Check if current node is EnclosedExpr
+        if (node instanceof com.github.javaparser.ast.expr.EnclosedExpr) {
+            com.github.javaparser.ast.expr.EnclosedExpr enclosed = (com.github.javaparser.ast.expr.EnclosedExpr) node;
+            Expression inner = enclosed.getInner();
+
+            // We need to replace 'enclosed' with 'inner' in the parent
+            if (node.getParentNode().isPresent()) {
+                com.github.javaparser.ast.Node parent = node.getParentNode().get();
+                // Replace in parent
+                parent.replace(enclosed, inner);
+            }
+        }
+    }
+
+    /**
+     * Recursively remove comments from a node and its children.
+     */
+    private void removeComments(com.github.javaparser.ast.Node node) {
+        node.removeComment();
+        for (com.github.javaparser.ast.Node child : node.getChildNodes()) {
+            removeComments(child);
+        }
     }
 
     /**
