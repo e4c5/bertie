@@ -74,19 +74,17 @@ public class DuplicationAnalyzer {
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
-        // Step 1.5: PRE-NORMALIZE ALL SEQUENCES ONCE (major performance optimization)
-        // This avoids normalizing the same sequence multiple times during comparisons
-        List<NormalizedSequence> normalizedSequences = sequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements()))) // NEW: AST normalization
-                .toList();
-
         // Step 2: Compare all pairs (with pre-filtering)
         List<SimilarityPair> candidates;
         if (config.enableLSH()) {
-            candidates = findCandidatesLSH(normalizedSequences);
+            candidates = findCandidatesLSH(sequences);
         } else {
+             // Brute force fallback still uses upfront normalization
+            List<NormalizedSequence> normalizedSequences = sequences.stream()
+                .map(seq -> new NormalizedSequence(
+                        seq,
+                        astNormalizer.normalize(seq.statements())))
+                .toList();
             candidates = findCandidatesBruteForce(normalizedSequences);
         }
 
@@ -126,11 +124,11 @@ public class DuplicationAnalyzer {
      * @return List of reports, one per file involved in duplicates
      */
     public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
-        List<NormalizedSequence> allNormalizedSequences = new ArrayList<>();
+        List<StatementSequence> allSequences = new ArrayList<>();
         Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
 
-        // 1. Extract and Normalize from all files
+        // 1. Extract from all files (Lazily normalized)
         for (CompilationUnit cu : allCUs.values()) {
             if (!processedCUs.add(cu)) {
                 continue; // Process each unique CU instance only once
@@ -146,20 +144,20 @@ public class DuplicationAnalyzer {
 
             List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
             fileSequences.put(sourceFile, sequences);
-
-            for (StatementSequence seq : sequences) {
-                allNormalizedSequences.add(new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())));
-            }
+            allSequences.addAll(sequences);
         }
 
         // 2. Find Candidates (Project-wide)
         List<SimilarityPair> candidates;
         if (config.enableLSH()) {
-            candidates = findCandidatesLSH(allNormalizedSequences);
+            candidates = findCandidatesLSH(allSequences);
         } else {
-            // Brute force on project level is dangerous but supported if LSH disabled
+            // Brute force fallback - requires full normalization
+             List<NormalizedSequence> allNormalizedSequences = allSequences.stream()
+                .map(seq -> new NormalizedSequence(
+                        seq,
+                        astNormalizer.normalize(seq.statements())))
+                .toList();
             candidates = findCandidatesBruteForce(allNormalizedSequences);
         }
         // 3. Filter & Refine
@@ -263,66 +261,45 @@ public class DuplicationAnalyzer {
 
     /**
      * Find candidate duplicate pairs using LSH and pre-filtering.
-     * Optimized with pre-computed maps and stable IDs.
+     * Uses FuzzyTokenizer for fast indexing and Lazy Normalization for verification.
      */
-    private List<SimilarityPair> findCandidatesLSH(List<NormalizedSequence> normalizedSequences) {
+    private List<SimilarityPair> findCandidatesLSH(List<StatementSequence> sequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
+        com.raditha.dedup.normalization.FuzzyTokenizer tokenizer = new com.raditha.dedup.normalization.FuzzyTokenizer();
 
-        // 1. Pre-compute maps for O(1) lookups and caching
-        // Map: StatementSequence -> NormalizedSequence (for O(1) retrieval)
-        IdentityHashMap<StatementSequence, NormalizedSequence> seqToNorm = new IdentityHashMap<>();
-        // Map: StatementSequence -> Tokens (avoid repeated fuzzy normalization)
-        IdentityHashMap<StatementSequence, List<String>> seqToTokens = new IdentityHashMap<>();
+        // Cache for strict normalization (computed only on demand for candidates)
+        Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
 
-        for (int i = 0; i < normalizedSequences.size(); i++) {
-            NormalizedSequence norm = normalizedSequences.get(i);
-            StatementSequence seq = norm.sequence();
-
-            seqToNorm.put(seq, norm);
-            seqToTokens.put(seq, extractTokens(norm)); // Computed once per sequence
-        }
-
-        // 2. Initialize LSH Index
+        // 1. Initialize LSH Index
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
         com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
 
-        // 3. Fused Loop: Query and Add
-        // Iterate through sequences, finding candidates among those already processed,
-        // then add current.
-        for (int i = 0; i < normalizedSequences.size(); i++) {
-            NormalizedSequence normSeq = normalizedSequences.get(i);
-            StatementSequence seq1 = normSeq.sequence();
+        // 2. Fused Loop: Query and Add
+        for (StatementSequence seq1 : sequences) {
+            // Fast Tokenization (no cloning)
+            List<String> tokens = tokenizer.tokenize(seq1.statements());
 
-            List<String> tokens = seqToTokens.get(seq1);
-
-            // OPTIMIZATION: Query and Add in single pass
-            // Returns matches from *already processed* sequences
+            // Query and Add
             Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, seq1);
 
             for (StatementSequence seq2 : potentialMatches) {
-                // Self-check redundant with query-past-only logic but fast to keep
                 if (seq1 == seq2 || areSameMethodOrOverlapping(seq1, seq2)) {
                     continue;
                 }
-
-                // No need for processedPairs set!
-                // We only match against previous items, so (seq1, seq2) is seen exactly once.
 
                 // Pre-filter
                 if (!preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
 
-                // Retrieve NormalizedSequence from map (O(1))
-                NormalizedSequence norm2 = seqToNorm.get(seq2);
+                // Lazy Normalization: Only normalize if we have a candidate pair
+                NormalizedSequence norm1 = normalizationCache.computeIfAbsent(seq1,
+                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
+                NormalizedSequence norm2 = normalizationCache.computeIfAbsent(seq2,
+                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
 
-                if (norm2 != null) {
-                    // Maintain (Earlier, Later) order to match original behavior
-                    // seq2 is from the index (already processed, so earlier)
-                    // seq1 is current (later)
-                    SimilarityPair pair = analyzePair(norm2, normSeq);
-                    candidates.add(pair);
-                }
+                SimilarityPair pair = analyzePair(norm2, norm1);
+                candidates.add(pair);
             }
         }
 
@@ -356,20 +333,6 @@ public class DuplicationAnalyzer {
         return false;
     }
 
-    private List<String> extractTokens(NormalizedSequence normSeq) {
-        // Use FUZZY normalization for LSH to robustly find candidates with variable
-        // renames
-        List<com.raditha.dedup.normalization.NormalizedNode> fuzzyNodes = astNormalizer
-                .normalizeFuzzy(normSeq.sequence().statements());
-
-        List<String> tokens = new ArrayList<>();
-        for (com.raditha.dedup.normalization.NormalizedNode node : fuzzyNodes) {
-            // NormalizedNode.normalized() returns the Statement with replaced (fuzzy)
-            // tokens
-            tokens.add(node.normalized().toString());
-        }
-        return tokens;
-    }
 
     /**
      * Find candidate duplicate pairs using O(N^2) brute force comparison.
