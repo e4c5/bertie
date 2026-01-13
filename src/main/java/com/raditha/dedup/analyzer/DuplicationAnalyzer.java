@@ -118,6 +118,123 @@ public class DuplicationAnalyzer {
                 config);
     }
 
+    /**
+     * Analyze the entire project for duplicates, enabling cross-file detection.
+     * Uses LSH to scale to large codebases.
+     *
+     * @param allCUs Map of class name to CompilationUnit
+     * @return List of reports, one per file involved in duplicates
+     */
+    public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
+        List<NormalizedSequence> allNormalizedSequences = new ArrayList<>();
+        Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
+        Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        // 1. Extract and Normalize from all files
+        for (CompilationUnit cu : allCUs.values()) {
+            if (!processedCUs.add(cu)) {
+                continue; // Process each unique CU instance only once
+            }
+
+            Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
+                    .orElse(null);
+
+            if (sourceFile == null) {
+                // Skip files without storage information (can't track source path)
+                continue;
+            }
+
+            List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
+            fileSequences.put(sourceFile, sequences);
+
+            for (StatementSequence seq : sequences) {
+                allNormalizedSequences.add(new NormalizedSequence(
+                        seq,
+                        astNormalizer.normalize(seq.statements())));
+            }
+        }
+
+        // 2. Find Candidates (Project-wide)
+        List<SimilarityPair> candidates;
+        if (config.enableLSH()) {
+            candidates = findCandidatesLSH(allNormalizedSequences);
+        } else {
+            // Brute force on project level is dangerous but supported if LSH disabled
+            candidates = findCandidatesBruteForce(allNormalizedSequences);
+        }
+        // 3. Filter & Refine
+        List<SimilarityPair> duplicates = filterByThreshold(candidates);
+
+        if (config.enableBoundaryRefinement()) {
+            duplicates = boundaryRefiner.refineBoundaries(duplicates);
+        }
+
+        duplicates = removeOverlappingDuplicates(duplicates);
+
+        // 4. Cluster
+        List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
+        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
+                .map(this::addRecommendation).toList();
+
+        // 5. Group by File and Generate Reports
+        // We need to create a report for each file that has duplicates OR was analyzed
+        // (if we want to report 0 dups)
+        // BertieCLI expects reports for analyzed files.
+
+        Map<Path, List<SimilarityPair>> fileToDuplicates = new java.util.HashMap<>();
+        Map<Path, List<DuplicateCluster>> fileToClusters = new java.util.HashMap<>();
+
+        // Initialize with empty lists for all files
+        for (Path p : fileSequences.keySet()) {
+            fileToDuplicates.put(p, new ArrayList<>());
+            fileToClusters.put(p, new ArrayList<>());
+        }
+
+        // Distribute duplicates
+        for (SimilarityPair pair : duplicates) {
+            Path p1 = pair.seq1().sourceFilePath();
+            Path p2 = pair.seq2().sourceFilePath();
+
+            if (p1 != null)
+                fileToDuplicates.computeIfAbsent(p1, k -> new ArrayList<>()).add(pair);
+            if (p2 != null && !p2.equals(p1))
+                fileToDuplicates.computeIfAbsent(p2, k -> new ArrayList<>()).add(pair);
+        }
+
+        // Distribute clusters
+        for (DuplicateCluster cluster : clustersWithRecommendations) {
+            // A cluster is associated with its primary sequence's file,
+            // but arguably should be visible in all involved files.
+            // For now, let's add it to all files involved in the cluster.
+            cluster.allSequences().stream()
+                    .map(StatementSequence::sourceFilePath)
+                    .distinct()
+                    .forEach(path -> {
+                        if (path != null) {
+                            fileToClusters.computeIfAbsent(path, k -> new ArrayList<>()).add(cluster);
+                        }
+                    });
+        }
+
+        List<DuplicationReport> reports = new ArrayList<>();
+        for (Map.Entry<Path, List<StatementSequence>> entry : fileSequences.entrySet()) {
+            Path path = entry.getKey();
+            List<StatementSequence> seqs = entry.getValue();
+            List<SimilarityPair> fileDups = fileToDuplicates.getOrDefault(path, Collections.emptyList());
+            List<DuplicateCluster> fileClusters = fileToClusters.getOrDefault(path, Collections.emptyList());
+
+            reports.add(new DuplicationReport(
+                    path,
+                    fileDups,
+                    fileClusters,
+                    seqs.size(),
+                    candidates.size(), // This is global candidates count
+                    config));
+        }
+
+        return reports;
+    }
+
     private DuplicateCluster addRecommendation(DuplicateCluster cluster) {
         // Get a representative similarity result from the first pair
         if (!cluster.duplicates().isEmpty()) {
@@ -217,6 +334,12 @@ public class DuplicationAnalyzer {
      * or if method is null (e.g. static block) and they are in same file
      */
     private boolean areSameMethodOrOverlapping(StatementSequence s1, StatementSequence s2) {
+        // Different files -> cannot overlap
+        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null
+                && !s1.sourceFilePath().equals(s2.sourceFilePath())) {
+            return false;
+        }
+
         var m1 = s1.containingMethod();
         var m2 = s2.containingMethod();
 
@@ -265,8 +388,7 @@ public class DuplicationAnalyzer {
                 StatementSequence seq2 = norm2.sequence();
 
                 // Skip sequences from the same method
-                if (seq1.containingMethod() != null &&
-                        seq1.containingMethod().equals(seq2.containingMethod())) {
+                if (areSameMethodOrOverlapping(seq1, seq2)) {
                     continue;
                 }
 
