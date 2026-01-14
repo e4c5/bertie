@@ -62,11 +62,11 @@ class CrossFileDuplicationTest {
         boolean foundB = false;
 
         for (DuplicationReport report : reports) {
-            if (report.sourceFile().endsWith("InventoryService.java") && report.hasDuplicates()) {
-                foundA = true;
+            if (report.sourceFile().endsWith("InventoryService.java")) {
+                if (report.hasDuplicates()) foundA = true;
             }
-            if (report.sourceFile().endsWith("ShippingService.java") && report.hasDuplicates()) {
-                foundB = true;
+            if (report.sourceFile().endsWith("ShippingService.java")) {
+                if (report.hasDuplicates()) foundB = true;
             }
         }
 
