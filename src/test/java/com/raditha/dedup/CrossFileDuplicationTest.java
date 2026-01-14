@@ -47,6 +47,10 @@ class CrossFileDuplicationTest {
         assertNotNull(cu1, "InventoryService not found in test-bed");
         assertNotNull(cu2, "ShippingService not found in test-bed");
 
+        // Ensure storage is set for analyzeProject to work
+        cu1.setStorage(java.nio.file.Paths.get("InventoryService.java"), java.nio.charset.StandardCharsets.UTF_8);
+        cu2.setStorage(java.nio.file.Paths.get("ShippingService.java"), java.nio.charset.StandardCharsets.UTF_8);
+
         Map<String, CompilationUnit> projectCUs = new HashMap<>();
         projectCUs.put("com.raditha.bertie.testbed.crossfile.InventoryService", cu1);
         projectCUs.put("com.raditha.bertie.testbed.crossfile.ShippingService", cu2);
@@ -62,11 +66,11 @@ class CrossFileDuplicationTest {
         boolean foundB = false;
 
         for (DuplicationReport report : reports) {
-            if (report.sourceFile().endsWith("InventoryService.java")) {
-                if (report.hasDuplicates()) foundA = true;
+            if (report.sourceFile().endsWith("InventoryService.java") && report.hasDuplicates()) {
+                foundA = true;
             }
-            if (report.sourceFile().endsWith("ShippingService.java")) {
-                if (report.hasDuplicates()) foundB = true;
+            if (report.sourceFile().endsWith("ShippingService.java") && report.hasDuplicates()) {
+                foundB = true;
             }
         }
 

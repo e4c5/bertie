@@ -234,8 +234,6 @@ public class BertieCLI implements Callable<Integer> {
                 preset);
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-        System.out.println("DEBUG: allCUs detected " + allCUs.size() + " files.");
-        allCUs.keySet().forEach(k -> System.out.println(" - " + k));
 
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
 
