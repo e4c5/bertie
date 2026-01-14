@@ -2,7 +2,7 @@
 # Used for analyzer unit tests
 
 # Point to test-bed sources
-base_path: src/test/java/com/raditha/bertie/testbed_aux
+base_path: test-bed/
 base_package: com.raditha.bertie.testbed
 
 # Test-bed scanner will parse all test sources

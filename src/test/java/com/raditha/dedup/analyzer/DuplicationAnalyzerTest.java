@@ -1,10 +1,11 @@
 package com.raditha.dedup.analyzer;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
@@ -19,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration test for end-to-end duplicate detection.
  */
-@Order(1)
 class DuplicationAnalyzerTest {
 
     private DuplicationAnalyzer analyzer;

@@ -74,17 +74,81 @@ public class DuplicationAnalyzer {
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
+        // Analyze extracted sequences
+        AnalysisResult result = analyzeSequences(sequences);
+
+        // Create report
+        return new DuplicationReport(
+                sourceFile,
+                result.duplicates(),
+                result.clusters(),
+                sequences.size(),
+                result.totalCandidates(),
+                config);
+    }
+
+    /**
+     * Analyze the entire project for duplicates, enabling cross-file detection.
+     * Uses LSH to scale to large codebases.
+     *
+     * @param allCUs Map of class name to CompilationUnit
+     * @return List of reports, one per file involved in duplicates
+     */
+    public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
+        List<StatementSequence> allSequences = new ArrayList<>();
+        Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
+        Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        // 1. Extract from all files (Lazily normalized)
+        for (CompilationUnit cu : allCUs.values()) {
+            if (!processedCUs.add(cu)) {
+                continue; // Process each unique CU instance only once
+            }
+
+            Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
+                    .orElse(null);
+
+            if (sourceFile == null) {
+                // Skip files without storage information (can't track source path)
+                continue;
+            }
+
+            List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
+            fileSequences.put(sourceFile, sequences);
+            allSequences.addAll(sequences);
+        }
+
+        // Analyze all collected sequences
+        AnalysisResult result = analyzeSequences(allSequences);
+
+        // Group by File and Generate Reports
+        return distributeReports(fileSequences, result.duplicates(), result.clusters(), result.totalCandidates());
+    }
+
+    /**
+     * Result of analyzing a list of statement sequences.
+     */
+    private record AnalysisResult(
+            List<SimilarityPair> duplicates,
+            List<DuplicateCluster> clusters,
+            int totalCandidates) {
+    }
+
+    /**
+     * Core analysis logic: Find candidates -> Filter -> Refine -> Cluster
+     */
+    private AnalysisResult analyzeSequences(List<StatementSequence> sequences) {
         // Step 2: Compare all pairs (with pre-filtering)
         List<SimilarityPair> candidates;
         if (config.enableLSH()) {
             candidates = findCandidatesLSH(sequences);
         } else {
-             // Brute force fallback still uses upfront normalization
+            // Brute force fallback still uses upfront normalization
             List<NormalizedSequence> normalizedSequences = sequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())))
-                .toList();
+                    .map(seq -> new NormalizedSequence(
+                            seq,
+                            astNormalizer.normalize(seq.statements())))
+                    .toList();
             candidates = findCandidatesBruteForce(normalizedSequences);
         }
 
@@ -106,74 +170,7 @@ public class DuplicationAnalyzer {
         List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
                 .map(this::addRecommendation).toList();
 
-        return new DuplicationReport(
-                sourceFile,
-                duplicates,
-                clustersWithRecommendations,
-                sequences.size(),
-                candidates.size(),
-                config);
-    }
-
-    /**
-     * Analyze the entire project for duplicates, enabling cross-file detection.
-     * Uses LSH to scale to large codebases.
-     *
-     * @param allCUs Map of class name to CompilationUnit
-     * @return List of reports, one per file involved in duplicates
-     */
-    public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
-        List<StatementSequence> allSequences = new ArrayList<>();
-        Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
-        Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
-
-        // 1. Extract from all files (Lazily normalized)
-        for (CompilationUnit cu : allCUs.values()) {
-            if (processedCUs.add(cu)) {
-
-                Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
-                        .orElse(null);
-
-                if (sourceFile == null) {
-                    // Skip files without storage information (can't track source path)
-                    continue;
-                }
-
-                List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
-                fileSequences.put(sourceFile, sequences);
-                allSequences.addAll(sequences);
-            }
-        }
-
-        // 2. Find Candidates (Project-wide)
-        List<SimilarityPair> candidates;
-        if (config.enableLSH()) {
-            candidates = findCandidatesLSH(allSequences);
-        } else {
-            // Brute force fallback - requires full normalization
-             List<NormalizedSequence> allNormalizedSequences = allSequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())))
-                .toList();
-            candidates = findCandidatesBruteForce(allNormalizedSequences);
-        }
-        // 3. Filter & Refine
-        List<SimilarityPair> duplicates = filterByThreshold(candidates);
-
-        if (config.enableBoundaryRefinement()) {
-            duplicates = boundaryRefiner.refineBoundaries(duplicates);
-        }
-
-        duplicates = removeOverlappingDuplicates(duplicates);
-
-        // 4. Cluster
-        List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
-        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(this::addRecommendation).toList();
-
-        // 5. Group by File and Generate Reports
-        return distributeReports(fileSequences, duplicates, clustersWithRecommendations, candidates.size());
+        return new AnalysisResult(duplicates, clustersWithRecommendations, candidates.size());
     }
 
     private List<DuplicationReport> distributeReports(
@@ -350,7 +347,12 @@ public class DuplicationAnalyzer {
                 StatementSequence seq2 = norm2.sequence();
 
                 // Skip sequences from the same method
-                if (areSameMethodOrOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
+                if (areSameMethodOrOverlapping(seq1, seq2)) {
+                    continue;
+                }
+
+                // Pre-filter
+                if (!preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
 

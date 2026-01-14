@@ -92,8 +92,7 @@ public class StatementExtractor {
         private final List<StatementSequence> sequences;
         private final CompilationUnit cu;
         private final Path sourceFile;
-        private MethodDeclaration currentMethod;
-
+        
         MethodVisitor(List<StatementSequence> sequences, CompilationUnit cu, Path sourceFile) {
             this.sequences = sequences;
             this.cu = cu;
@@ -102,18 +101,14 @@ public class StatementExtractor {
         
         @Override
         public void visit(MethodDeclaration method, Void arg) {
-            currentMethod = method;
             super.visit(method, arg);
-            currentMethod = null;
-        }
-
-        @Override
-        public void visit(BlockStmt block, Void arg) {
-            if (currentMethod != null) {
-                List<Statement> statements = block.getStatements();
-                extractSlidingWindows(statements, currentMethod);
+            
+            // Skip methods without body (abstract, interface methods)
+            if (method.getBody().isPresent()) {
+                BlockStmt body = method.getBody().get();
+                List<Statement> statements = body.getStatements();
+                extractSlidingWindows(statements, method);
             }
-            super.visit(block, arg);
         }
         
         /**
