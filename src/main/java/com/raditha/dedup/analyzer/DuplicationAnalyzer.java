@@ -130,21 +130,20 @@ public class DuplicationAnalyzer {
 
         // 1. Extract from all files (Lazily normalized)
         for (CompilationUnit cu : allCUs.values()) {
-            if (!processedCUs.add(cu)) {
-                continue; // Process each unique CU instance only once
+            if (processedCUs.add(cu)) {
+
+                Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
+                        .orElse(null);
+
+                if (sourceFile == null) {
+                    // Skip files without storage information (can't track source path)
+                    continue;
+                }
+
+                List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
+                fileSequences.put(sourceFile, sequences);
+                allSequences.addAll(sequences);
             }
-
-            Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
-                    .orElse(null);
-
-            if (sourceFile == null) {
-                // Skip files without storage information (can't track source path)
-                continue;
-            }
-
-            List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
-            fileSequences.put(sourceFile, sequences);
-            allSequences.addAll(sequences);
         }
 
         // 2. Find Candidates (Project-wide)
@@ -352,12 +351,7 @@ public class DuplicationAnalyzer {
                 StatementSequence seq2 = norm2.sequence();
 
                 // Skip sequences from the same method
-                if (areSameMethodOrOverlapping(seq1, seq2)) {
-                    continue;
-                }
-
-                // Pre-filter
-                if (!preFilter.shouldCompare(seq1, seq2)) {
+                if (areSameMethodOrOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
 
