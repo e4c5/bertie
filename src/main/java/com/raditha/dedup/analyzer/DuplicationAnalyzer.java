@@ -175,9 +175,14 @@ public class DuplicationAnalyzer {
                 .map(this::addRecommendation).toList();
 
         // 5. Group by File and Generate Reports
-        // We need to create a report for each file that has duplicates OR was analyzed
-        // (if we want to report 0 dups)
-        // BertieCLI expects reports for analyzed files.
+        return distributeReports(fileSequences, duplicates, clustersWithRecommendations, candidates.size());
+    }
+
+    private List<DuplicationReport> distributeReports(
+            Map<Path, List<StatementSequence>> fileSequences,
+            List<SimilarityPair> duplicates,
+            List<DuplicateCluster> clusters,
+            int totalCandidates) {
 
         Map<Path, List<SimilarityPair>> fileToDuplicates = new java.util.HashMap<>();
         Map<Path, List<DuplicateCluster>> fileToClusters = new java.util.HashMap<>();
@@ -200,10 +205,7 @@ public class DuplicationAnalyzer {
         }
 
         // Distribute clusters
-        for (DuplicateCluster cluster : clustersWithRecommendations) {
-            // A cluster is associated with its primary sequence's file,
-            // but arguably should be visible in all involved files.
-            // For now, let's add it to all files involved in the cluster.
+        for (DuplicateCluster cluster : clusters) {
             cluster.allSequences().stream()
                     .map(StatementSequence::sourceFilePath)
                     .distinct()
@@ -226,10 +228,9 @@ public class DuplicationAnalyzer {
                     fileDups,
                     fileClusters,
                     seqs.size(),
-                    candidates.size(), // This is global candidates count
+                    totalCandidates,
                     config));
         }
-
         return reports;
     }
 
@@ -275,30 +276,30 @@ public class DuplicationAnalyzer {
         com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
 
         // 2. Fused Loop: Query and Add
-        for (StatementSequence seq1 : sequences) {
+        for (StatementSequence currentSeq : sequences) {
             // Fast Tokenization (no cloning)
-            List<String> tokens = tokenizer.tokenize(seq1.statements());
+            List<String> tokens = tokenizer.tokenize(currentSeq.statements());
 
             // Query and Add
-            Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, seq1);
+            Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, currentSeq);
 
-            for (StatementSequence seq2 : potentialMatches) {
-                if (seq1 == seq2 || areSameMethodOrOverlapping(seq1, seq2)) {
-                    continue;
-                }
-
-                // Pre-filter
-                if (!preFilter.shouldCompare(seq1, seq2)) {
+            for (StatementSequence candidateSeq : potentialMatches) {
+                // Combined check to reduce continue statements
+                if (currentSeq == candidateSeq ||
+                    areSameMethodOrOverlapping(currentSeq, candidateSeq) ||
+                    !preFilter.shouldCompare(currentSeq, candidateSeq)) {
                     continue;
                 }
 
                 // Lazy Normalization: Only normalize if we have a candidate pair
-                NormalizedSequence norm1 = normalizationCache.computeIfAbsent(seq1,
+                NormalizedSequence currentNorm = normalizationCache.computeIfAbsent(currentSeq,
                     s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
-                NormalizedSequence norm2 = normalizationCache.computeIfAbsent(seq2,
+                NormalizedSequence candidateNorm = normalizationCache.computeIfAbsent(candidateSeq,
                     s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
 
-                SimilarityPair pair = analyzePair(norm2, norm1);
+                // analyzePair expects (Earlier, Later) conceptually, but implementation is symmetric
+                // Passing candidate (earlier) first, then current (later) to match typical discovery order
+                SimilarityPair pair = analyzePair(candidateNorm, currentNorm);
                 candidates.add(pair);
             }
         }
