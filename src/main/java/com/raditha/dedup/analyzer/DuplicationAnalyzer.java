@@ -75,18 +75,7 @@ public class DuplicationAnalyzer {
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
         // Step 2: Compare all pairs (with pre-filtering)
-        List<SimilarityPair> candidates;
-        if (config.enableLSH()) {
-            candidates = findCandidatesLSH(sequences);
-        } else {
-             // Brute force fallback still uses upfront normalization
-            List<NormalizedSequence> normalizedSequences = sequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())))
-                .toList();
-            candidates = findCandidatesBruteForce(normalizedSequences);
-        }
+        List<SimilarityPair> candidates = findCandidates(sequences);
 
         // Step 3: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
@@ -147,18 +136,8 @@ public class DuplicationAnalyzer {
         }
 
         // 2. Find Candidates (Project-wide)
-        List<SimilarityPair> candidates;
-        if (config.enableLSH()) {
-            candidates = findCandidatesLSH(allSequences);
-        } else {
-            // Brute force fallback - requires full normalization
-             List<NormalizedSequence> allNormalizedSequences = allSequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())))
-                .toList();
-            candidates = findCandidatesBruteForce(allNormalizedSequences);
-        }
+        List<SimilarityPair> candidates = findCandidates(allSequences);
+
         // 3. Filter & Refine
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
 
@@ -257,6 +236,27 @@ public class DuplicationAnalyzer {
             StatementSequence sequence,
             java.util.List<com.raditha.dedup.normalization.NormalizedNode> normalizedNodes // NEW: AST nodes
     ) {
+    }
+
+    /**
+     * Find candidate duplicate pairs using either LSH or brute force.
+     * Delegates to the appropriate method based on configuration.
+     * 
+     * @param sequences List of statement sequences to analyze
+     * @return List of candidate similarity pairs
+     */
+    private List<SimilarityPair> findCandidates(List<StatementSequence> sequences) {
+        if (config.enableLSH()) {
+            return findCandidatesLSH(sequences);
+        } else {
+            // Brute force fallback - requires full normalization
+            List<NormalizedSequence> normalizedSequences = sequences.stream()
+                .map(seq -> new NormalizedSequence(
+                        seq,
+                        astNormalizer.normalize(seq.statements())))
+                .toList();
+            return findCandidatesBruteForce(normalizedSequences);
+        }
     }
 
     /**
