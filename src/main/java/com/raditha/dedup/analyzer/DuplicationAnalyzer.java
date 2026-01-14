@@ -74,21 +74,8 @@ public class DuplicationAnalyzer {
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
-        // Step 1.5: PRE-NORMALIZE ALL SEQUENCES ONCE (major performance optimization)
-        // This avoids normalizing the same sequence multiple times during comparisons
-        List<NormalizedSequence> normalizedSequences = sequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements()))) // NEW: AST normalization
-                .toList();
-
         // Step 2: Compare all pairs (with pre-filtering)
-        List<SimilarityPair> candidates;
-        if (config.enableLSH()) {
-            candidates = findCandidatesLSH(normalizedSequences);
-        } else {
-            candidates = findCandidatesBruteForce(normalizedSequences);
-        }
+        List<SimilarityPair> candidates = findCandidates(sequences);
 
         // Step 3: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
@@ -118,6 +105,113 @@ public class DuplicationAnalyzer {
                 config);
     }
 
+    /**
+     * Analyze the entire project for duplicates, enabling cross-file detection.
+     * Uses LSH to scale to large codebases.
+     *
+     * @param allCUs Map of class name to CompilationUnit
+     * @return List of reports, one per file involved in duplicates
+     */
+    public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
+        List<StatementSequence> allSequences = new ArrayList<>();
+        Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
+        Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        // 1. Extract from all files (Lazily normalized)
+        for (CompilationUnit cu : allCUs.values()) {
+            if (processedCUs.add(cu)) {
+
+                Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
+                        .orElse(null);
+
+                if (sourceFile == null) {
+                    // Skip files without storage information (can't track source path)
+                    continue;
+                }
+
+                List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
+                fileSequences.put(sourceFile, sequences);
+                allSequences.addAll(sequences);
+            }
+        }
+
+        // 2. Find Candidates (Project-wide)
+        List<SimilarityPair> candidates = findCandidates(allSequences);
+
+        // 3. Filter & Refine
+        List<SimilarityPair> duplicates = filterByThreshold(candidates);
+
+        if (config.enableBoundaryRefinement()) {
+            duplicates = boundaryRefiner.refineBoundaries(duplicates);
+        }
+
+        duplicates = removeOverlappingDuplicates(duplicates);
+
+        // 4. Cluster
+        List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
+        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
+                .map(this::addRecommendation).toList();
+
+        // 5. Group by File and Generate Reports
+        return distributeReports(fileSequences, duplicates, clustersWithRecommendations, candidates.size());
+    }
+
+    private List<DuplicationReport> distributeReports(
+            Map<Path, List<StatementSequence>> fileSequences,
+            List<SimilarityPair> duplicates,
+            List<DuplicateCluster> clusters,
+            int totalCandidates) {
+
+        Map<Path, List<SimilarityPair>> fileToDuplicates = new java.util.HashMap<>();
+        Map<Path, List<DuplicateCluster>> fileToClusters = new java.util.HashMap<>();
+
+        // Initialize with empty lists for all files
+        for (Path p : fileSequences.keySet()) {
+            fileToDuplicates.put(p, new ArrayList<>());
+            fileToClusters.put(p, new ArrayList<>());
+        }
+
+        // Distribute duplicates
+        for (SimilarityPair pair : duplicates) {
+            Path p1 = pair.seq1().sourceFilePath();
+            Path p2 = pair.seq2().sourceFilePath();
+
+            if (p1 != null)
+                fileToDuplicates.computeIfAbsent(p1, k -> new ArrayList<>()).add(pair);
+            if (p2 != null && !p2.equals(p1))
+                fileToDuplicates.computeIfAbsent(p2, k -> new ArrayList<>()).add(pair);
+        }
+
+        // Distribute clusters
+        for (DuplicateCluster cluster : clusters) {
+            cluster.allSequences().stream()
+                    .map(StatementSequence::sourceFilePath)
+                    .distinct()
+                    .forEach(path -> {
+                        if (path != null) {
+                            fileToClusters.computeIfAbsent(path, k -> new ArrayList<>()).add(cluster);
+                        }
+                    });
+        }
+
+        List<DuplicationReport> reports = new ArrayList<>();
+        for (Map.Entry<Path, List<StatementSequence>> entry : fileSequences.entrySet()) {
+            Path path = entry.getKey();
+            List<StatementSequence> seqs = entry.getValue();
+            List<SimilarityPair> fileDups = fileToDuplicates.getOrDefault(path, Collections.emptyList());
+            List<DuplicateCluster> fileClusters = fileToClusters.getOrDefault(path, Collections.emptyList());
+
+            reports.add(new DuplicationReport(
+                    path,
+                    fileDups,
+                    fileClusters,
+                    seqs.size(),
+                    totalCandidates,
+                    config));
+        }
+        return reports;
+    }
+
     private DuplicateCluster addRecommendation(DuplicateCluster cluster) {
         // Get a representative similarity result from the first pair
         if (!cluster.duplicates().isEmpty()) {
@@ -145,67 +239,67 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Find candidate duplicate pairs using LSH and pre-filtering.
-     * Optimized with pre-computed maps and stable IDs.
+     * Find candidate duplicate pairs using either LSH or brute force.
+     * Delegates to the appropriate method based on configuration.
+     * 
+     * @param sequences List of statement sequences to analyze
+     * @return List of candidate similarity pairs
      */
-    private List<SimilarityPair> findCandidatesLSH(List<NormalizedSequence> normalizedSequences) {
-        List<SimilarityPair> candidates = new ArrayList<>();
-
-        // 1. Pre-compute maps for O(1) lookups and caching
-        // Map: StatementSequence -> NormalizedSequence (for O(1) retrieval)
-        IdentityHashMap<StatementSequence, NormalizedSequence> seqToNorm = new IdentityHashMap<>();
-        // Map: StatementSequence -> Tokens (avoid repeated fuzzy normalization)
-        IdentityHashMap<StatementSequence, List<String>> seqToTokens = new IdentityHashMap<>();
-
-        for (int i = 0; i < normalizedSequences.size(); i++) {
-            NormalizedSequence norm = normalizedSequences.get(i);
-            StatementSequence seq = norm.sequence();
-
-            seqToNorm.put(seq, norm);
-            seqToTokens.put(seq, extractTokens(norm)); // Computed once per sequence
+    private List<SimilarityPair> findCandidates(List<StatementSequence> sequences) {
+        if (config.enableLSH()) {
+            return findCandidatesLSH(sequences);
+        } else {
+            // Brute force fallback - requires full normalization
+            List<NormalizedSequence> normalizedSequences = sequences.stream()
+                .map(seq -> new NormalizedSequence(
+                        seq,
+                        astNormalizer.normalize(seq.statements())))
+                .toList();
+            return findCandidatesBruteForce(normalizedSequences);
         }
+    }
 
-        // 2. Initialize LSH Index
+    /**
+     * Find candidate duplicate pairs using LSH and pre-filtering.
+     * Uses FuzzyTokenizer for fast indexing and Lazy Normalization for verification.
+     */
+    private List<SimilarityPair> findCandidatesLSH(List<StatementSequence> sequences) {
+        List<SimilarityPair> candidates = new ArrayList<>();
+        com.raditha.dedup.normalization.FuzzyTokenizer tokenizer = new com.raditha.dedup.normalization.FuzzyTokenizer();
+
+        // Cache for strict normalization (computed only on demand for candidates)
+        Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
+
+        // 1. Initialize LSH Index
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
         com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
 
-        // 3. Fused Loop: Query and Add
-        // Iterate through sequences, finding candidates among those already processed,
-        // then add current.
-        for (int i = 0; i < normalizedSequences.size(); i++) {
-            NormalizedSequence normSeq = normalizedSequences.get(i);
-            StatementSequence seq1 = normSeq.sequence();
+        // 2. Fused Loop: Query and Add
+        for (StatementSequence currentSeq : sequences) {
+            // Fast Tokenization (no cloning)
+            List<String> tokens = tokenizer.tokenize(currentSeq.statements());
 
-            List<String> tokens = seqToTokens.get(seq1);
+            // Query and Add
+            Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, currentSeq);
 
-            // OPTIMIZATION: Query and Add in single pass
-            // Returns matches from *already processed* sequences
-            Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, seq1);
-
-            for (StatementSequence seq2 : potentialMatches) {
-                // Self-check redundant with query-past-only logic but fast to keep
-                if (seq1 == seq2 || areSameMethodOrOverlapping(seq1, seq2)) {
+            for (StatementSequence candidateSeq : potentialMatches) {
+                // Combined check to reduce continue statements
+                if (currentSeq == candidateSeq ||
+                    areSameMethodOrOverlapping(currentSeq, candidateSeq) ||
+                    !preFilter.shouldCompare(currentSeq, candidateSeq)) {
                     continue;
                 }
 
-                // No need for processedPairs set!
-                // We only match against previous items, so (seq1, seq2) is seen exactly once.
+                // Lazy Normalization: Only normalize if we have a candidate pair
+                NormalizedSequence currentNorm = normalizationCache.computeIfAbsent(currentSeq,
+                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
+                NormalizedSequence candidateNorm = normalizationCache.computeIfAbsent(candidateSeq,
+                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
 
-                // Pre-filter
-                if (!preFilter.shouldCompare(seq1, seq2)) {
-                    continue;
-                }
-
-                // Retrieve NormalizedSequence from map (O(1))
-                NormalizedSequence norm2 = seqToNorm.get(seq2);
-
-                if (norm2 != null) {
-                    // Maintain (Earlier, Later) order to match original behavior
-                    // seq2 is from the index (already processed, so earlier)
-                    // seq1 is current (later)
-                    SimilarityPair pair = analyzePair(norm2, normSeq);
-                    candidates.add(pair);
-                }
+                // analyzePair expects (Earlier, Later) conceptually, but implementation is symmetric
+                // Passing candidate (earlier) first, then current (later) to match typical discovery order
+                SimilarityPair pair = analyzePair(candidateNorm, currentNorm);
+                candidates.add(pair);
             }
         }
 
@@ -217,6 +311,12 @@ public class DuplicationAnalyzer {
      * or if method is null (e.g. static block) and they are in same file
      */
     private boolean areSameMethodOrOverlapping(StatementSequence s1, StatementSequence s2) {
+        // Different files -> cannot overlap
+        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null
+                && !s1.sourceFilePath().equals(s2.sourceFilePath())) {
+            return false;
+        }
+
         var m1 = s1.containingMethod();
         var m2 = s2.containingMethod();
 
@@ -233,20 +333,6 @@ public class DuplicationAnalyzer {
         return false;
     }
 
-    private List<String> extractTokens(NormalizedSequence normSeq) {
-        // Use FUZZY normalization for LSH to robustly find candidates with variable
-        // renames
-        List<com.raditha.dedup.normalization.NormalizedNode> fuzzyNodes = astNormalizer
-                .normalizeFuzzy(normSeq.sequence().statements());
-
-        List<String> tokens = new ArrayList<>();
-        for (com.raditha.dedup.normalization.NormalizedNode node : fuzzyNodes) {
-            // NormalizedNode.normalized() returns the Statement with replaced (fuzzy)
-            // tokens
-            tokens.add(node.normalized().toString());
-        }
-        return tokens;
-    }
 
     /**
      * Find candidate duplicate pairs using O(N^2) brute force comparison.
@@ -265,13 +351,7 @@ public class DuplicationAnalyzer {
                 StatementSequence seq2 = norm2.sequence();
 
                 // Skip sequences from the same method
-                if (seq1.containingMethod() != null &&
-                        seq1.containingMethod().equals(seq2.containingMethod())) {
-                    continue;
-                }
-
-                // Pre-filter
-                if (!preFilter.shouldCompare(seq1, seq2)) {
+                if (areSameMethodOrOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
 

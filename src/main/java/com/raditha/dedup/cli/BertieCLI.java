@@ -239,39 +239,15 @@ public class BertieCLI implements Callable<Integer> {
 
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
 
-        List<DuplicationReport> reports = new ArrayList<>();
-
-        // Single iteration - filter and analyze
+        // Filter map based on target class
         String targetClass = DuplicationDetectorSettings.getTargetClass();
-        System.out.println("DEBUG: targetClass='" + targetClass + "'");
 
-        for (var entry : allCUs.entrySet()) {
-            String className = entry.getKey();
-            if (className.contains("Lambda")) {
-                System.out.println("DEBUG: Checking candidate: '" + className + "'");
-            }
-
-            // Filter by target class if specified
-            if (targetClass != null && !targetClass.isEmpty()) {
-                if (!className.equals(targetClass)) {
-                    continue;
-                } else {
-                    System.out.println("MATCHED target class: " + className);
-                }
-            }
-
-            // Production code and test code - check both locations
-            Path sourceFile = findSourceFile(className, entry.getValue());
-            if (sourceFile == null) {
-                throw new IllegalStateException("FAIL-FAST: Could not locate source file for class: " + className +
-                        "\nChecked storage and standard locations relative to: " + Settings.getBasePath());
-            }
-
-            DuplicationReport report = analyzer.analyzeFile(entry.getValue(), sourceFile);
-            reports.add(report);
+        Map<String, CompilationUnit> targetCUs = new java.util.HashMap<>(allCUs);
+        if (targetClass != null && !targetClass.isEmpty()) {
+            targetCUs.entrySet().removeIf(entry -> !entry.getKey().equals(targetClass));
         }
 
-        return reports;
+        return analyzer.analyzeProject(targetCUs);
     }
 
     private void runAnalysis() throws IOException {
@@ -383,61 +359,6 @@ public class BertieCLI implements Callable<Integer> {
         }
     }
 
-    /**
-     * Locate the source file for a given class.
-     * Checks CompilationUnit storage first, then standard locations.
-     */
-    private static Path findSourceFile(String className, CompilationUnit cu) {
-        // 1. Try to get path from CompilationUnit storage (most robust)
-        if (cu != null && cu.getStorage().isPresent()) {
-            return cu.getStorage().get().getPath();
-        }
-
-        // 2. Name-based resolution (fallback)
-        // Handle inner classes: if Outer.Inner, we want to look for Outer.java
-        String currentName = className;
-        while (true) {
-            Path path = checkLocations(currentName);
-            if (path != null) {
-                return path;
-            }
-
-            // If it contains a dot, it might be an inner class
-            int lastDot = currentName.lastIndexOf('.');
-            if (lastDot == -1) {
-                break; // No more parents to check
-            }
-            // Strip the last segment to check the parent
-            // e.g., com.pkg.Outer.Inner -> com.pkg.Outer
-            currentName = currentName.substring(0, lastDot);
-        }
-
-        return null;
-    }
-
-    private static Path checkLocations(String className) {
-        String relativePath = AbstractCompiler.classToPath(className);
-
-        // Try src/main/java first
-        Path mainPath = Paths.get(Settings.getBasePath(), "src/main/java", relativePath);
-        if (mainPath.toFile().exists()) {
-            return mainPath;
-        }
-
-        // Try src/test/java
-        Path testPath = Paths.get(Settings.getBasePath(), "src/test/java", relativePath);
-        if (testPath.toFile().exists()) {
-            return testPath;
-        }
-
-        // Fallback: Check checking relative to base path directly
-        Path directPath = Paths.get(Settings.getBasePath(), relativePath);
-        if (directPath.toFile().exists()) {
-            return directPath;
-        }
-
-        return null;
-    }
 
     private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
         int totalDuplicates = reports.stream()
@@ -563,7 +484,8 @@ public class BertieCLI implements Callable<Integer> {
     private static void printLocation(DuplicationReport report,
             StatementSequence seq,
             int locNum) {
-        String className = extractClassName(report.sourceFile().toString());
+        Path sourcePath = seq.sourceFilePath() != null ? seq.sourceFilePath() : report.sourceFile();
+        String className = extractClassName(sourcePath.toString());
         String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "top-level";
         int startLine = seq.range().startLine();
         int endLine = seq.range().endLine();

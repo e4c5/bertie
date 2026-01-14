@@ -1,9 +1,7 @@
 package com.raditha.dedup.lsh;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * MinHash implementation for estimating Jaccard similarity between statement
@@ -59,30 +57,36 @@ public class MinHash {
 
     /**
      * Generate k-shingles from the token stream.
+     * optimized to avoid string concatenation.
      */
     private Set<Integer> generateShingleHashes(List<String> tokens) {
-        // Normalize tokens (trim) if not already done? Assuming caller handles it.
-        // But let's trim just in case or assume processed.
-        List<String> processedTokens = tokens.stream()
-                .map(String::trim)
-                .collect(Collectors.toList());
+        // assume tokens are already trimmed by tokenizer
 
-        List<String> shingles = new ArrayList<>();
-        if (processedTokens.size() <= shingleSize) {
-            shingles.add(String.join(" ", processedTokens));
+        java.util.HashSet<Integer> shingleHashes = new java.util.HashSet<>();
+
+        if (tokens.size() <= shingleSize) {
+             // Fallback for short sequences: combine all tokens
+             shingleHashes.add(combineHashes(tokens, 0, tokens.size()));
         } else {
-            for (int i = 0; i <= processedTokens.size() - shingleSize; i++) {
-                StringBuilder sb = new StringBuilder();
-                for (int j = 0; j < shingleSize; j++) {
-                    if (j > 0)
-                        sb.append(" ");
-                    sb.append(processedTokens.get(i + j));
-                }
-                shingles.add(sb.toString());
+            // Sliding window
+            for (int i = 0; i <= tokens.size() - shingleSize; i++) {
+                shingleHashes.add(combineHashes(tokens, i, shingleSize));
             }
         }
 
-        return shingles.stream().map(String::hashCode).collect(Collectors.toSet());
+        return shingleHashes;
+    }
+
+    /**
+     * Combine hashes of a sublist of tokens using a polynomial rolling hash approximation.
+     * hash = t1.hashCode() * 31^(k-1) + t2.hashCode() * 31^(k-2) + ...
+     */
+    private int combineHashes(List<String> tokens, int start, int length) {
+        int h = 0;
+        for (int i = 0; i < length; i++) {
+            h = 31 * h + tokens.get(start + i).hashCode();
+        }
+        return h;
     }
 
     private long[] generateSeeds(int n) {
