@@ -41,15 +41,15 @@ class CrossFileDuplicationTest {
 
     @Test
     void testCrossFileDuplication() {
-        CompilationUnit cu1 = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.crossfile.ClassA");
-        CompilationUnit cu2 = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.crossfile.ClassB");
+        CompilationUnit cu1 = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.crossfile.InventoryService");
+        CompilationUnit cu2 = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.crossfile.ShippingService");
 
-        assertNotNull(cu1, "ClassA not found in test-bed");
-        assertNotNull(cu2, "ClassB not found in test-bed");
+        assertNotNull(cu1, "InventoryService not found in test-bed");
+        assertNotNull(cu2, "ShippingService not found in test-bed");
 
         Map<String, CompilationUnit> projectCUs = new HashMap<>();
-        projectCUs.put("com.raditha.bertie.testbed.crossfile.ClassA", cu1);
-        projectCUs.put("com.raditha.bertie.testbed.crossfile.ClassB", cu2);
+        projectCUs.put("com.raditha.bertie.testbed.crossfile.InventoryService", cu1);
+        projectCUs.put("com.raditha.bertie.testbed.crossfile.ShippingService", cu2);
 
         List<DuplicationReport> reports = analyzer.analyzeProject(projectCUs);
 
@@ -62,15 +62,15 @@ class CrossFileDuplicationTest {
         boolean foundB = false;
 
         for (DuplicationReport report : reports) {
-            if (report.sourceFile().endsWith("ClassA.java")) {
+            if (report.sourceFile().endsWith("InventoryService.java")) {
                 if (report.hasDuplicates()) foundA = true;
             }
-            if (report.sourceFile().endsWith("ClassB.java")) {
+            if (report.sourceFile().endsWith("ShippingService.java")) {
                 if (report.hasDuplicates()) foundB = true;
             }
         }
 
-        assertTrue(foundA, "ClassA should have duplicates reported");
-        assertTrue(foundB, "ClassB should have duplicates reported");
+        assertTrue(foundA, "InventoryService should have duplicates reported");
+        assertTrue(foundB, "ShippingService should have duplicates reported");
     }
 }
