@@ -156,44 +156,12 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean usesInstanceState(StatementSequence seq) {
-        if (seq.containingMethod() == null || seq.containingMethod().isStatic()) {
-            return false;
-        }
-
-        // Optimized: Single pass to scan used names
-        Set<String> usedNames = new HashSet<>();
-        for (Statement stmt : seq.statements()) {
-            if (!stmt.findAll(com.github.javaparser.ast.expr.ThisExpr.class).isEmpty()) {
-                return true;
-            }
-            stmt.findAll(com.github.javaparser.ast.expr.NameExpr.class)
-                    .forEach(n -> usedNames.add(n.getNameAsString()));
-        }
-
-        if (usedNames.isEmpty()) {
-            return false;
-        }
-
-        // Check against instance fields
-        var classDecl = seq.containingMethod()
-                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-
-        if (classDecl.isPresent()) {
-            for (var field : classDecl.get().getFields()) {
-                 boolean isStatic = field.getModifiers().stream()
-                        .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
-                 
-                 if (!isStatic) {
-                     for (var v : field.getVariables()) {
-                         if (usedNames.contains(v.getNameAsString())) {
-                             return true;
-                         }
-                     }
-                 }
-            }
-        }
-        
-        return false;
+        // If the method is not static, we assume it belongs to an object context
+        // and should be extracted to a Parent Class (preserving inheritance)
+        // rather than a Utility class.
+        // This matches the original behavior and ensures Service classes
+        // are refactored into BaseService hierarchies.
+        return seq.containingMethod() != null && !seq.containingMethod().isStatic();
     }
 
     private boolean hasNestedReturn(StatementSequence seq) {
@@ -234,14 +202,5 @@ public class RefactoringRecommendationGenerator {
                 strategy,
                 containingClass,
                 MethodNameGenerator.NamingStrategy.SEMANTIC);
-    }
-
-    /**
-     * Exception thrown when type inference fails.
-     */
-    public static class TypeInferenceException extends RuntimeException {
-        public TypeInferenceException(String message) {
-            super(message);
-        }
     }
 }
