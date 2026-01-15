@@ -271,8 +271,11 @@ public class DuplicationAnalyzer {
         Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
 
         // 1. Initialize LSH Index
+        // Configuration: 50 bands × 2 rows = 100 hash functions
+        // Lower rows per band (2 vs 5) increases recall by making collision more likely
+        // P(collision) = 1 - (1 - J^r)^b, with r=2,b=50 even moderate similarity leads to collision
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
-        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
+        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 50, 2);
 
         // 2. Fused Loop: Query and Add
         for (StatementSequence currentSeq : sequences) {
