@@ -4,6 +4,9 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -43,11 +46,22 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
         // Check if classes already share a common parent
         Optional<ClassOrInterfaceDeclaration> existingParent = findExistingCommonParent(cluster);
         
+        // Check if one of the involved classes IS the intended parent (Peer-as-Parent)
+        Optional<CompilationUnit> peerParentCu = findPeerParent(cluster, parentClassName);
+        boolean isPeerParent = peerParentCu.isPresent();
+
         Map<Path, String> modifiedFiles = new LinkedHashMap<>();
         
         if (existingParent.isPresent()) {
-            // Add method to existing parent class
+            // Add method to existing parent class (external parent)
             addMethodToExistingParent(existingParent.get(), methodToExtract, modifiedFiles, cluster);
+        } else if (isPeerParent) {
+             // One of the peers is promoting to be the parent
+             // We don't create a new class, but we need to ensure the method in it is preserved and correct
+             // The modification will happen when we process the involved CUs loop
+             CompilationUnit parentCu = peerParentCu.get();
+             // Ensure parent method is protected or public (not private) if it was private
+             // Logic handled below or implicitly by not removing it
         } else {
             // Create new parent class
             CompilationUnit parentCu = createParentClass(parentClassName, packageName, methodToExtract);
@@ -62,15 +76,44 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
         
         // Modify each child class
         for (CompilationUnit currentCu : involvedCus) {
-            // Add extends clause if parent was newly created
-            if (existingParent.isEmpty()) {
+            boolean isCurrentCuParent = isPeerParent && currentCu == peerParentCu.get();
+
+            // Add extends clause if parent was newly created OR if we are a peer extending another peer
+            // Do NOT add extends clause if we ARE the parent
+            if (existingParent.isEmpty() && !isCurrentCuParent) {
                 addExtendsClause(currentCu, parentClassName);
             }
             
             // Remove the duplicate method (now inherited from parent)
+            // Do NOT remove if we ARE the parent (it becomes the base method)
             MethodDeclaration methodToRemove = methodsToRemove.get(currentCu);
             if (methodToRemove != null) {
-                methodToRemove.remove();
+                if (isCurrentCuParent) {
+                     // Ensure visibility is at least protected
+                     if (methodToRemove.isPrivate()) {
+                         methodToRemove.setModifiers(Modifier.Keyword.PROTECTED);
+                     }
+                } else {
+                    // Check for invalidation/delegation
+                    String parentMethodName = methodToExtract.getNameAsString();
+                    String childMethodName = methodToRemove.getNameAsString();
+                    
+                    if (childMethodName.equals(parentMethodName)) {
+                        methodToRemove.remove();
+                    } else {
+                        // Delegate to the parent method if names differ (preserve API)
+                        BlockStmt body = new BlockStmt();
+                        MethodCallExpr call = new MethodCallExpr(parentMethodName);
+                        methodToRemove.getParameters().forEach(p -> call.addArgument(p.getNameAsExpression()));
+                        
+                        if (methodToRemove.getType().isVoidType()) {
+                            body.addStatement(call);
+                        } else {
+                            body.addStatement(new ReturnStmt(call));
+                        }
+                        methodToRemove.setBody(body);
+                    }
+                }
             }
             
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
@@ -80,6 +123,16 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted to parent class: " + parentClassName);
+    }
+
+    private Optional<CompilationUnit> findPeerParent(DuplicateCluster cluster, String parentClassName) {
+         for (StatementSequence seq : cluster.allSequences()) {
+            Optional<ClassOrInterfaceDeclaration> classDecl = findPrimaryClass(seq.compilationUnit());
+            if (classDecl.isPresent() && classDecl.get().getNameAsString().equals(parentClassName)) {
+                return Optional.of(seq.compilationUnit());
+            }
+        }
+        return Optional.empty();
     }
     
     /**

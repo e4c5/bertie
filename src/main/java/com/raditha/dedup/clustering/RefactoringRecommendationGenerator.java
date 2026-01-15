@@ -977,6 +977,11 @@ public class RefactoringRecommendationGenerator {
                     }
                 }
             }
+            
+            // Conservative: non-static methods are called on instances.
+            // Moving to utility class would break call sites unless they are updated.
+            // Default to parent class extraction for safety.
+            return true;
         }
         
         return false;
