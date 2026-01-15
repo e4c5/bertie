@@ -17,6 +17,9 @@ public enum RefactoringStrategy {
     /** Extract to a utility class (cross-class duplicates) */
     EXTRACT_TO_UTILITY_CLASS,
 
+    /** Extract to a common parent class (cross-class instance method duplicates) */
+    EXTRACT_PARENT_CLASS,
+
     /** Too complex for automated refactoring - requires manual review */
     MANUAL_REVIEW_REQUIRED
 }

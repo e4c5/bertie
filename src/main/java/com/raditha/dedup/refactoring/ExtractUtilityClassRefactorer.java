@@ -31,11 +31,12 @@ import java.util.*;
  * Handles multi-file refactoring with utility class creation and call site
  * updates.
  */
-public class ExtractUtilityClassRefactorer {
+public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefactorer {
 
     /**
      * Apply the refactoring to extract a utility class.
      */
+    @Override
     public ExtractMethodRefactorer.RefactoringResult refactor(DuplicateCluster cluster,
             RefactoringRecommendation recommendation) {
         StatementSequence primary = cluster.primary();
@@ -78,27 +79,10 @@ public class ExtractUtilityClassRefactorer {
         // Note: The DuplicateCluster contains 'duplicates' which are SimilarityPairs.
         // We need to visit every file involved.
 
-        // Set of all CUs involved
-        Set<CompilationUnit> involvedCus = Collections.newSetFromMap(new IdentityHashMap<>());
-        involvedCus.add(cu);
-        cluster.duplicates().forEach(pair -> {
-            involvedCus.add(pair.seq1().compilationUnit());
-            involvedCus.add(pair.seq2().compilationUnit());
-        });
-
-        // Modify each CU
-        Map<CompilationUnit, Path> cuToPath = new IdentityHashMap<>();
-        cuToPath.put(cu, sourceFile);
-        cluster.duplicates().forEach(pair -> {
-            cuToPath.put(pair.seq1().compilationUnit(), pair.seq1().sourceFilePath());
-            cuToPath.put(pair.seq2().compilationUnit(), pair.seq2().sourceFilePath());
-        });
-
-        // Map CUs to the method that should be removed (Primary + Duplicates)
-        Map<CompilationUnit, MethodDeclaration> methodsToRemove = new IdentityHashMap<>();
-        methodsToRemove.put(cu, methodToExtract);
-        cluster.duplicates()
-                .forEach(pair -> methodsToRemove.put(pair.seq2().compilationUnit(), pair.seq2().containingMethod()));
+        // Use inherited methods from base class
+        Set<CompilationUnit> involvedCus = collectInvolvedCUs(cluster);
+        Map<CompilationUnit, Path> cuToPath = buildCUToPathMap(cluster);
+        Map<CompilationUnit, MethodDeclaration> methodsToRemove = buildMethodsToRemoveMap(cluster);
 
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract, utilityClassName, packageName);
@@ -162,7 +146,8 @@ public class ExtractUtilityClassRefactorer {
         // This is tricky without type resolution.
         // Heuristic: Copy ALL imports from original CU.
         // Optimization: Filter imports that seem referenced by types in the method.
-        CompilationUnit originalCu = (CompilationUnit) originalMethod.findRootNode();
+        CompilationUnit originalCu = originalMethod.findCompilationUnit()
+                .orElseThrow(() -> new IllegalStateException("Original method not part of a CompilationUnit"));
         for (ImportDeclaration imp : originalCu.getImports()) {
             if (isImportNeeded(imp, newMethod)) {
                 utilCu.addImport(imp);
@@ -172,37 +157,7 @@ public class ExtractUtilityClassRefactorer {
         return utilCu;
     }
 
-    // Heuristic checking if import is relevant to the method
-    // Check if import is relevant to the method using AST analysis
-    private boolean isImportNeeded(ImportDeclaration imp, MethodDeclaration method) {
-        if (imp.isAsterisk())
-            return false;
 
-        String importName = imp.getNameAsString();
-        String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
-
-        // Check explicit types (e.g., return types, parameters, variable declarations)
-        for (ClassOrInterfaceType type : method.findAll(ClassOrInterfaceType.class)) {
-            if (type.getNameAsString().equals(simpleName))
-                return true;
-        }
-
-        // Check annotations
-        for (com.github.javaparser.ast.expr.AnnotationExpr annotation : method
-                .findAll(com.github.javaparser.ast.expr.AnnotationExpr.class)) {
-            if (annotation.getNameAsString().equals(simpleName))
-                return true;
-        }
-
-        // Check Name expressions (e.g. static access like Status.ACTIVE)
-        // We only care if the first part of the name matches our import
-        for (NameExpr name : method.findAll(NameExpr.class)) {
-            if (name.getNameAsString().equals(simpleName))
-                return true;
-        }
-
-        return false;
-    }
 
     /**
      * Check if a method call is either unqualified (e.g., methodName(...)) or
@@ -270,11 +225,5 @@ public class ExtractUtilityClassRefactorer {
             return "MathUtils";
         }
         return "CommonUtils";
-    }
-
-    private String getPackageName(CompilationUnit cu) {
-        return cu.getPackageDeclaration()
-                .map(NodeWithName::getNameAsString)
-                .orElse("");
     }
 }

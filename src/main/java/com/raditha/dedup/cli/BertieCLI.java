@@ -146,6 +146,7 @@ public class BertieCLI implements Callable<Integer> {
                 return 4;
             } else {
                 commandLine.getErr().println("Error: " + ex.getMessage());
+                ex.printStackTrace(commandLine.getErr());
                 return 1;
             }
         });
@@ -244,7 +245,8 @@ public class BertieCLI implements Callable<Integer> {
 
         Map<String, CompilationUnit> targetCUs = new java.util.HashMap<>(allCUs);
         if (targetClass != null && !targetClass.isEmpty()) {
-            targetCUs.entrySet().removeIf(entry -> !entry.getKey().equals(targetClass));
+            targetCUs.entrySet().removeIf(entry -> !entry.getKey().startsWith(targetClass));
+            System.out.println("DEBUG: Retained " + targetCUs.size() + " files for analysis.");
         }
 
         return analyzer.analyzeProject(targetCUs);

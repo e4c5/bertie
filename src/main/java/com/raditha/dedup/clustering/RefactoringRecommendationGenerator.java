@@ -892,6 +892,22 @@ public class RefactoringRecommendationGenerator {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
         }
 
+        // Check if this is a cross-file duplication scenario
+        boolean isCrossFile = isCrossFileDuplication(cluster);
+        
+        if (isCrossFile) {
+            // Determine if method uses instance state (this, instance fields)
+            boolean usesInstanceState = usesInstanceState(primarySeq);
+            
+            if (usesInstanceState) {
+                // Instance method - extract to parent class
+                return RefactoringStrategy.EXTRACT_PARENT_CLASS;
+            } else {
+                // Static-compatible method - extract to utility class
+                return RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
+            }
+        }
+
         // DEFAULT: EXTRACT_HELPER_METHOD is the primary, safest strategy
         // It works for both source and test files
 
@@ -909,6 +925,61 @@ public class RefactoringRecommendationGenerator {
 
         // Default to the most robust, general-purpose strategy
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+    }
+    
+    /**
+     * Check if duplicates span multiple files (cross-file duplication).
+     */
+    private boolean isCrossFileDuplication(DuplicateCluster cluster) {
+        Set<String> filePaths = new java.util.HashSet<>();
+        for (StatementSequence seq : cluster.allSequences()) {
+            if (seq.sourceFilePath() != null) {
+                filePaths.add(seq.sourceFilePath().toString());
+            }
+        }
+        return filePaths.size() > 1;
+    }
+    
+    /**
+     * Check if a sequence uses instance state (this references or instance field access).
+     */
+    private boolean usesInstanceState(StatementSequence seq) {
+        // Check for explicit 'this' references
+        for (Statement stmt : seq.statements()) {
+            if (!stmt.findAll(com.github.javaparser.ast.expr.ThisExpr.class).isEmpty()) {
+                return true;
+            }
+        }
+        
+        // Check if containing method is non-static (implies instance context)
+        if (seq.containingMethod() != null && !seq.containingMethod().isStatic()) {
+            // Check for field access that could be instance fields
+            var classDecl = seq.containingMethod()
+                    .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            if (classDecl.isPresent()) {
+                Set<String> instanceFields = new java.util.HashSet<>();
+                for (var field : classDecl.get().getFields()) {
+                    boolean isStatic = field.getModifiers().stream()
+                            .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                    if (!isStatic) {
+                        for (var v : field.getVariables()) {
+                            instanceFields.add(v.getNameAsString());
+                        }
+                    }
+                }
+                
+                // Check if any instance field is referenced
+                for (Statement stmt : seq.statements()) {
+                    for (var nameExpr : stmt.findAll(com.github.javaparser.ast.expr.NameExpr.class)) {
+                        if (instanceFields.contains(nameExpr.getNameAsString())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return false;
     }
 
     /**

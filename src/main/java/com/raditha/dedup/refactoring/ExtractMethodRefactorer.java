@@ -85,6 +85,7 @@ public class ExtractMethodRefactorer {
             containingClass.addMember(helperMethod);
         } else {
             // Reuse existing helper method name; skip adding duplicate
+            // Reuse existing helper method name; skip adding duplicate
             methodNameToUse = equivalent.getNameAsString();
         }
 
@@ -697,7 +698,6 @@ public class ExtractMethodRefactorer {
 
         insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
                 shouldReturnDirectly, nextIsReturn, returnType);
-
     }
 
     private NodeList<Expression> buildArgumentsForCall(VariationAnalysis variations,
@@ -1263,6 +1263,11 @@ public class ExtractMethodRefactorer {
                 continue;
             if (candidate.getParameters().size() != newParamTypes.size())
                 continue;
+            if (candidate.getBody().isPresent() && newHelper.getBody().isPresent()) {
+                if (candidate.getBody().get().getStatements().size() != newHelper.getBody().get().getStatements().size()) {
+                    continue;
+                }
+            }
 
             boolean paramsMatch = true;
             for (int i = 0; i < candidate.getParameters().size(); i++) {
@@ -1343,7 +1348,11 @@ public class ExtractMethodRefactorer {
          */
         public void apply() throws IOException {
             for (Map.Entry<Path, String> entry : modifiedFiles.entrySet()) {
-                Files.writeString(entry.getKey(), entry.getValue());
+                Path file = entry.getKey();
+                if (file.getParent() != null) {
+                    Files.createDirectories(file.getParent());
+                }
+                Files.writeString(file, entry.getValue());
             }
         }
     }
