@@ -99,7 +99,7 @@ class ExtractParentClassRefactorerTest {
         assertTrue(inventoryCode.contains("extends BaseService"), 
                 "InventoryService should extend BaseService");
         assertFalse(inventoryCode.contains("public void processInventory()"), 
-                "Original method should be removed");
+                "Original method should be removed (matches parent name)");
         
         // Check ShippingService extends parent
         String shippingCode = result.modifiedFiles().values().stream()
@@ -110,8 +110,10 @@ class ExtractParentClassRefactorerTest {
         assertNotNull(shippingCode, "Should contain ShippingService");
         assertTrue(shippingCode.contains("extends BaseService"), 
                 "ShippingService should extend BaseService");
-        assertFalse(shippingCode.contains("public void calculateShipping()"), 
-                "Original method should be removed");
+        assertTrue(shippingCode.contains("public void calculateShipping()"), 
+                "Original method should be kept (delegated)");
+        assertTrue(shippingCode.contains("processInventory()"), 
+                "Should delegate to parent method (processInventory)");
     }
 
     @Test
@@ -251,7 +253,8 @@ class ExtractParentClassRefactorerTest {
                 .orElseThrow();
         
         assertFalse(repoACode.contains("public String findData()"), "findData should be removed");
-        assertFalse(repoBCode.contains("public String getData()"), "getData should be removed");
+        assertTrue(repoBCode.contains("public String getData()"), "getData should be preserved (delegated)");
+        assertTrue(repoBCode.contains("return findData()"), "Should delegate to parent method (findData)");
     }
 
     private DuplicateCluster createMultiFileMockCluster(

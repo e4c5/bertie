@@ -8,7 +8,6 @@ import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
 import com.raditha.dedup.model.StatementSequence;
-import com.raditha.dedup.model.TypeCompatibility;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.refactoring.MethodNameGenerator;
 
@@ -128,8 +127,7 @@ public class RefactoringRecommendationGenerator {
         boolean isCrossFile = isCrossFileDuplication(cluster);
 
         if (isCrossFile) {
-            boolean usesInstanceState = usesInstanceState(primarySeq);
-            if (usesInstanceState) {
+            if (usesInstanceState(primarySeq)) {
                 return RefactoringStrategy.EXTRACT_PARENT_CLASS;
             } else {
                 return RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
@@ -158,40 +156,43 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean usesInstanceState(StatementSequence seq) {
-        // Check for explicit 'this' references
+        if (seq.containingMethod() == null || seq.containingMethod().isStatic()) {
+            return false;
+        }
+
+        // Optimized: Single pass to scan used names
+        Set<String> usedNames = new HashSet<>();
         for (Statement stmt : seq.statements()) {
             if (!stmt.findAll(com.github.javaparser.ast.expr.ThisExpr.class).isEmpty()) {
                 return true;
             }
+            stmt.findAll(com.github.javaparser.ast.expr.NameExpr.class)
+                    .forEach(n -> usedNames.add(n.getNameAsString()));
         }
 
-        // Check if containing method is non-static (implies instance context)
-        if (seq.containingMethod() != null && !seq.containingMethod().isStatic()) {
-            var classDecl = seq.containingMethod()
-                    .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            if (classDecl.isPresent()) {
-                Set<String> instanceFields = new HashSet<>();
-                for (var field : classDecl.get().getFields()) {
-                    boolean isStatic = field.getModifiers().stream()
-                            .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
-                    if (!isStatic) {
-                        for (var v : field.getVariables()) {
-                            instanceFields.add(v.getNameAsString());
-                        }
-                    }
-                }
+        if (usedNames.isEmpty()) {
+            return false;
+        }
 
-                for (Statement stmt : seq.statements()) {
-                    for (var nameExpr : stmt.findAll(com.github.javaparser.ast.expr.NameExpr.class)) {
-                        if (instanceFields.contains(nameExpr.getNameAsString())) {
-                            return true;
-                        }
-                    }
-                }
+        // Check against instance fields
+        var classDecl = seq.containingMethod()
+                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+
+        if (classDecl.isPresent()) {
+            for (var field : classDecl.get().getFields()) {
+                 boolean isStatic = field.getModifiers().stream()
+                        .anyMatch(m -> m.getKeyword() == com.github.javaparser.ast.Modifier.Keyword.STATIC);
+                 
+                 if (!isStatic) {
+                     for (var v : field.getVariables()) {
+                         if (usedNames.contains(v.getNameAsString())) {
+                             return true;
+                         }
+                     }
+                 }
             }
-            return true;
         }
-
+        
         return false;
     }
 
