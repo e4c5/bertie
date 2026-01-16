@@ -69,17 +69,48 @@ public class DataFlowAnalyzer {
      * Find variables that are:
      * 1. Defined within the sequence (assignment or declaration)
      * 2. Used AFTER the sequence ends (live out)
+     * 3. NOT initialized from literal values (those are compile-time constants)
      * <p>
      * This identifies which variables must be returned from extracted method.
+     * Variables initialized from literals (e.g., String x = "foo") are excluded
+     * because the extracted helper will contain the same literals.
      */
     public Set<String> findLiveOutVariables(StatementSequence sequence) {
         Set<String> definedVars = findDefinedVariables(sequence);
         Set<String> usedAfter = findVariablesUsedAfter(sequence);
+        Set<String> literalVars = findLiteralInitializedVariables(sequence);
 
-        // Return intersection: defined in sequence AND used after
+        // Return intersection: defined in sequence AND used after, EXCLUDING literals
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
+        liveOut.removeAll(literalVars);  // Exclude literal-initialized variables
         return liveOut;
+    }
+
+    /**
+     * Find variables initialized exclusively from literal values.
+     * These include: StringLiteralExpr, IntegerLiteralExpr, BooleanLiteralExpr, etc.
+     * <p>
+     * Literal-initialized variables are NOT true live-outs because:
+     * 1. The extracted helper method will contain the same literal values
+     * 2. The caller can replicate these constants trivially
+     * 3. There's no information flow dependency - they're compile-time constants
+     */
+    public Set<String> findLiteralInitializedVariables(StatementSequence sequence) {
+        Set<String> literalVars = new HashSet<>();
+        
+        for (Statement stmt : sequence.statements()) {
+            stmt.findAll(VariableDeclarator.class).forEach(v -> {
+                if (v.getInitializer().isPresent()) {
+                    com.github.javaparser.ast.expr.Expression init = v.getInitializer().get();
+                    if (init.isLiteralExpr()) {
+                        literalVars.add(v.getNameAsString());
+                    }
+                }
+            });
+        }
+        
+        return literalVars;
     }
 
     /**

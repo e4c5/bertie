@@ -6,6 +6,7 @@ import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
@@ -199,6 +200,10 @@ public class ExtractMethodRefactorer {
         } else if (liveOutVars.size() == 1) {
             forcedReturnVar = liveOutVars.iterator().next();
             forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
+        } else {
+            // CRITICAL FIX: When no live-outs (all were literals excluded by DataFlowAnalyzer),
+            // force void return type. Literal variables will be re-declared in each caller.
+            forcedReturnType = new com.github.javaparser.ast.type.VoidType();
         }
 
         MethodDeclaration method = initializeHelperMethod(recommendation);
@@ -408,17 +413,10 @@ public class ExtractMethodRefactorer {
             body.addStatement(s);
         }
 
-        if (needsFinalReturn(body, recommendation)) {
-            // If targetReturnVar is null but return type is non-void, try to find ANY
-            // variable to return
-            String varToReturn = targetReturnVar;
-            if (varToReturn == null && !"void".equals(recommendation.getSuggestedReturnType().asString())) {
-                // Find the first declared variable in the body as a fallback
-                varToReturn = findAnyDeclaredVariable(body);
-            }
-            if (varToReturn != null) {
-                body.addStatement(new ReturnStmt(new NameExpr(varToReturn)));
-            }
+        // CRITICAL FIX: If targetReturnVar is null, the method is void (forced by literal exclusion)
+        // Don't add any return statement
+        if (targetReturnVar != null && needsFinalReturn(body, recommendation)) {
+            body.addStatement(new ReturnStmt(new NameExpr(targetReturnVar)));
         }
 
         return body;
@@ -677,6 +675,11 @@ public class ExtractMethodRefactorer {
         // 5) Insert new statements depending on return type
         if (returnType != null && returnType.isVoidType()) {
             insertVoidReplacement(block, startIdx, methodCall, originalReturnValues);
+            
+            // CRITICAL FIX: Re-declare literal variables used after the sequence
+            // When literals are not live-outs (not returned), but are used after,
+            // we need to re-declare them in the caller
+            redeclareLiteralVariables(sequence, block, startIdx + 1, null);
             return;
         }
 
@@ -698,6 +701,68 @@ public class ExtractMethodRefactorer {
 
         insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
                 shouldReturnDirectly, nextIsReturn, returnType);
+    }
+
+    /**
+     * Re-declare literal-initialized variables that are used after the sequence.
+     * This fixes the issue where variables are defined in the helper but not returned
+     * (they're not live-outs), yet the caller still references them.
+     * 
+     * @param returnedVarName The variable being returned by the helper (if any), which should NOT be re-declared
+     */
+    private void redeclareLiteralVariables(StatementSequence sequence, BlockStmt block, 
+                                           int insertionPoint, String returnedVarName) {
+        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+        
+        Set<String> literalVars = dfa.findLiteralInitializedVariables(sequence);
+        Set<String> usedAfter = dfa.findVariablesUsedAfter(sequence);
+        
+        // Find literals that are used after
+        Set<String> literalsToRedeclare = new HashSet<>(literalVars);
+        literalsToRedeclare.retainAll(usedAfter);
+        
+        // CRITICAL: Don't re-declare the variable that's being returned by the helper
+        if (returnedVarName != null) {
+            literalsToRedeclare.remove(returnedVarName);
+        }
+        
+        if (literalsToRedeclare.isEmpty()) {
+            return;
+        }
+        
+        // Insert variable declarations in deterministic order (sorted by name)
+        List<String> sortedVars = new ArrayList<>(literalsToRedeclare);
+        sortedVars.sort(String::compareTo);
+        
+        int currentIdx = insertionPoint;
+        for (String varName : sortedVars) {
+            VariableDeclarator originalDecl = findVariableDeclaratorInSequence(sequence, varName);
+            if (originalDecl != null && originalDecl.getInitializer().isPresent()) {
+                // Create: Type varName = literalValue;
+                VariableDeclarationExpr redecl = new VariableDeclarationExpr(
+                    originalDecl.getType().clone(),
+                    varName
+                );
+                redecl.getVariable(0).setInitializer(originalDecl.getInitializer().get().clone());
+                
+                block.getStatements().add(currentIdx, new ExpressionStmt(redecl));
+                currentIdx++;
+            }
+        }
+    }
+
+    /**
+     * Find a variable declarator in the sequence by name.
+     */
+    private VariableDeclarator findVariableDeclaratorInSequence(StatementSequence sequence, String varName) {
+        for (Statement stmt : sequence.statements()) {
+            for (VariableDeclarator v : stmt.findAll(VariableDeclarator.class)) {
+                if (v.getNameAsString().equals(varName)) {
+                    return v;
+                }
+            }
+        }
+        return null;
     }
 
     private NodeList<Expression> buildArgumentsForCall(VariationAnalysis variations,
