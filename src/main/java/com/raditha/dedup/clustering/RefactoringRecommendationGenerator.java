@@ -76,6 +76,12 @@ public class RefactoringRecommendationGenerator {
             effectivePrimary = truncator.createPrefixSequence(cluster.primary(), validStatementCount);
         }
         RefactoringStrategy strategy = determineStrategy(cluster, effectivePrimary);
+        
+        // CRITICAL FIX: Exclude field variables from parameters for EXTRACT_HELPER_METHOD
+        // For EXTRACT_PARENT_CLASS, fields need to be promoted to parent, so keep them as parameters
+        if (strategy == RefactoringStrategy.EXTRACT_HELPER_METHOD) {
+            parameters = filterOutFieldParameters(parameters, cluster.primary());
+        }
 
         // Step 5: Resolve return type
         ReturnTypeResult returnTypeResult = returnTypeResolver.resolve(cluster, validStatementCount, 
@@ -202,5 +208,44 @@ public class RefactoringRecommendationGenerator {
                 strategy,
                 containingClass,
                 MethodNameGenerator.NamingStrategy.SEMANTIC);
+    }
+
+    /**
+     * Filter out field variables from the parameter list.
+     * Fields are accessible in the method context and shouldn't be passed as parameters.
+     */
+    private List<ParameterSpec> filterOutFieldParameters(List<ParameterSpec> parameters, StatementSequence sequence) {
+        Set<String> fieldNames = getFieldNames(sequence);
+        if (fieldNames.isEmpty()) {
+            return parameters;
+        }
+        
+        return parameters.stream()
+                .filter(param -> !fieldNames.contains(param.getName()))
+                .toList();
+    }
+
+    /**
+     * Get all field names from the containing class.
+     */
+    private Set<String> getFieldNames(StatementSequence sequence) {
+        var method = sequence.containingMethod();
+        if (method == null) {
+            return Collections.emptySet();
+        }
+        
+        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .orElse(null);
+        if (clazz == null) {
+            return Collections.emptySet();
+        }
+        
+        Set<String> fieldNames = new HashSet<>();
+        clazz.getFields().forEach(field -> 
+            field.getVariables().forEach(var -> 
+                fieldNames.add(var.getNameAsString())
+            )
+        );
+        return fieldNames;
     }
 }
