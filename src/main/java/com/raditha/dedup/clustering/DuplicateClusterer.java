@@ -44,38 +44,77 @@ public class DuplicateClusterer {
                 .filter(p -> p.similarity().overallScore() >= similarityThreshold)
                 .toList();
 
-        // Group pairs by primary sequence
-        Map<StatementSequence, List<SimilarityPair>> groups = groupByPrimary(filtered);
+        // Build adjacency graph for connected components
+        Map<StatementSequence, Set<StatementSequence>> adj = new HashMap<>();
+        for (SimilarityPair p : filtered) {
+             adj.computeIfAbsent(p.seq1(), k -> new HashSet<>()).add(p.seq2());
+             adj.computeIfAbsent(p.seq2(), k -> new HashSet<>()).add(p.seq1());
+        }
 
-        // Convert to clusters
+        Set<StatementSequence> visited = new HashSet<>();
         List<DuplicateCluster> clusters = new ArrayList<>();
-        for (Map.Entry<StatementSequence, List<SimilarityPair>> entry : groups.entrySet()) {
-            StatementSequence primary = entry.getKey();
-            List<SimilarityPair> groupPairs = entry.getValue();
+        int clusterId = 1;
 
-            // Calculate LOC reduction potential
-            // For each pair, get the duplicate (non-primary) sequence
-            int totalDuplicateLines = groupPairs.stream()
-                    .mapToInt(p -> {
-                        StatementSequence duplicate = p.seq1().equals(primary) ? p.seq2() : p.seq1();
-                        return duplicate.statements().size();
-                    })
-                    .sum();
+        for (StatementSequence node : adj.keySet()) {
+            if (visited.contains(node)) continue;
 
-            // LOC reduction = duplicate lines - method call overhead
-            // Each duplicate becomes a single method call
-            // Plus 1 line for the extracted method signature
-            int callSiteLines = groupPairs.size();
+            // BFS for connected component
+            Set<StatementSequence> component = new HashSet<>();
+            Queue<StatementSequence> queue = new LinkedList<>();
+            queue.add(node);
+            visited.add(node);
+            component.add(node);
+
+            while (!queue.isEmpty()) {
+                StatementSequence current = queue.poll();
+                for (StatementSequence neighbor : adj.getOrDefault(current, Collections.emptySet())) {
+                    if (!visited.contains(neighbor)) {
+                        visited.add(neighbor);
+                        component.add(neighbor);
+                        queue.add(neighbor);
+                    }
+                }
+            }
+
+            if (component.size() < 2) continue;
+
+            // Find global primary for the component (lowest start line)
+            StatementSequence primary = component.stream()
+                .min(Comparator.comparingInt(s -> s.range().startLine()))
+                .orElseThrow();
+            
+            System.out.println("DEBUG: Cluster #" + clusterId + " sequences:");
+            for (StatementSequence seq : component) {
+                 String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "UnknownMethod";
+                 System.out.println("  - " + (seq == primary ? "[PRIMARY] " : "") + 
+                     methodName + " lines " + seq.range());
+            }
+
+            // Group pairs relevant to this cluster
+            List<SimilarityPair> componentPairs = new ArrayList<>();
+            for (SimilarityPair p : filtered) {
+                if (component.contains(p.seq1()) && component.contains(p.seq2())) {
+                     componentPairs.add(p);
+                }
+            }
+            
+            // Calculate LOC reduction
+            int totalDuplicateLines = component.stream()
+                 .filter(s -> !s.equals(primary))
+                 .mapToInt(s -> s.statements().size())
+                 .sum();
+            
+            int callSiteLines = component.size() - 1; 
             int methodOverhead = 1;
             int locReduction = Math.max(0, totalDuplicateLines - callSiteLines - methodOverhead);
 
-            DuplicateCluster cluster = new DuplicateCluster(
+            clusters.add(new DuplicateCluster(
                     primary,
-                    groupPairs,
-                    null, // Recommendation added by RefactoringRecommendationGenerator
-                    locReduction);
-
-            clusters.add(cluster);
+                    componentPairs, 
+                    null, 
+                    locReduction));
+            
+            clusterId++;
         }
 
         // Sort by LOC reduction potential (highest first)

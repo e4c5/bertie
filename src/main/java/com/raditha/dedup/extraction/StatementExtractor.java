@@ -2,8 +2,7 @@ package com.raditha.dedup.extraction;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.stmt.BlockStmt;
-import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.model.Range;
@@ -106,11 +105,106 @@ public class StatementExtractor {
             // Skip methods without body (abstract, interface methods)
             if (method.getBody().isPresent()) {
                 BlockStmt body = method.getBody().get();
-                List<Statement> statements = body.getStatements();
-                extractSlidingWindows(statements, method);
+                // Recursively extract from all nested blocks
+                extractFromBlock(body, method);
             }
         }
         
+        /**
+         * Recursively extract statement sequences from a block and all its nested blocks.
+         * This allows detection of duplicates inside try/catch/finally, if/else, loops, etc.
+         * 
+         * @param block The block to extract from
+         * @param method The containing method
+         */
+        private void extractFromBlock(BlockStmt block, MethodDeclaration method) {
+            List<Statement> statements = block.getStatements();
+            
+            // Extract sliding windows from this block's statements
+            extractSlidingWindows(statements, method);
+            
+            // Recursively process nested blocks in each statement
+            for (Statement stmt : statements) {
+                processNestedBlocks(stmt, method);
+            }
+        }
+        
+        /**
+         * Process nested blocks within a statement.
+         * Handles all statement types that can contain blocks.
+         * 
+         * @param stmt The statement to process
+         * @param method The containing method
+         */
+        private void processNestedBlocks(Statement stmt, MethodDeclaration method) {
+            if (stmt instanceof TryStmt tryStmt) {
+                processTryBlock(method, tryStmt);
+            } else if (stmt instanceof IfStmt ifStmt) {
+                processIfBlock(method, ifStmt);
+            } else if (stmt instanceof WhileStmt whileStmt) {
+                if (whileStmt.getBody() instanceof BlockStmt) {
+                    extractFromBlock((BlockStmt) whileStmt.getBody(), method);
+                }
+            } else if (stmt instanceof ForStmt forStmt) {
+                if (forStmt.getBody() instanceof BlockStmt) {
+                    extractFromBlock((BlockStmt) forStmt.getBody(), method);
+                }
+            } else if (stmt instanceof ForEachStmt forEachStmt) {
+                if (forEachStmt.getBody() instanceof BlockStmt) {
+                    extractFromBlock((BlockStmt) forEachStmt.getBody(), method);
+                }
+            } else if (stmt instanceof DoStmt doStmt) {
+                if (doStmt.getBody() instanceof BlockStmt) {
+                    extractFromBlock((BlockStmt) doStmt.getBody(), method);
+                }
+            } else if (stmt instanceof SynchronizedStmt syncStmt) {
+                extractFromBlock(syncStmt.getBody(), method);
+            } else if (stmt instanceof SwitchStmt switchStmt) {
+                processSwitchBlock(method, switchStmt);
+            }
+        }
+
+        private void processSwitchBlock(MethodDeclaration method, SwitchStmt switchStmt) {
+            switchStmt.getEntries().forEach(entry -> {
+                // Extract from each switch case's statements
+                List<Statement> caseStatements = entry.getStatements();
+                if (!caseStatements.isEmpty()) {
+                    extractSlidingWindows(caseStatements, method);
+                    // Recursively process nested blocks in case statements
+                    caseStatements.forEach(s -> processNestedBlocks(s, method));
+                }
+            });
+        }
+
+        private void processTryBlock(MethodDeclaration method, TryStmt tryStmt) {
+            // Extract from try block
+            extractFromBlock(tryStmt.getTryBlock(), method);
+            // Extract from each catch clause
+            tryStmt.getCatchClauses().forEach(catchClause ->
+                extractFromBlock(catchClause.getBody(), method)
+            );
+            // Extract from finally block if present
+            tryStmt.getFinallyBlock().ifPresent(finallyBlock ->
+                extractFromBlock(finallyBlock, method)
+            );
+        }
+
+        private void processIfBlock(MethodDeclaration method, IfStmt ifStmt) {
+            // Extract from then branch
+            if (ifStmt.getThenStmt() instanceof BlockStmt) {
+                extractFromBlock((BlockStmt) ifStmt.getThenStmt(), method);
+            }
+            // Extract from else branch if present
+            ifStmt.getElseStmt().ifPresent(elseStmt -> {
+                if (elseStmt instanceof BlockStmt) {
+                    extractFromBlock((BlockStmt) elseStmt, method);
+                } else if (elseStmt instanceof IfStmt) {
+                    // Handle else-if chains
+                    processNestedBlocks(elseStmt, method);
+                }
+            });
+        }
+
         /**
          * Extract sliding windows of statements with optimized strategy.
          * 

@@ -47,10 +47,17 @@ public class RefactoringEngine {
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
 
-        // Sort clusters by importance: larger LOC reduction first, then by similarity
+        // Sort clusters by importance: larger statement count first (to handle inclusion), then LOC reduction
         List<DuplicateCluster> sortedClusters = report.clusters().stream()
                 .sorted((c1, c2) -> {
-                    // First by LOC reduction (descending)
+                    // First by Statement Count (descending) - CRITICAL for handling overlapping duplicates
+                    // Check primary sequence size
+                    int size1 = c1.primary() != null ? c1.primary().statements().size() : 0;
+                    int size2 = c2.primary() != null ? c2.primary().statements().size() : 0;
+                    int sizeCompare = Integer.compare(size2, size1);
+                    if (sizeCompare != 0) return sizeCompare;
+
+                    // Then by LOC reduction (descending)
                     int locCompare = Integer.compare(c2.estimatedLOCReduction(), c1.estimatedLOCReduction());
                     if (locCompare != 0)
                         return locCompare;
@@ -128,6 +135,7 @@ public class RefactoringEngine {
                 result.apply();
                 System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
 
+
                 // Verify compilation
                 RefactoringVerifier.VerificationResult verify = verifier.verify();
                 if (verify.isSuccess()) {
@@ -199,6 +207,10 @@ public class RefactoringEngine {
                 ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
                 ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
                 yield result;
+            }
+            case EXTRACT_PARENT_CLASS -> {
+                ExtractParentClassRefactorer refactorer = new ExtractParentClassRefactorer();
+                yield refactorer.refactor(cluster, recommendation);
             }
             default -> throw new UnsupportedOperationException(
                     "Refactoring strategy not yet implemented: " + recommendation.getStrategy());

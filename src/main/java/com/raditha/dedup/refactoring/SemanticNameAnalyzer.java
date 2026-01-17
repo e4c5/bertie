@@ -147,7 +147,7 @@ public class SemanticNameAnalyzer {
         return result;
     }
 
-    private String capitalize(String str) {
+    String capitalize(String str) {
         if (str == null || str.isEmpty()) {
             return str;
         }

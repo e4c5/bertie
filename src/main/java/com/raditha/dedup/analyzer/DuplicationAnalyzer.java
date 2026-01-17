@@ -74,34 +74,16 @@ public class DuplicationAnalyzer {
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
-        // Step 2: Compare all pairs (with pre-filtering)
-        List<SimilarityPair> candidates = findCandidates(sequences);
-
-        // Step 3: Filter by similarity threshold
-        List<SimilarityPair> duplicates = filterByThreshold(candidates);
-
-        // Step 3.5: Refine boundaries (trim usage-only statements)
-        if (config.enableBoundaryRefinement()) {
-            duplicates = boundaryRefiner.refineBoundaries(duplicates);
-        }
-
-        // Step 3.6: Remove overlapping duplicates (keep only largest)
-        duplicates = removeOverlappingDuplicates(duplicates);
-
-        // Step 4: Cluster duplicates and generate recommendations
-        List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
-
-        // Step 5: Add refactoring recommendations to clusters
-        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(this::addRecommendation).toList();
+        // Step 2-5: Process sequences through the duplicate detection pipeline
+        ProcessedDuplicates processed = processDuplicatePipeline(sequences);
 
         // Step 6: Create report
         return new DuplicationReport(
                 sourceFile,
-                duplicates,
-                clustersWithRecommendations,
+                processed.duplicates,
+                processed.clustersWithRecommendations,
                 sequences.size(),
-                candidates.size(),
+                processed.candidatesCount,
                 config);
     }
 
@@ -135,25 +117,58 @@ public class DuplicationAnalyzer {
             }
         }
 
-        // 2. Find Candidates (Project-wide)
-        List<SimilarityPair> candidates = findCandidates(allSequences);
+        // 2-4. Process sequences through the duplicate detection pipeline
+        ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
 
-        // 3. Filter & Refine
+        // 5. Group by File and Generate Reports
+        return distributeReports(fileSequences, processed.duplicates, processed.clustersWithRecommendations, processed.candidatesCount);
+    }
+
+    /**
+     * Helper record to hold the results of the duplicate detection pipeline.
+     */
+    private record ProcessedDuplicates(
+            List<SimilarityPair> duplicates,
+            List<DuplicateCluster> clustersWithRecommendations,
+            int candidatesCount
+    ) {}
+
+    /**
+     * Process sequences through the complete duplicate detection pipeline:
+     * 1. Find candidates
+     * 2. Filter by threshold
+     * 3. Refine boundaries (optional)
+     * 4. Remove overlapping duplicates
+     * 5. Cluster duplicates
+     * 6. Add refactoring recommendations
+     *
+     * @param sequences List of statement sequences to process
+     * @return ProcessedDuplicates containing filtered duplicates, clusters with recommendations, and candidate count
+     */
+    private ProcessedDuplicates processDuplicatePipeline(List<StatementSequence> sequences) {
+        // Step 1: Compare all pairs (with pre-filtering)
+        List<SimilarityPair> candidates = findCandidates(sequences);
+
+        // Step 2: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
 
+        // Step 3: Refine boundaries (trim usage-only statements) - optional
         if (config.enableBoundaryRefinement()) {
             duplicates = boundaryRefiner.refineBoundaries(duplicates);
         }
 
+        // Step 4: Remove overlapping duplicates (keep only largest)
         duplicates = removeOverlappingDuplicates(duplicates);
 
-        // 4. Cluster
+        // Step 5: Cluster duplicates
         List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
-        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(this::addRecommendation).toList();
 
-        // 5. Group by File and Generate Reports
-        return distributeReports(fileSequences, duplicates, clustersWithRecommendations, candidates.size());
+        // Step 6: Add refactoring recommendations to clusters
+        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
+                .map(this::addRecommendation)
+                .toList();
+
+        return new ProcessedDuplicates(duplicates, clustersWithRecommendations, candidates.size());
     }
 
     private List<DuplicationReport> distributeReports(
@@ -271,8 +286,11 @@ public class DuplicationAnalyzer {
         Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
 
         // 1. Initialize LSH Index
+        // Configuration: 50 bands × 2 rows = 100 hash functions
+        // Lower rows per band (2 vs 5) increases recall by making collision more likely
+        // P(collision) = 1 - (1 - J^r)^b, with r=2,b=50 even moderate similarity leads to collision
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
-        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 20, 5);
+        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 50, 2);
 
         // 2. Fused Loop: Query and Add
         for (StatementSequence currentSeq : sequences) {
@@ -285,7 +303,7 @@ public class DuplicationAnalyzer {
             for (StatementSequence candidateSeq : potentialMatches) {
                 // Combined check to reduce continue statements
                 if (currentSeq == candidateSeq ||
-                    areSameMethodOrOverlapping(currentSeq, candidateSeq) ||
+                    isPhysicallyOverlapping(currentSeq, candidateSeq) ||
                     !preFilter.shouldCompare(currentSeq, candidateSeq)) {
                     continue;
                 }
@@ -310,7 +328,7 @@ public class DuplicationAnalyzer {
      * robustness check: returns true if sequences are in the same method
      * or if method is null (e.g. static block) and they are in same file
      */
-    private boolean areSameMethodOrOverlapping(StatementSequence s1, StatementSequence s2) {
+    private boolean isPhysicallyOverlapping(StatementSequence s1, StatementSequence s2) {
         // Different files -> cannot overlap
         if (s1.sourceFilePath() != null && s2.sourceFilePath() != null
                 && !s1.sourceFilePath().equals(s2.sourceFilePath())) {
@@ -321,13 +339,14 @@ public class DuplicationAnalyzer {
         var m2 = s2.containingMethod();
 
         if (m1 != null && m2 != null) {
-            return m1.equals(m2);
+            // Same method -> check if line ranges overlap
+            return m1.equals(m2) && rangesOverlap(s1.range(), s2.range());
         }
 
         // If one or both methods are null (e.g. static initializer logic),
-        // check if they are in the same file to be safe against overlap
+        // check if they are in the same file and their ranges overlap
         if (s1.sourceFilePath() != null && s2.sourceFilePath() != null) {
-            return s1.sourceFilePath().equals(s2.sourceFilePath());
+            return s1.sourceFilePath().equals(s2.sourceFilePath()) && rangesOverlap(s1.range(), s2.range());
         }
 
         return false;
@@ -350,12 +369,10 @@ public class DuplicationAnalyzer {
                 StatementSequence seq1 = norm1.sequence();
                 StatementSequence seq2 = norm2.sequence();
 
-                // Skip sequences from the same method
-                if (areSameMethodOrOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
+                // Skip sequences that physically overlap
+                if (isPhysicallyOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
-
-                // Calculate similarity
                 SimilarityPair pair = analyzePair(norm1, norm2);
                 candidates.add(pair);
             }
@@ -367,6 +384,18 @@ public class DuplicationAnalyzer {
      * Analyze a pair of sequences for similarity using pre-computed normalized AST.
      */
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
+        // CRITICAL FIX: To prevent code loss during extraction, we must ensure
+        // that duplicates have the EXACT same number of statements.
+        // If they differ in length, they are "similar code" but NOT suitable 
+        // for being clustered together for common method extraction.
+        int size1 = norm1.sequence().statements().size();
+        int size2 = norm2.sequence().statements().size();
+        if (size1 != size2) {
+            return new SimilarityPair(norm1.sequence(), norm2.sequence(),
+                    new SimilarityResult(0.0, 0.0, 0.0, 0.0, size1, size2,
+                            com.raditha.dedup.model.VariationAnalysis.builder().build(), null, false));
+        }
+
         // Use PRE-COMPUTED normalized nodes (no normalization needed!)
         var nodes1 = norm1.normalizedNodes();
         var nodes2 = norm2.normalizedNodes();
@@ -393,11 +422,12 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Remove overlapping duplicates, keeping only the largest duplicate in each
+     * Remove overlapping duplicates, keeping only the duplicate with broadest scope in each
      * overlap group.
      * Two duplicates overlap if they involve the same methods and their line ranges
      * overlap.
-     * When duplicates overlap, we keep the one with the most statements.
+     * When duplicates overlap, we keep the one with the BROADEST SCOPE (largest line range),
+     * which ensures we prefer full method bodies over nested block contents.
      */
     private List<SimilarityPair> removeOverlappingDuplicates(List<SimilarityPair> pairs) {
         if (pairs.isEmpty()) {
@@ -407,13 +437,26 @@ public class DuplicationAnalyzer {
         List<SimilarityPair> filtered = new ArrayList<>();
         List<SimilarityPair> sorted = new ArrayList<>(pairs);
 
-        // Sort by size (largest first), then by line number
+        // Sort by SCOPE (line range) first, then by statement count
+        // This ensures we prefer full method bodies over nested block contents
         sorted.sort((a, b) -> {
+            // Calculate line range (scope) for each duplicate
+            int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
+            int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
+            
+            // Prefer broader scope (larger line range)
+            int scopeCompare = Integer.compare(scopeB, scopeA);
+            if (scopeCompare != 0)
+                return scopeCompare;
+            
+            // If scope is equal, prefer more statements
             int sizeCompare = Integer.compare(
                     b.seq1().statements().size(),
                     a.seq1().statements().size());
             if (sizeCompare != 0)
                 return sizeCompare;
+                
+            // Finally, sort by start line for deterministic ordering
             return Integer.compare(
                     a.seq1().range().startLine(),
                     b.seq1().range().startLine());
@@ -431,7 +474,7 @@ public class DuplicationAnalyzer {
                 }
             }
 
-            // Only keep if it doesn't overlap with a larger duplicate
+            // Only keep if it doesn't overlap with a broader-scope duplicate
             if (!overlaps) {
                 filtered.add(current);
             }
@@ -444,6 +487,12 @@ public class DuplicationAnalyzer {
      * Pairs overlap if they involve the same two methods and their line ranges
      * overlap.
      */
+    /**
+     * Check if two duplicate pairs overlap.
+     * Pairs overlap if ANY sequence in pair1 overlaps ANY sequence in pair2.
+     * This prevents scheduling conflicting refactorings (e.g. Cluster A refactoring Method X
+     * while Cluster B also tries to refactor Method X at the same location).
+     */
     private boolean pairsOverlap(SimilarityPair pair1, SimilarityPair pair2) {
         // Check if they involve the same methods
         boolean sameMethods = sameMethodPair(pair1, pair2);
@@ -451,10 +500,12 @@ public class DuplicationAnalyzer {
             return false;
         }
 
-        // Check if line ranges overlap
-        return rangesOverlap(pair1.seq1().range(), pair2.seq1().range()) ||
-                rangesOverlap(pair1.seq2().range(), pair2.seq2().range());
+        // Check if line ranges physically overlap
+        return isPhysicallyOverlapping(pair1.seq1(), pair2.seq1()) ||
+               isPhysicallyOverlapping(pair1.seq2(), pair2.seq2());
     }
+
+
 
     /**
      * Check if two pairs involve the same pair of methods.

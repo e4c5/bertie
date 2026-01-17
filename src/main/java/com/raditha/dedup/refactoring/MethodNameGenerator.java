@@ -56,7 +56,8 @@ public class MethodNameGenerator {
             DuplicateCluster cluster,
             RefactoringStrategy strategy,
             ClassOrInterfaceDeclaration containingClass,
-            NamingStrategy preferredStrategy) {
+            NamingStrategy preferredStrategy,
+            String inferredReturnVariable) {
 
         String baseName = switch (strategy) {
             case EXTRACT_TO_BEFORE_EACH -> "setUp";
@@ -74,6 +75,12 @@ public class MethodNameGenerator {
         String name = tryStrategy(preferredStrategy, cluster.primary(), containingClass);
         if (name != null) {
             return name;
+        }
+
+        // Try naming based on return variable
+        if (inferredReturnVariable != null && !inferredReturnVariable.isEmpty()) {
+             String candidate = "get" + semanticAnalyzer.capitalize(inferredReturnVariable);
+             return ensureUnique(candidate, containingClass);
         }
 
         // Fallback chain: AI → Semantic → Sequential
@@ -94,6 +101,7 @@ public class MethodNameGenerator {
         // Last resort: sequential
         return generateSequentialName(containingClass);
     }
+
 
     private String tryStrategy(NamingStrategy strategy, StatementSequence sequence,
             ClassOrInterfaceDeclaration containingClass) {

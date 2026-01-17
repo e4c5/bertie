@@ -46,6 +46,10 @@ public class ASTNormalizer {
     private Statement normalizeStatement(Statement original) {
         // Clone to avoid modifying original
         Statement clone = original.clone();
+        
+        // Remove comments for cleaner comparison
+        clone.removeComment();
+        clone.getAllContainedComments().forEach(comment -> comment.remove());
 
         // One pass visitor: literals-only
         clone.accept(new NormalizingVisitor(false), null);

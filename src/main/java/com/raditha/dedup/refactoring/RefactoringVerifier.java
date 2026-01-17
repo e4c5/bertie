@@ -19,6 +19,7 @@ public class RefactoringVerifier {
 
     private final Path projectRoot;
     private final Map<Path, String> backups = new HashMap<>();
+    private final List<Path> createdFiles = new ArrayList<>();
     private final VerificationLevel verificationLevel;
 
     public RefactoringVerifier(Path projectRoot) {
@@ -34,6 +35,10 @@ public class RefactoringVerifier {
      * Create a backup of a file before modification.
      */
     public void createBackup(Path file) throws IOException {
+        if (!Files.exists(file)) {
+            createdFiles.add(file);
+            return;
+        }
         String originalContent = Files.readString(file);
         backups.put(file, originalContent);
     }
@@ -141,6 +146,7 @@ public class RefactoringVerifier {
      * Rollback all changes.
      */
     public void rollback() throws IOException {
+        // Restore modified files
         for (Map.Entry<Path, String> entry : backups.entrySet()) {
             Path file = entry.getKey();
             String originalContent = entry.getValue();
@@ -148,7 +154,13 @@ public class RefactoringVerifier {
             Files.writeString(file, originalContent);
         }
 
+        // Delete newly created files
+        for (Path file : createdFiles) {
+            Files.deleteIfExists(file);
+        }
+
         backups.clear();
+        createdFiles.clear();
     }
 
     /**
@@ -156,6 +168,7 @@ public class RefactoringVerifier {
      */
     public void clearBackups() {
         backups.clear();
+        createdFiles.clear();
     }
 
     /**

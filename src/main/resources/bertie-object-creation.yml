@@ -1,5 +1,5 @@
-# Bertie Self-Test Configuration
-# Run Bertie on its own test-bed to validate refactoring capabilities
+# Focused configuration for ServiceWithObjectCreation investigation
+# Testing why only 2 of 3 duplicate blocks are being eliminated
 
 variables:
   projects_folder: ${HOME}/csi/Antikythera
@@ -13,16 +13,16 @@ output_path: /tmp/bertie-test-output
 
 # Detection settings - use lenient to find more duplicates
 min_lines: 3
-threshold: 75
-include_tests: true
-# target_class: com.raditha.bertie.testbed.verif.ParameterizedTestVerif
+threshold: 70
 
-# Analyze all classes in base_path (leave empty to analyze all)
-enable_lsh: false
+# Only analyze the specific class with the issue
+target_class: com.raditha.bertie.testbed.callsite.ServiceWithObjectCreation
 
 # Skip getters/setters
 skip_getters_setters: true
 
+# Use LSH with improved sensitivity settings
+enable_lsh: true
+
 # Log level
 log_level: DEBUG
-#target_class: com.raditha.bertie.testbed.staticcontext.ServiceWithMixedStaticContext
