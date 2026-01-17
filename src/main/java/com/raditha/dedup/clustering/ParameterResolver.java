@@ -88,7 +88,7 @@ public class ParameterResolver {
                 parameters.add(new ParameterSpec(
                         arg.name(),
                         paramType,
-                        Collections.emptyList(),
+                        List.of(arg.name()),
                         -1,
                         null, null
                 ));

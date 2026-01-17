@@ -79,8 +79,15 @@ public class ExtractMethodRefactorer {
                 .findAncestor(ClassOrInterfaceDeclaration.class)
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
+        Set<MethodDeclaration> excludedMethods = new HashSet<>();
+        for (StatementSequence seq : uniqueSequences) {
+            if (seq.containingMethod() != null) {
+                excludedMethods.add(seq.containingMethod());
+            }
+        }
+
         String methodNameToUse = recommendation.getSuggestedMethodName();
-        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, primary.containingMethod());
+        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, excludedMethods);
         if (equivalent == null) {
             // No equivalent helper exists; add our newly created one
             containingClass.addMember(helperMethod);
@@ -1295,7 +1302,7 @@ public class ExtractMethodRefactorer {
     // Helper-reuse: find an existing equivalent helper in the same class to avoid
     // duplicate methods
     private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass,
-            MethodDeclaration newHelper, MethodDeclaration excludedMethod) {
+            MethodDeclaration newHelper, Set<MethodDeclaration> excludedMethods) {
         boolean newIsStatic = newHelper.getModifiers().stream()
                 .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
         String newReturnType = newHelper.getType().asString();
@@ -1306,8 +1313,8 @@ public class ExtractMethodRefactorer {
         String newBodyNorm = normalizeMethodBody(newHelper);
 
         for (MethodDeclaration candidate : containingClass.getMethods()) {
-            // CRITICAL FIX: Never reuse the method we are currently extracting from!
-            if (candidate == excludedMethod)
+            // CRITICAL FIX: Never reuse ANY method that is part of the cluster being refactored!
+            if (excludedMethods.contains(candidate))
                 continue;
 
             // CRITICAL FIX: Only reuse PRIVATE methods as helpers.

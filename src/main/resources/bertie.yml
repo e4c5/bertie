@@ -23,4 +23,4 @@ skip_getters_setters: true
 
 # Log level
 log_level: DEBUG
-
+  # target_class: com.raditha.bertie.testbed.exceptionhandling.ServiceWithTryCatchBlocks

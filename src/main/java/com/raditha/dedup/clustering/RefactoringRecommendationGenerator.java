@@ -93,7 +93,7 @@ public class RefactoringRecommendationGenerator {
         double confidence = confidenceCalculator.calculate(cluster, parameters, validStatementCount);
 
         // Step 7: Generate method name
-        String methodName = suggestMethodName(cluster, strategy);
+        String methodName = suggestMethodName(cluster, strategy, primaryReturnVariable);
 
         // Step 8: Build and return recommendation
         return new RefactoringRecommendation(
@@ -198,7 +198,7 @@ public class RefactoringRecommendationGenerator {
                 .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
     }
 
-    private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy) {
+    private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
         var containingClass = cluster.primary().containingMethod()
                 .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                 .orElse(null);
@@ -207,7 +207,8 @@ public class RefactoringRecommendationGenerator {
                 cluster,
                 strategy,
                 containingClass,
-                MethodNameGenerator.NamingStrategy.SEMANTIC);
+                MethodNameGenerator.NamingStrategy.SEMANTIC,
+                returnVariable);
     }
 
     /**

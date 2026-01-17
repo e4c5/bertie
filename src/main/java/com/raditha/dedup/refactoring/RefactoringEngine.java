@@ -135,6 +135,7 @@ public class RefactoringEngine {
                 result.apply();
                 System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
 
+
                 // Verify compilation
                 RefactoringVerifier.VerificationResult verify = verifier.verify();
                 if (verify.isSuccess()) {

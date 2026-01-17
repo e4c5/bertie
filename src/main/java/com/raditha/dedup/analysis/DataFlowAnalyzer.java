@@ -84,7 +84,51 @@ public class DataFlowAnalyzer {
         Set<String> liveOut = new HashSet<>(definedVars);
         liveOut.retainAll(usedAfter);
         liveOut.removeAll(literalVars);  // Exclude literal-initialized variables
+
+        // FIX: Exclude variables whose scope is strictly internal to the sequence
+        // (e.g. loop variables, catch parameters, variables in nested blocks)
+        liveOut.removeIf(varName -> isScopeInternal(sequence, varName));
+
         return liveOut;
+    }
+
+    private boolean isScopeInternal(StatementSequence sequence, String varName) {
+        // Variable is internal if it's declared in the sequence BUT not as a top-level ExpressionStmt
+        // (which implies it's a loop var, catch param, or nested in a block)
+        VariableDeclarator decl = getVariableDeclarator(sequence, varName);
+        
+        if (decl != null) {
+            // Found at top-level. Check if it is an ExpressionStmt (standard local var)
+            Statement declStmt = decl.findAncestor(Statement.class).orElse(null);
+            if (declStmt != null && sequence.statements().contains(declStmt)) {
+                 return !declStmt.isExpressionStmt();
+            }
+            return true; // Should not happen if found by getVariableDeclarator
+        }
+        
+        // Not found at top-level. Check if declared DEEPLY in sequence.
+        for (Statement stmt : sequence.statements()) {
+             // Use findAll to search nested nodes
+             List<VariableDeclarator> nestedDecls = stmt.findAll(VariableDeclarator.class);
+             for (VariableDeclarator nested : nestedDecls) {
+                 if (nested.getNameAsString().equals(varName)) {
+                     // Found a nested declaration. Since it's not top-level (checked above),
+                     // it is strictly internal to the sequence.
+                     return true; 
+                 }
+             }
+             // Also check Catch params (not VariableDeclarator but Parameter)
+             List<com.github.javaparser.ast.stmt.CatchClause> catches = stmt.findAll(com.github.javaparser.ast.stmt.CatchClause.class);
+             for (com.github.javaparser.ast.stmt.CatchClause cc : catches) {
+                 if (cc.getParameter().getNameAsString().equals(varName)) {
+                     return true;
+                 }
+             }
+        }
+        
+        // Not declared in sequence at all (must be an assignment to external var).
+        // Potentially live-out.
+        return false; 
     }
 
     /**
