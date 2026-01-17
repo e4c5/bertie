@@ -14,10 +14,11 @@ output_path: /tmp/bertie-test-output
 # Detection settings - use lenient to find more duplicates
 min_lines: 3
 threshold: 75
+include_tests: true
+# target_class: com.raditha.bertie.testbed.verif.ParameterizedTestVerif
 
 # Analyze all classes in base_path (leave empty to analyze all)
 enable_lsh: false
-# target_class:
 
 # Skip getters/setters
 skip_getters_setters: true

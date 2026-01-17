@@ -52,4 +52,14 @@ public record DuplicateCluster(
         // Return distinct sequences only
         return all.stream().distinct().collect(Collectors.toList());
     }
+
+    /**
+     * Get unique methods containing the duplicates in this cluster.
+     */
+    public java.util.Set<com.github.javaparser.ast.body.MethodDeclaration> getContainingMethods() {
+        return allSequences().stream()
+                .map(StatementSequence::containingMethod)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+    }
 }

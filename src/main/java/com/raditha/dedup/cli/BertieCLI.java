@@ -72,6 +72,9 @@ public class BertieCLI implements Callable<Integer> {
     @Option(names = "refactor", description = "Apply refactorings to eliminate duplicates")
     private boolean refactorCommand = false;
 
+    @Option(names = "--resume", description = "Resume a previously interrupted refactoring session")
+    private boolean resumeSession = false;
+
     // Refactor Options
     @Option(names = "--mode", description = "Refactoring mode: ${COMPLETION-CANDIDATES}", paramLabel = "<mode>", converter = RefactorModeConverter.class)
     private RefactorMode refactorMode = RefactorMode.INTERACTIVE;
@@ -285,7 +288,18 @@ public class BertieCLI implements Callable<Integer> {
         System.out.println("=== PHASE 1: Duplicate Detection ===");
         System.out.println();
 
-        List<DuplicationReport> reports = performAnalysis();
+        List<DuplicationReport> reports;
+        if (resumeSession) {
+            System.out.println("Resuming session from .bertie/last_session.json...");
+            reports = SessionManager.loadSession(Paths.get(".bertie/last_session.json"));
+            if (reports == null) {
+                System.err.println("Error: No session found to resume. Running full analysis instead.");
+                reports = performAnalysis();
+            }
+        } else {
+            reports = performAnalysis();
+            SessionManager.saveSession(reports, Paths.get(".bertie/last_session.json"));
+        }
 
         if (reports.isEmpty()) {
             System.out.println("No files found matching criteria");

@@ -49,18 +49,7 @@ public class ExtractMethodRefactorer {
      */
     public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         StatementSequence primary = cluster.primary();
-
-        // Track all modified compilation units
-        Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
-        modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
-
-        // 0. Pre-calculate unique sequences to analyze global properties (like live-out
-        // vars)
-        Set<StatementSequence> uniqueSequences = new java.util.LinkedHashSet<>();
-        for (SimilarityPair pair : cluster.duplicates()) {
-            uniqueSequences.add(pair.seq1());
-            uniqueSequences.add(pair.seq2());
-        }
+        Set<StatementSequence> uniqueSequences = new java.util.LinkedHashSet<>(cluster.allSequences());
 
         // 1. Create the new helper method (tentative)
         HelperMethodResult helperResult = createHelperMethod(primary, uniqueSequences, recommendation);
@@ -69,115 +58,113 @@ public class ExtractMethodRefactorer {
                     "Refactoring aborted: Multiple live-out variables detected " + uniqueSequences.size()
                             + " sequences analyzed");
         }
+
+        // 2. Identify reuse target or use the new helper
         MethodDeclaration helperMethod = helperResult.method();
-        List<ParameterSpec> effectiveParams = helperResult.usedParameters();
-        String forcedReturnVar = helperResult.forcedReturnVar();
-
-        // 2. Add method to the class (modifies primary CU) — but first, try to REUSE
-        // existing equivalent helper
-        ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
-                .findAncestor(ClassOrInterfaceDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No containing class found"));
-
-        Set<MethodDeclaration> excludedMethods = new HashSet<>();
-        MethodDeclaration reusableExistingMethod = null;
-
-        for (StatementSequence seq : uniqueSequences) {
-            if (seq.containingMethod() != null) {
-                excludedMethods.add(seq.containingMethod());
-                
-                // Check if this sequence covers the entire body of its containing method
-                // AND if the method signature implies it can be reused (i.e., same parameters)
-                if (isMethodBody(seq)) {
-                     // Basic check: parameter count and return type must match.
-                     if (seq.containingMethod().getParameters().size() == effectiveParams.size() &&
-                             seq.containingMethod().getType().equals(helperMethod.getType())) {
-                         
-                         // Robust check: body must be equivalent to the planned helper
-                         String candNorm = normalizeMethodBody(seq.containingMethod());
-                         String helperNorm = normalizeMethodBody(helperMethod);
-                         if (candNorm != null && candNorm.equals(helperNorm)) {
-                             reusableExistingMethod = seq.containingMethod();
-                         }
-                     }
-                }
-            }
-        }
-
-        String methodNameToUse = recommendation.getSuggestedMethodName();
+        String methodNameToUse = findReusableMethod(cluster, uniqueSequences, helperResult);
         
-        if (reusableExistingMethod != null) {
-            // We found a method in the cluster that creates the duplicate. Use it!
-            methodNameToUse = reusableExistingMethod.getNameAsString();
-            System.out.println("DEBUG: Reusing existing method: " + methodNameToUse);
-        } else {
-            System.out.println("DEBUG: Creating new helper method: " + methodNameToUse);
-            MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, excludedMethods);
+        // Add new helper if no reuse target was found
+        if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+            ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
+                    .findAncestor(ClassOrInterfaceDeclaration.class)
+                    .orElseThrow(() -> new IllegalStateException("No containing class found"));
+            
+            MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, 
+                    cluster.getContainingMethods());
             if (equivalent == null) {
-                // No equivalent helper exists; add our newly created one
                 containingClass.addMember(helperMethod);
             } else {
-                // Reuse existing helper method name; skip adding duplicate
                 methodNameToUse = equivalent.getNameAsString();
             }
         }
 
-        // 3. Replace all duplicate occurrences with method calls (Two-Phase: Prepare
-        // then Apply)
-        // Phase 1: Prepare replacements. If any fails, we abort the whole cluster to
-        // avoid partial refactoring.
-        Map<StatementSequence, MethodCallExpr> preparedReplacements = new LinkedHashMap<>();
+        // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
+        return executeReplacements(cluster, recommendation, helperResult, methodNameToUse);
+    }
 
-        // Phase 0: Precompute AST paths for parameters (while primary is intact)
-        Map<ParameterSpec, ASTNodePath> precomputedPaths = precomputeParameterPaths(primary,
-                effectiveParams);
-
+    /**
+     * Identify if any existing method in the cluster can be reused as the refactoring target.
+     */
+    private String findReusableMethod(DuplicateCluster cluster, Set<StatementSequence> uniqueSequences, 
+                                     HelperMethodResult helperResult) {
+        MethodDeclaration helperMethod = helperResult.method();
+        List<ParameterSpec> effectiveParams = helperResult.usedParameters();
+        
         for (StatementSequence seq : uniqueSequences) {
-            if (seq.containingMethod() != null && seq.containingMethod().equals(reusableExistingMethod)) {
-                // This sequence IS the body of the helper method we are reusing.
-                // Do NOT replace it with a call to itself (Recursion!).
-                System.out.println("DEBUG: Skipping self-replacement for " + seq.containingMethod().getNameAsString());
-                continue;
+            MethodDeclaration m = seq.containingMethod();
+            if (m != null && isMethodBody(seq)) {
+                 if (m.getParameters().size() == effectiveParams.size() &&
+                         m.getType().equals(helperMethod.getType())) {
+                     
+                     String candNorm = normalizeMethodBody(m);
+                     String helperNorm = normalizeMethodBody(helperMethod);
+                     if (candNorm != null && candNorm.equals(helperNorm)) {
+                         System.out.println("DEBUG: Reusing existing method: " + m.getNameAsString());
+                         return m.getNameAsString();
+                     }
+                 }
+            }
+        }
+        return cluster.recommendation().getSuggestedMethodName();
+    }
+
+    /**
+     * Executes the replacement of duplicates with method calls across all affected files.
+     */
+    private RefactoringResult executeReplacements(DuplicateCluster cluster, 
+                                                RefactoringRecommendation recommendation,
+                                                HelperMethodResult helperResult, 
+                                                String methodNameToUse) {
+        StatementSequence primary = cluster.primary();
+        Set<StatementSequence> uniqueSequences = new java.util.LinkedHashSet<>(cluster.allSequences());
+        List<ParameterSpec> effectiveParams = helperResult.usedParameters();
+        MethodDeclaration helperMethod = helperResult.method();
+        String forcedReturnVar = helperResult.forcedReturnVar();
+
+        Map<StatementSequence, MethodCallExpr> preparedReplacements = new LinkedHashMap<>();
+        Map<ParameterSpec, ASTNodePath> precomputedPaths = precomputeParameterPaths(primary, effectiveParams);
+
+        // Phase 1: Prepare
+        for (StatementSequence seq : uniqueSequences) {
+            if (seq.containingMethod() != null && seq.containingMethod().getNameAsString().equals(methodNameToUse)) {
+                // Potential recursion check: skip if we are reusing THIS method
+                if (isMethodBody(seq)) continue; 
             }
 
-            System.out.println("DEBUG: Planning replacement for " + (seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "unknown"));
-            StatementSequence seqToRefactor = seq;
             int limit = recommendation.getValidStatementCount();
-            if (limit != -1 && limit < seq.size()) {
-                seqToRefactor = createTruncatedSequence(seq, limit);
-            }
+            StatementSequence seqToRefactor = (limit != -1 && limit < seq.size()) ? createTruncatedSequence(seq, limit) : seq;
 
             MethodCallExpr call = prepareReplacement(seqToRefactor, recommendation.getVariationAnalysis(),
                     methodNameToUse, primary, precomputedPaths, effectiveParams);
             if (call == null) {
-                // Remove the potentially added helper method to keep code clean?
-                // Difficult to undo cleanly without transaction, but unused private method is
-                // acceptable failure state.
                 return new RefactoringResult(Map.of(), recommendation.getStrategy(),
                         "Refactoring aborted due to argument resolution failure");
             }
             preparedReplacements.put(seqToRefactor, call);
         }
 
-        // Phase 2: Apply replacements (Execution)
+        // Phase 2: Apply
+        Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
+        modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
+
         for (Map.Entry<StatementSequence, MethodCallExpr> entry : preparedReplacements.entrySet()) {
             StatementSequence seq = entry.getKey();
-            MethodCallExpr call = entry.getValue();
-
-            applyReplacement(seq, recommendation, call, forcedReturnVar, helperMethod.getType());
+            applyReplacement(seq, recommendation, entry.getValue(), forcedReturnVar, helperMethod.getType());
             modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
         }
 
-        // 4. Convert all modified CUs to code strings
+        return buildRefactoringResult(modifiedCUs, recommendation, methodNameToUse);
+    }
+
+    private RefactoringResult buildRefactoringResult(Map<CompilationUnit, Path> modifiedCUs, 
+                                                   RefactoringRecommendation recommendation, 
+                                                   String methodNameToUse) {
         Map<Path, String> modifiedFiles = modifiedCUs.entrySet().stream()
                 .collect(LinkedHashMap::new,
                         (map, entry) -> map.put(entry.getValue(), entry.getKey().toString()),
                         Map::putAll);
 
-        // Create result with ALL modified files
-        return new RefactoringResult(
-                modifiedFiles,
-                recommendation.getStrategy(),
+        return new RefactoringResult(modifiedFiles, recommendation.getStrategy(),
                 "Extracted method: " + methodNameToUse);
     }
 
@@ -224,10 +211,6 @@ public class ExtractMethodRefactorer {
      */
     private HelperMethodResult createHelperMethod(StatementSequence sequence, Set<StatementSequence> allSequences,
             RefactoringRecommendation recommendation) {
-
-        // PHASE 2 FIX: Live-Out Variable Detection (Cluster-Wide)
-        // Check ALL sequences in the cluster. If ANY has a live-out variable, we must
-        // return it.
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
         Set<String> liveOutVars = getLiveOuts(allSequences, recommendation, dfa);
 
@@ -240,13 +223,9 @@ public class ExtractMethodRefactorer {
             forcedReturnVar = liveOutVars.iterator().next();
             forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
         }
-        // If no live-outs, don't force void - let the recommendation's return type be used
-        // (it might have a return statement even without live-outs)
 
         MethodDeclaration method = initializeHelperMethod(recommendation);
         applyMethodModifiers(method, allSequences);
-
-        // DEBUG: Dump the generated helper method
 
         // Apply return type: Use forced type if available, otherwise recommendation
         if (forcedReturnType != null) {
@@ -255,46 +234,51 @@ public class ExtractMethodRefactorer {
             setReturnType(method, recommendation);
         }
 
-        // CRITICAL FIX: Sort parameters to match ArgumentBuilder order
-        // This ensures the method signature matches the argument list at call sites
+        // Determine effective parameters (sorted and filtered)
+        Set<String> declaredVars = collectDeclaredVariableNames(sequence, recommendation);
+        Map<ParameterSpec, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
+                recommendation.getSuggestedParameters());
+        
+        List<ParameterSpec> effectiveParams = determineEffectiveParameters(sequence, recommendation, 
+                paramNameOverrides, declaredVars);
+
+        addParameters(method, effectiveParams, paramNameOverrides);
+        copyThrownExceptions(method, sequence);
+
+        // Determine body (with final decision on return var)
+        String effectiveTargetVar = (forcedReturnVar != null) ? forcedReturnVar
+                : determineTargetReturnVar(sequence, method.getType().asString());
+        
+        BlockStmt body = buildHelperMethodBody(sequence, recommendation, effectiveTargetVar, paramNameOverrides);
+        method.setBody(body);
+
+        return new HelperMethodResult(method, effectiveParams, effectiveTargetVar);
+    }
+
+    /**
+     * Filters and sorts parameters to ensure only actually used ones are included in the signature.
+     */
+    private List<ParameterSpec> determineEffectiveParameters(StatementSequence sequence,
+                                                           RefactoringRecommendation recommendation,
+                                                           Map<ParameterSpec, String> paramNameOverrides,
+                                                           Set<String> declaredVars) {
+        // Sort parameters to match ArgumentBuilder order
         List<ParameterSpec> sortedParams = new ArrayList<>(recommendation.getSuggestedParameters());
         sortedParams.sort((p1, p2) -> {
-            Integer idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1)
-                    ? Integer.MAX_VALUE
-                    : p1.getVariationIndex();
-            Integer idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1)
-                    ? Integer.MAX_VALUE
-                    : p2.getVariationIndex();
+            Integer idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1) ? Integer.MAX_VALUE : p1.getVariationIndex();
+            Integer idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1) ? Integer.MAX_VALUE : p2.getVariationIndex();
             return Integer.compare(idx1, idx2);
         });
 
-        // Parameters with collision handling
-        Set<String> declaredVars = collectDeclaredVariableNames(sequence, recommendation);
-        Map<ParameterSpec, String> paramNameOverrides = computeParamNameOverrides(declaredVars,
-                sortedParams);
-
-        // Determine target return variable for body building
-        String effectiveTargetVar = (forcedReturnVar != null) ? forcedReturnVar
-                : determineTargetReturnVar(sequence, method.getType().asString());
-
-        // CRITICAL FIX: Filter out unused parameters!
-        // The recommendation might include parameters that are variables in the scope
-        // but not actually used
-        // in the extracted sequence (e.g. if the sequence was truncated or analyzed
-        // conservatively).
-        // Including unused parameters changes the signature and prevents finding
-        // equivalent helpers.
-        BlockStmt tempBody = buildHelperMethodBody(sequence, recommendation,
-                effectiveTargetVar,
-                paramNameOverrides);
+        // Determine target return variable for a temporary body to check parameter usage
+        String tempTargetVar = determineTargetReturnVar(sequence, recommendation.getSuggestedReturnType().asString());
+        BlockStmt tempBody = buildHelperMethodBody(sequence, recommendation, tempTargetVar, paramNameOverrides);
 
         List<ParameterSpec> usedParams = new ArrayList<>();
         for (ParameterSpec param : sortedParams) {
             String targetName = paramNameOverrides.getOrDefault(param, param.getName());
 
-            // CRITICAL FIX: If the parameter corresponds to a variable DECLARED in the
-            // sequence,
-            // it is NOT an external parameter, it is an internal variable. Exclude it.
+            // Exclude parameters that are actually local variables declared inside the sequence
             if (declaredVars.contains(param.getName())) {
                 continue;
             }
@@ -306,17 +290,7 @@ public class ExtractMethodRefactorer {
                 usedParams.add(param);
             }
         }
-
-        addParameters(method, usedParams, paramNameOverrides);
-
-        // Copy thrown exceptions
-        copyThrownExceptions(method, sequence);
-
-        // Determine body (rebuild with final decision)
-        BlockStmt body = buildHelperMethodBody(sequence, recommendation, effectiveTargetVar, paramNameOverrides);
-
-        method.setBody(body);
-        return new HelperMethodResult(method, usedParams, effectiveTargetVar);
+        return usedParams;
     }
 
     private Set<String> getLiveOuts(Set<StatementSequence> allSequences, RefactoringRecommendation recommendation, DataFlowAnalyzer dfa) {
@@ -703,38 +677,39 @@ public class ExtractMethodRefactorer {
         if (startIdx < 0)
             return;
 
-        // Remove the old statements belonging to the sequence
-
-        int removeCount = getEffectiveLimit(sequence, recommendation);
-        for (int i = 0; i < removeCount && startIdx < block.getStatements().size(); i++) {
-            block.getStatements().remove(startIdx);
-        }
+        removeOldStatements(block, startIdx, limit);
 
         // 5) Insert new statements depending on return type
         if (returnType != null && returnType.isVoidType()) {
             insertVoidReplacement(block, startIdx, methodCall, originalReturnValues);
-            
-            // CRITICAL FIX: Re-declare literal variables used after the sequence
-            // When literals are not live-outs (not returned), but are used after,
-            // we need to re-declare them in the caller
             redeclareLiteralVariables(sequence, block, startIdx + 1, null);
             return;
         }
 
-        // For non-void: compute a good target var name and decide if we can inline
-        // return
+        applyValueReplacement(sequence, recommendation, methodCall, forcedReturnVar, returnType, 
+                containingMethod, block, startIdx, originalReturnValues);
+    }
+
+    private void removeOldStatements(BlockStmt block, int startIdx, int removeCount) {
+        for (int i = 0; i < removeCount && startIdx < block.getStatements().size(); i++) {
+            block.getStatements().remove(startIdx);
+        }
+    }
+
+    private void applyValueReplacement(StatementSequence sequence, RefactoringRecommendation recommendation,
+                                      MethodCallExpr methodCall, String forcedReturnVar, 
+                                      com.github.javaparser.ast.type.Type returnType, 
+                                      MethodDeclaration containingMethod, BlockStmt block, 
+                                      int startIdx, ReturnStmt originalReturnValues) {
         String varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence, recommendation);
         boolean nextIsReturn = startIdx < block.getStatements().size()
                 && block.getStatements().get(startIdx).isReturnStmt();
 
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-
         boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
 
         if (!shouldReturnDirectly && varName == null) {
-            // If we can't inline the return, we MUST have a variable to assign to
-            // so we can reconstruct the expression (e.g. return var + 1).
             varName = firstDefinedVariable(sequence);
             if (varName == null) {
                 varName = "result"; // Absolute fallback
@@ -862,59 +837,18 @@ public class ExtractMethodRefactorer {
 
             int argIndex = 0;
             for (ParameterSpec param : sortedParams) {
-
                 Expression expr = resolveValue(sequence, param, primarySequence, precomputedPaths);
                 if (expr == null) {
                     return new NodeList<>(); // cannot resolve safely
                 }
 
-                // Robust Type Checking using TypeWrapper
-                TypeWrapper paramTypeWrapper = AbstractCompiler.findType(sequence.compilationUnit(), param.getType());
-
-                if (paramTypeWrapper != null) {
-                    TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
-                    if (exprTypeWrapper != null) {
-                        if (!paramTypeWrapper.isAssignableFrom(exprTypeWrapper)) {
-                            // Incompatible type: e.g., passing String to int parameter
-                            return new NodeList<>();
-                        }
-                    } else {
-                        // Fallback: If we can't resolve expression type (complex expression?),
-                        // we might rely on existing weak checks or assume it's unsafe if it looks obviously wrong.
-                        // For now, let's keep previous heuristic for literals if wrapper resolution failed
-                        // (though AbstractCompiler should handle literals well).
-
-                        if (isNumericType(param.getType()) && expr.isStringLiteralExpr()) {
-                             return new NodeList<>();
-                        }
-                    }
-                } else {
-                    // Fallback to old heuristic if param type cannot be resolved
-                    if (isNumericType(param.getType())) {
-                        if (expr.isStringLiteralExpr()) {
-                            return new NodeList<>();
-                        }
-                        // Also check if expression resolves to String type (for variables)
-                        TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
-                        if (exprTypeWrapper != null &&
-                            ("java.lang.String".equals(exprTypeWrapper.getName()) || "String".equals(exprTypeWrapper.getName()))) {
-                            return new NodeList<>();
-                        }
-                    }
+                if (!isTypeCompatible(param, expr, sequence)) {
+                    return new NodeList<>();
                 }
 
-                // Specific check for Class<?> types to ensure adaptations work
-                if (isClassType(param.getType()) && !(expr.isClassExpr() ||
-                        (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
-                    // Try to adapt NameExpr or other simple forms into ClassExpr
-                    Expression adapted = null;
-                    if (expr.isNameExpr()) {
-                        adapted = new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
-                    }
-                    if (adapted == null) {
-                        return new NodeList<>(); // unsafe
-                    }
-                    expr = adapted;
+                expr = adaptArgument(param, expr);
+                if (expr == null) {
+                    return new NodeList<>();
                 }
 
                 arguments.add(expr);
@@ -922,6 +856,48 @@ public class ExtractMethodRefactorer {
             }
 
             return arguments;
+        }
+
+        private boolean isTypeCompatible(ParameterSpec param, Expression expr, StatementSequence sequence) {
+            TypeWrapper paramTypeWrapper = AbstractCompiler.findType(sequence.compilationUnit(), param.getType());
+
+            if (paramTypeWrapper != null) {
+                TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
+                if (exprTypeWrapper != null) {
+                    return paramTypeWrapper.isAssignableFrom(exprTypeWrapper);
+                }
+                
+                // Fallback for literals if wrapper resolution failed
+                if (isNumericType(param.getType()) && expr.isStringLiteralExpr()) {
+                    return false;
+                }
+            } else {
+                // Fallback to old heuristic if param type cannot be resolved
+                if (isNumericType(param.getType())) {
+                    if (expr.isStringLiteralExpr()) {
+                        return false;
+                    }
+                    TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
+                    if (exprTypeWrapper != null &&
+                        ("java.lang.String".equals(exprTypeWrapper.getName()) || "String".equals(exprTypeWrapper.getName()))) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        private Expression adaptArgument(ParameterSpec param, Expression expr) {
+            // Specific check for Class<?> types to ensure adaptations work
+            if (isClassType(param.getType()) && !(expr.isClassExpr() ||
+                    (expr.isFieldAccessExpr() && expr.asFieldAccessExpr().getNameAsString().equals("class")))) {
+                // Try to adapt NameExpr or other simple forms into ClassExpr
+                if (expr.isNameExpr()) {
+                    return new ClassExpr(new ClassOrInterfaceType(null, expr.asNameExpr().getNameAsString()));
+                }
+                return null; // unsuccessful adaptation
+            }
+            return expr;
         }
 
         private TypeWrapper resolveExprTypeWrapper(Expression expr, StatementSequence sequence) {

@@ -2,6 +2,7 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
@@ -141,14 +142,49 @@ public class RefactoringRecommendationGenerator {
         }
 
         // Only use test-specific strategies if ALL duplicates are in test files
-        boolean hasSourceFiles = cluster.allSequences().stream()
-                .anyMatch(seq -> !isTestFile(seq));
+        boolean allTestFiles = cluster.allSequences().stream()
+                .allMatch(this::isTestFile);
 
-        if (hasSourceFiles) {
-            return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+        if (allTestFiles) {
+            // Strategy 2: Extract to @BeforeEach
+            // Logic: All duplicates must start at the beginning of their methods
+            boolean allAtStart = cluster.allSequences().stream()
+                    .allMatch(this::isAtStartOfMethod);
+            
+            if (allAtStart) {
+                return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
+            }
+
+            // Strategy 3: Extract to @ParameterizedTest
+            // Logic: If we have multiple sequences in the same file with similar structure
+            // but different literals (handled by clustering), recommend parameterization.
+            // We need 3+ instances for it to be worthwhile.
+            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster)) {
+                return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
+            }
         }
 
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+    }
+
+    private boolean isAtStartOfMethod(StatementSequence seq) {
+        MethodDeclaration method = seq.containingMethod();
+        if (method == null || method.getBody().isEmpty())
+            return false;
+
+        List<Statement> methodStmts = method.getBody().get().getStatements();
+        if (methodStmts.isEmpty())
+            return false;
+
+        Statement firstInSeq = seq.statements().get(0);
+
+        // Find the index of the first statement of the sequence in the method body
+        for (int i = 0; i < methodStmts.size(); i++) {
+            if (methodStmts.get(i) == firstInSeq) {
+                return i == 0;
+            }
+        }
+        return false;
     }
 
     private boolean isCrossFileDuplication(DuplicateCluster cluster) {
@@ -182,7 +218,9 @@ public class RefactoringRecommendationGenerator {
 
     private boolean isTestFile(StatementSequence seq) {
         CompilationUnit cu = seq.compilationUnit();
-        if (cu == null) return false;
+        if (cu == null) {
+            return false;
+        }
 
         boolean hasTestAnnotations = cu.findAll(com.github.javaparser.ast.body.MethodDeclaration.class).stream()
                 .anyMatch(m -> m.getAnnotations().stream()
@@ -192,7 +230,9 @@ public class RefactoringRecommendationGenerator {
                                     name.equals("RepeatedTest") || name.equals("TestFactory");
                         }));
 
-        if (hasTestAnnotations) return true;
+        if (hasTestAnnotations) {
+            return true;
+        }
 
         return cu.getImports().stream()
                 .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
