@@ -86,19 +86,15 @@ public class ExtractMethodRefactorer {
             if (seq.containingMethod() != null) {
                 excludedMethods.add(seq.containingMethod());
                 
-                // REUSE LOGIC DISABLED FOR STABILITY
-                // Logic to identify reusable existing method is currently too aggressive
-                // and causes semantic regressions (e.g. ServiceWithMixedStaticContext).
-                // Temporarily disabling to ensure Full Cycle compliance.
-                /*
                 // Check if this sequence covers the entire body of its containing method
                 // AND if the method signature implies it can be reused (i.e., same parameters)
                 if (isMethodBody(seq)) {
-                     if (seq.containingMethod().getParameters().size() == effectiveParams.size()) {
+                     // Basic check: parameter count and return type must match.
+                     if (seq.containingMethod().getParameters().size() == effectiveParams.size() &&
+                             seq.containingMethod().getType().equals(helperMethod.getType())) {
                          reusableExistingMethod = seq.containingMethod();
                      }
                 }
-                */
             }
         }
 
@@ -107,7 +103,9 @@ public class ExtractMethodRefactorer {
         if (reusableExistingMethod != null) {
             // We found a method in the cluster that creates the duplicate. Use it!
             methodNameToUse = reusableExistingMethod.getNameAsString();
+            System.out.println("DEBUG: Reusing existing method: " + methodNameToUse);
         } else {
+            System.out.println("DEBUG: Creating new helper method: " + methodNameToUse);
             MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, excludedMethods);
             if (equivalent == null) {
                 // No equivalent helper exists; add our newly created one
@@ -132,9 +130,11 @@ public class ExtractMethodRefactorer {
             if (seq.containingMethod() != null && seq.containingMethod().equals(reusableExistingMethod)) {
                 // This sequence IS the body of the helper method we are reusing.
                 // Do NOT replace it with a call to itself (Recursion!).
+                System.out.println("DEBUG: Skipping self-replacement for " + seq.containingMethod().getNameAsString());
                 continue;
             }
 
+            System.out.println("DEBUG: Planning replacement for " + (seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "unknown"));
             StatementSequence seqToRefactor = seq;
             int limit = recommendation.getValidStatementCount();
             if (limit != -1 && limit < seq.size()) {
@@ -238,7 +238,7 @@ public class ExtractMethodRefactorer {
         // (it might have a return statement even without live-outs)
 
         MethodDeclaration method = initializeHelperMethod(recommendation);
-        applyMethodModifiers(method, sequence);
+        applyMethodModifiers(method, allSequences);
 
         // DEBUG: Dump the generated helper method
 
@@ -335,8 +335,16 @@ public class ExtractMethodRefactorer {
         return method;
     }
 
-    private void applyMethodModifiers(MethodDeclaration method, StatementSequence sequence) {
-        if (sequence.containingMethod() != null && sequence.containingMethod().isStatic()) {
+    private void applyMethodModifiers(MethodDeclaration method, Set<StatementSequence> allSequences) {
+        boolean shouldBeStatic = false;
+        for (StatementSequence seq : allSequences) {
+            if (seq.containingMethod() != null && seq.containingMethod().isStatic()) {
+                shouldBeStatic = true;
+                break;
+            }
+        }
+
+        if (shouldBeStatic) {
             method.setModifiers(Modifier.Keyword.PRIVATE, Modifier.Keyword.STATIC);
         } else {
             method.setModifiers(Modifier.Keyword.PRIVATE);
@@ -585,7 +593,14 @@ public class ExtractMethodRefactorer {
                 // inlining.
                 // This forces the refactorer to assign the result to a variable first.
                 if (!returnExpr.isNameExpr()) {
-                    return true;
+                    // Check if the complex expression uses any variables not in the sequence
+                    for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
+                        String varName = nameExpr.getNameAsString();
+                        if (!definedInSequence.contains(varName) && isLocalVariable(sequence, varName)) {
+                            return true;
+                        }
+                    }
+                    return false; 
                 }
 
                 // CRITICAL FIX: We allow complex return expressions (e.g. x + 1) as long as
@@ -834,7 +849,9 @@ public class ExtractMethodRefactorer {
         
         if (bodyStmts.isEmpty()) return true;
         
-        return true; 
+        // Final sanity check: compare first and last statements' ranges if they match exactly
+        return bodyStmts.get(0).equals(seqStmts.get(0)) && 
+               bodyStmts.get(bodyStmts.size() - 1).equals(seqStmts.get(seqStmts.size() - 1));
     }
 
     private class ArgumentBuilder {

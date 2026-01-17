@@ -13,9 +13,10 @@ output_path: /tmp/bertie-test-output
 
 # Detection settings - use lenient to find more duplicates
 min_lines: 3
-threshold: 70
+threshold: 75
 
 # Analyze all classes in base_path (leave empty to analyze all)
+enable_lsh: false
 # target_class:
 
 # Skip getters/setters
@@ -23,4 +24,4 @@ skip_getters_setters: true
 
 # Log level
 log_level: DEBUG
-  # target_class: com.raditha.bertie.testbed.exceptionhandling.ServiceWithTryCatchBlocks
+#target_class: com.raditha.bertie.testbed.staticcontext.ServiceWithMixedStaticContext
