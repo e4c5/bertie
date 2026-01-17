@@ -80,24 +80,44 @@ public class ExtractMethodRefactorer {
                 .orElseThrow(() -> new IllegalStateException("No containing class found"));
 
         Set<MethodDeclaration> excludedMethods = new HashSet<>();
+        MethodDeclaration reusableExistingMethod = null;
+
         for (StatementSequence seq : uniqueSequences) {
             if (seq.containingMethod() != null) {
                 excludedMethods.add(seq.containingMethod());
+                
+                // Check if this sequence covers the entire body of its containing method
+                // AND if the method signature implies it can be reused (i.e., same parameters)
+                if (isMethodBody(seq)) {
+                     // Check parameter compatibility
+                     // If the extracted logic requires parameters (effectiveParams), 
+                     // but the existing method has DIFFERENT parameters, we can't reuse it 
+                     // without changing its signature (which is risky/out of scope).
+                     // Simple check: Parameter count. 
+                     // TODO: rigorous type check.
+                     if (seq.containingMethod().getParameters().size() == effectiveParams.size()) {
+                         reusableExistingMethod = seq.containingMethod();
+                     }
+                }
             }
         }
 
         String methodNameToUse = recommendation.getSuggestedMethodName();
-        MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, excludedMethods);
-        if (equivalent == null) {
-            // No equivalent helper exists; add our newly created one
-            containingClass.addMember(helperMethod);
+        
+        if (reusableExistingMethod != null) {
+            // We found a method in the cluster that creates the duplicate. Use it!
+            methodNameToUse = reusableExistingMethod.getNameAsString();
         } else {
-            // Reuse existing helper method name; skip adding duplicate
-            // Reuse existing helper method name; skip adding duplicate
-            methodNameToUse = equivalent.getNameAsString();
+            MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, excludedMethods);
+            if (equivalent == null) {
+                // No equivalent helper exists; add our newly created one
+                containingClass.addMember(helperMethod);
+            } else {
+                // Reuse existing helper method name; skip adding duplicate
+                methodNameToUse = equivalent.getNameAsString();
+            }
         }
 
-        // 3. Replace all duplicate occurrences with method calls (track each CU)
         // 3. Replace all duplicate occurrences with method calls (Two-Phase: Prepare
         // then Apply)
         // Phase 1: Prepare replacements. If any fails, we abort the whole cluster to
@@ -109,6 +129,12 @@ public class ExtractMethodRefactorer {
                 effectiveParams);
 
         for (StatementSequence seq : uniqueSequences) {
+            if (seq.containingMethod() != null && seq.containingMethod().equals(reusableExistingMethod)) {
+                // This sequence IS the body of the helper method we are reusing.
+                // Do NOT replace it with a call to itself (Recursion!).
+                continue;
+            }
+
             StatementSequence seqToRefactor = seq;
             int limit = recommendation.getValidStatementCount();
             if (limit != -1 && limit < seq.size()) {
@@ -790,6 +816,27 @@ public class ExtractMethodRefactorer {
      * AST-based value extraction, and expression conversion) to minimize code
      * duplication and behavior drift.
      */
+    /**
+     * Check if the sequence covers the entire body of the containing method.
+     */
+    private boolean isMethodBody(StatementSequence seq) {
+        MethodDeclaration method = seq.containingMethod();
+        if (method == null || method.getBody().isEmpty()) {
+            return false;
+        }
+        BlockStmt body = method.getBody().get();
+        List<Statement> bodyStmts = body.getStatements();
+        List<Statement> seqStmts = seq.statements();
+        
+        if (bodyStmts.size() != seqStmts.size()) {
+            return false;
+        }
+        
+        if (bodyStmts.isEmpty()) return true;
+        
+        return true; 
+    }
+
     private class ArgumentBuilder {
         NodeList<Expression> buildArgs(VariationAnalysis variations,
                 StatementSequence sequence,
