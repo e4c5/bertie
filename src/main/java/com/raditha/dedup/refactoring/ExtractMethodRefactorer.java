@@ -92,7 +92,13 @@ public class ExtractMethodRefactorer {
                      // Basic check: parameter count and return type must match.
                      if (seq.containingMethod().getParameters().size() == effectiveParams.size() &&
                              seq.containingMethod().getType().equals(helperMethod.getType())) {
-                         reusableExistingMethod = seq.containingMethod();
+                         
+                         // Robust check: body must be equivalent to the planned helper
+                         String candNorm = normalizeMethodBody(seq.containingMethod());
+                         String helperNorm = normalizeMethodBody(helperMethod);
+                         if (candNorm != null && candNorm.equals(helperNorm)) {
+                             reusableExistingMethod = seq.containingMethod();
+                         }
                      }
                 }
             }
@@ -587,34 +593,18 @@ public class ExtractMethodRefactorer {
             if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
                 Expression returnExpr = stmt.asReturnStmt().getExpression().get();
 
-                // CRITICAL FIX: If the return expression is NOT a simple variable name (e.g.
-                // it's a method call),
-                // we treat it as having external dependencies/complexity that prevents direct
-                // inlining.
-                // This forces the refactorer to assign the result to a variable first.
+                // CRITICAL FIX: We should only inline returns that are simple NameExpr
+                // where the variable is defined within the sequence.
+                // If the return is more complex (e.g., "return x + 1"), we MUST NOT inline
+                // because we'd lose the unique part of the expression in the caller.
                 if (!returnExpr.isNameExpr()) {
-                    // Check if the complex expression uses any variables not in the sequence
-                    for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
-                        String varName = nameExpr.getNameAsString();
-                        if (!definedInSequence.contains(varName) && isLocalVariable(sequence, varName)) {
-                            return true;
-                        }
-                    }
-                    return false; 
+                    return true;
                 }
 
-                // CRITICAL FIX: We allow complex return expressions (e.g. x + 1) as long as
-                // they
-                // don't reference external variables. The previous check overly aggressively
-                // rejected anything that wasn't a simple NameExpr.
-
-                // Check all variable references in the return expression
-                for (NameExpr nameExpr : returnExpr.findAll(NameExpr.class)) {
-                    String varName = nameExpr.getNameAsString();
-                    // If this variable is NOT defined in the sequence, it's external
-                    if (!definedInSequence.contains(varName) && isLocalVariable(sequence, varName)) {
-                        return true;
-                    }
+                String varName = returnExpr.asNameExpr().getNameAsString();
+                // If this variable is NOT defined in the sequence, it's external
+                if (!definedInSequence.contains(varName)) {
+                    return true;
                 }
             }
         }
@@ -700,7 +690,9 @@ public class ExtractMethodRefactorer {
             return;
         }
 
-        BlockStmt block = containingMethod.getBody().get();
+        // Locate the actual block containing the sequence (might be nested)
+        BlockStmt block = sequence.statements().get(0).findAncestor(BlockStmt.class)
+                .orElse(containingMethod.getBody().get());
 
         // 3) Remember any original return inside the duplicate sequence
         int limit = getEffectiveLimit(sequence, recommendation);
@@ -737,13 +729,17 @@ public class ExtractMethodRefactorer {
 
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
 
-        if (returnHasExternalVars && varName == null) {
-            // Ensure we go through the reconstruct path
-            varName = firstDefinedVariable(sequence);
-        }
-
         boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
+
+        if (!shouldReturnDirectly && varName == null) {
+            // If we can't inline the return, we MUST have a variable to assign to
+            // so we can reconstruct the expression (e.g. return var + 1).
+            varName = firstDefinedVariable(sequence);
+            if (varName == null) {
+                varName = "result"; // Absolute fallback
+            }
+        }
 
         insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
                 shouldReturnDirectly, nextIsReturn, returnType);
@@ -849,9 +845,8 @@ public class ExtractMethodRefactorer {
         
         if (bodyStmts.isEmpty()) return true;
         
-        // Final sanity check: compare first and last statements' ranges if they match exactly
-        return bodyStmts.get(0).equals(seqStmts.get(0)) && 
-               bodyStmts.get(bodyStmts.size() - 1).equals(seqStmts.get(seqStmts.size() - 1));
+        // Robust check: all statements must be structurally equal
+        return bodyStmts.equals(seqStmts);
     }
 
     private class ArgumentBuilder {

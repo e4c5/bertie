@@ -288,7 +288,7 @@ public class DuplicationAnalyzer {
             for (StatementSequence candidateSeq : potentialMatches) {
                 // Combined check to reduce continue statements
                 if (currentSeq == candidateSeq ||
-                    areSameMethodOrOverlapping(currentSeq, candidateSeq) ||
+                    isPhysicallyOverlapping(currentSeq, candidateSeq) ||
                     !preFilter.shouldCompare(currentSeq, candidateSeq)) {
                     continue;
                 }
@@ -313,7 +313,7 @@ public class DuplicationAnalyzer {
      * robustness check: returns true if sequences are in the same method
      * or if method is null (e.g. static block) and they are in same file
      */
-    private boolean areSameMethodOrOverlapping(StatementSequence s1, StatementSequence s2) {
+    private boolean isPhysicallyOverlapping(StatementSequence s1, StatementSequence s2) {
         // Different files -> cannot overlap
         if (s1.sourceFilePath() != null && s2.sourceFilePath() != null
                 && !s1.sourceFilePath().equals(s2.sourceFilePath())) {
@@ -324,13 +324,14 @@ public class DuplicationAnalyzer {
         var m2 = s2.containingMethod();
 
         if (m1 != null && m2 != null) {
-            return m1.equals(m2);
+            // Same method -> check if line ranges overlap
+            return m1.equals(m2) && rangesOverlap(s1.range(), s2.range());
         }
 
         // If one or both methods are null (e.g. static initializer logic),
-        // check if they are in the same file to be safe against overlap
+        // check if they are in the same file and their ranges overlap
         if (s1.sourceFilePath() != null && s2.sourceFilePath() != null) {
-            return s1.sourceFilePath().equals(s2.sourceFilePath());
+            return s1.sourceFilePath().equals(s2.sourceFilePath()) && rangesOverlap(s1.range(), s2.range());
         }
 
         return false;
@@ -353,8 +354,8 @@ public class DuplicationAnalyzer {
                 StatementSequence seq1 = norm1.sequence();
                 StatementSequence seq2 = norm2.sequence();
 
-                // Skip sequences from the same method
-                if (areSameMethodOrOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
+                // Skip sequences that physically overlap
+                if (isPhysicallyOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
 
@@ -384,6 +385,18 @@ public class DuplicationAnalyzer {
      * Analyze a pair of sequences for similarity using pre-computed normalized AST.
      */
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
+        // CRITICAL FIX: To prevent code loss during extraction, we must ensure
+        // that duplicates have the EXACT same number of statements.
+        // If they differ in length, they are "similar code" but NOT suitable 
+        // for being clustered together for common method extraction.
+        int size1 = norm1.sequence().statements().size();
+        int size2 = norm2.sequence().statements().size();
+        if (size1 != size2) {
+            return new SimilarityPair(norm1.sequence(), norm2.sequence(),
+                    new SimilarityResult(0.0, 0.0, 0.0, 0.0, size1, size2,
+                            com.raditha.dedup.model.VariationAnalysis.builder().build(), null, false));
+        }
+
         // Use PRE-COMPUTED normalized nodes (no normalization needed!)
         var nodes1 = norm1.normalizedNodes();
         var nodes2 = norm2.normalizedNodes();
@@ -482,18 +495,18 @@ public class DuplicationAnalyzer {
      * while Cluster B also tries to refactor Method X at the same location).
      */
     private boolean pairsOverlap(SimilarityPair pair1, SimilarityPair pair2) {
-        return sequencesOverlap(pair1.seq1(), pair2.seq1()) ||
-               sequencesOverlap(pair1.seq1(), pair2.seq2()) ||
-               sequencesOverlap(pair1.seq2(), pair2.seq1()) ||
-               sequencesOverlap(pair1.seq2(), pair2.seq2());
+        // Check if they involve the same methods
+        boolean sameMethods = sameMethodPair(pair1, pair2);
+        if (!sameMethods) {
+            return false;
+        }
+
+        // Check if line ranges physically overlap
+        return isPhysicallyOverlapping(pair1.seq1(), pair2.seq1()) ||
+               isPhysicallyOverlapping(pair1.seq2(), pair2.seq2());
     }
 
-    private boolean sequencesOverlap(StatementSequence s1, StatementSequence s2) {
-         if (!areSameMethodOrOverlapping(s1, s2)) {
-             return false;
-         }
-         return rangesOverlap(s1.range(), s2.range());
-    }
+
 
     /**
      * Check if two pairs involve the same pair of methods.
