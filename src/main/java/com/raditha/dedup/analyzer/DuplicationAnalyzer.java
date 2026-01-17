@@ -74,34 +74,16 @@ public class DuplicationAnalyzer {
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
-        // Step 2: Compare all pairs (with pre-filtering)
-        List<SimilarityPair> candidates = findCandidates(sequences);
-
-        // Step 3: Filter by similarity threshold
-        List<SimilarityPair> duplicates = filterByThreshold(candidates);
-
-        // Step 3.5: Refine boundaries (trim usage-only statements)
-        if (config.enableBoundaryRefinement()) {
-            duplicates = boundaryRefiner.refineBoundaries(duplicates);
-        }
-
-        // Step 3.6: Remove overlapping duplicates (keep only largest)
-        duplicates = removeOverlappingDuplicates(duplicates);
-
-        // Step 4: Cluster duplicates and generate recommendations
-        List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
-
-        // Step 5: Add refactoring recommendations to clusters
-        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(this::addRecommendation).toList();
+        // Step 2-5: Process sequences through the duplicate detection pipeline
+        ProcessedDuplicates processed = processDuplicatePipeline(sequences);
 
         // Step 6: Create report
         return new DuplicationReport(
                 sourceFile,
-                duplicates,
-                clustersWithRecommendations,
+                processed.duplicates,
+                processed.clustersWithRecommendations,
                 sequences.size(),
-                candidates.size(),
+                processed.candidatesCount,
                 config);
     }
 
@@ -135,25 +117,58 @@ public class DuplicationAnalyzer {
             }
         }
 
-        // 2. Find Candidates (Project-wide)
-        List<SimilarityPair> candidates = findCandidates(allSequences);
+        // 2-4. Process sequences through the duplicate detection pipeline
+        ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
 
-        // 3. Filter & Refine
+        // 5. Group by File and Generate Reports
+        return distributeReports(fileSequences, processed.duplicates, processed.clustersWithRecommendations, processed.candidatesCount);
+    }
+
+    /**
+     * Helper record to hold the results of the duplicate detection pipeline.
+     */
+    private record ProcessedDuplicates(
+            List<SimilarityPair> duplicates,
+            List<DuplicateCluster> clustersWithRecommendations,
+            int candidatesCount
+    ) {}
+
+    /**
+     * Process sequences through the complete duplicate detection pipeline:
+     * 1. Find candidates
+     * 2. Filter by threshold
+     * 3. Refine boundaries (optional)
+     * 4. Remove overlapping duplicates
+     * 5. Cluster duplicates
+     * 6. Add refactoring recommendations
+     *
+     * @param sequences List of statement sequences to process
+     * @return ProcessedDuplicates containing filtered duplicates, clusters with recommendations, and candidate count
+     */
+    private ProcessedDuplicates processDuplicatePipeline(List<StatementSequence> sequences) {
+        // Step 1: Compare all pairs (with pre-filtering)
+        List<SimilarityPair> candidates = findCandidates(sequences);
+
+        // Step 2: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
 
+        // Step 3: Refine boundaries (trim usage-only statements) - optional
         if (config.enableBoundaryRefinement()) {
             duplicates = boundaryRefiner.refineBoundaries(duplicates);
         }
 
+        // Step 4: Remove overlapping duplicates (keep only largest)
         duplicates = removeOverlappingDuplicates(duplicates);
 
-        // 4. Cluster
+        // Step 5: Cluster duplicates
         List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
-        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
-                .map(this::addRecommendation).toList();
 
-        // 5. Group by File and Generate Reports
-        return distributeReports(fileSequences, duplicates, clustersWithRecommendations, candidates.size());
+        // Step 6: Add refactoring recommendations to clusters
+        List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
+                .map(this::addRecommendation)
+                .toList();
+
+        return new ProcessedDuplicates(duplicates, clustersWithRecommendations, candidates.size());
     }
 
     private List<DuplicationReport> distributeReports(
