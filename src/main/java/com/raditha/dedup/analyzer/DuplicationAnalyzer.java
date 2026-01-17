@@ -396,11 +396,12 @@ public class DuplicationAnalyzer {
     }
 
     /**
-     * Remove overlapping duplicates, keeping only the largest duplicate in each
+     * Remove overlapping duplicates, keeping only the duplicate with broadest scope in each
      * overlap group.
      * Two duplicates overlap if they involve the same methods and their line ranges
      * overlap.
-     * When duplicates overlap, we keep the one with the most statements.
+     * When duplicates overlap, we keep the one with the BROADEST SCOPE (largest line range),
+     * which ensures we prefer full method bodies over nested block contents.
      */
     private List<SimilarityPair> removeOverlappingDuplicates(List<SimilarityPair> pairs) {
         if (pairs.isEmpty()) {
@@ -410,13 +411,26 @@ public class DuplicationAnalyzer {
         List<SimilarityPair> filtered = new ArrayList<>();
         List<SimilarityPair> sorted = new ArrayList<>(pairs);
 
-        // Sort by size (largest first), then by line number
+        // Sort by SCOPE (line range) first, then by statement count
+        // This ensures we prefer full method bodies over nested block contents
         sorted.sort((a, b) -> {
+            // Calculate line range (scope) for each duplicate
+            int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
+            int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
+            
+            // Prefer broader scope (larger line range)
+            int scopeCompare = Integer.compare(scopeB, scopeA);
+            if (scopeCompare != 0)
+                return scopeCompare;
+            
+            // If scope is equal, prefer more statements
             int sizeCompare = Integer.compare(
                     b.seq1().statements().size(),
                     a.seq1().statements().size());
             if (sizeCompare != 0)
                 return sizeCompare;
+                
+            // Finally, sort by start line for deterministic ordering
             return Integer.compare(
                     a.seq1().range().startLine(),
                     b.seq1().range().startLine());
@@ -434,7 +448,7 @@ public class DuplicationAnalyzer {
                 }
             }
 
-            // Only keep if it doesn't overlap with a larger duplicate
+            // Only keep if it doesn't overlap with a broader-scope duplicate
             if (!overlaps) {
                 filtered.add(current);
             }

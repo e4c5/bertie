@@ -140,6 +140,10 @@ public class DataFlowAnalyzer {
             // 3. Lambda parameters
             stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)
                     .forEach(lambda -> lambda.getParameters().forEach(p -> defined.add(p.getNameAsString())));
+
+            // 4. Catch clause parameters
+            stmt.findAll(com.github.javaparser.ast.stmt.CatchClause.class)
+                    .forEach(catchClause -> defined.add(catchClause.getParameter().getNameAsString()));
         }
 
         return defined;
