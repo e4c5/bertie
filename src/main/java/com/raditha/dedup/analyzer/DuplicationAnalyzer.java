@@ -358,23 +358,7 @@ public class DuplicationAnalyzer {
                 if (isPhysicallyOverlapping(seq1, seq2) || !preFilter.shouldCompare(seq1, seq2)) {
                     continue;
                 }
-
-                // Calculate similarity
-                boolean trace = false;
-                String m1 = seq1.containingMethod().getNameAsString();
-                String m2 = seq2.containingMethod().getNameAsString();
-                if ((m1.equals("calculateWithIfElse") && m2.equals("calculateSum")) ||
-                    (m2.equals("calculateWithIfElse") && m1.equals("calculateSum"))) {
-                    trace = true;
-                    // System.out.println("DEBUG: Comparing " + m1 + " vs " + m2);
-                }
-
                 SimilarityPair pair = analyzePair(norm1, norm2);
-                
-                if (trace) {
-                    System.out.println("DEBUG: Comparing " + m1 + " vs " + m2 + " Score=" + pair.similarity().overallScore());
-                }
-
                 candidates.add(pair);
             }
         }
