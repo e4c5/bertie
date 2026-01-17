@@ -461,16 +461,24 @@ public class DuplicationAnalyzer {
      * Pairs overlap if they involve the same two methods and their line ranges
      * overlap.
      */
+    /**
+     * Check if two duplicate pairs overlap.
+     * Pairs overlap if ANY sequence in pair1 overlaps ANY sequence in pair2.
+     * This prevents scheduling conflicting refactorings (e.g. Cluster A refactoring Method X
+     * while Cluster B also tries to refactor Method X at the same location).
+     */
     private boolean pairsOverlap(SimilarityPair pair1, SimilarityPair pair2) {
-        // Check if they involve the same methods
-        boolean sameMethods = sameMethodPair(pair1, pair2);
-        if (!sameMethods) {
-            return false;
-        }
+        return sequencesOverlap(pair1.seq1(), pair2.seq1()) ||
+               sequencesOverlap(pair1.seq1(), pair2.seq2()) ||
+               sequencesOverlap(pair1.seq2(), pair2.seq1()) ||
+               sequencesOverlap(pair1.seq2(), pair2.seq2());
+    }
 
-        // Check if line ranges overlap
-        return rangesOverlap(pair1.seq1().range(), pair2.seq1().range()) ||
-                rangesOverlap(pair1.seq2().range(), pair2.seq2().range());
+    private boolean sequencesOverlap(StatementSequence s1, StatementSequence s2) {
+         if (!areSameMethodOrOverlapping(s1, s2)) {
+             return false;
+         }
+         return rangesOverlap(s1.range(), s2.range());
     }
 
     /**

@@ -86,19 +86,19 @@ public class ExtractMethodRefactorer {
             if (seq.containingMethod() != null) {
                 excludedMethods.add(seq.containingMethod());
                 
+                // REUSE LOGIC DISABLED FOR STABILITY
+                // Logic to identify reusable existing method is currently too aggressive
+                // and causes semantic regressions (e.g. ServiceWithMixedStaticContext).
+                // Temporarily disabling to ensure Full Cycle compliance.
+                /*
                 // Check if this sequence covers the entire body of its containing method
                 // AND if the method signature implies it can be reused (i.e., same parameters)
                 if (isMethodBody(seq)) {
-                     // Check parameter compatibility
-                     // If the extracted logic requires parameters (effectiveParams), 
-                     // but the existing method has DIFFERENT parameters, we can't reuse it 
-                     // without changing its signature (which is risky/out of scope).
-                     // Simple check: Parameter count. 
-                     // TODO: rigorous type check.
                      if (seq.containingMethod().getParameters().size() == effectiveParams.size()) {
                          reusableExistingMethod = seq.containingMethod();
                      }
                 }
+                */
             }
         }
 
