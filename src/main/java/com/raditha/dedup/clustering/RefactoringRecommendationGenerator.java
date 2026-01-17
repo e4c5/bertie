@@ -242,8 +242,8 @@ public class RefactoringRecommendationGenerator {
         
         Set<String> fieldNames = new HashSet<>();
         clazz.getFields().forEach(field -> 
-            field.getVariables().forEach(var -> 
-                fieldNames.add(var.getNameAsString())
+            field.getVariables().forEach(vd ->
+                fieldNames.add(vd.getNameAsString())
             )
         );
         return fieldNames;

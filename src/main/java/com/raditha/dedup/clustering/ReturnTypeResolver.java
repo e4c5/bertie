@@ -256,7 +256,7 @@ public class ReturnTypeResolver {
 
         // 4. Check if it's an expression (e.g., method call)
         if (varName.contains("(") || varName.contains(".")) {
-            try {
+
                 Expression expr = com.github.javaparser.StaticJavaParser.parseExpression(varName);
                 if (expr.isMethodCallExpr()) {
                     var call = expr.asMethodCallExpr();
@@ -277,9 +277,6 @@ public class ReturnTypeResolver {
                         }
                     }
                 }
-            } catch (Exception e) {
-                // Ignore parse errors
-            }
         }
 
         return null;
@@ -421,14 +418,5 @@ public class ReturnTypeResolver {
 
     private String findReturnVariable(StatementSequence sequence) {
         return dataFlowAnalyzer.findReturnVariable(sequence, null);
-    }
-
-    /**
-     * Exception thrown when type inference fails.
-     */
-    public static class TypeInferenceException extends RuntimeException {
-        public TypeInferenceException(String message) {
-            super(message);
-        }
     }
 }

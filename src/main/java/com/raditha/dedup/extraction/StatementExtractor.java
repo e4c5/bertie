@@ -137,70 +137,74 @@ public class StatementExtractor {
          * @param method The containing method
          */
         private void processNestedBlocks(Statement stmt, MethodDeclaration method) {
-            if (stmt instanceof TryStmt) {
-                TryStmt tryStmt = (TryStmt) stmt;
-                // Extract from try block
-                extractFromBlock(tryStmt.getTryBlock(), method);
-                // Extract from each catch clause
-                tryStmt.getCatchClauses().forEach(catchClause -> 
-                    extractFromBlock(catchClause.getBody(), method)
-                );
-                // Extract from finally block if present
-                tryStmt.getFinallyBlock().ifPresent(finallyBlock -> 
-                    extractFromBlock(finallyBlock, method)
-                );
-            } else if (stmt instanceof IfStmt) {
-                IfStmt ifStmt = (IfStmt) stmt;
-                // Extract from then branch
-                if (ifStmt.getThenStmt() instanceof BlockStmt) {
-                    extractFromBlock((BlockStmt) ifStmt.getThenStmt(), method);
-                }
-                // Extract from else branch if present
-                ifStmt.getElseStmt().ifPresent(elseStmt -> {
-                    if (elseStmt instanceof BlockStmt) {
-                        extractFromBlock((BlockStmt) elseStmt, method);
-                    } else if (elseStmt instanceof IfStmt) {
-                        // Handle else-if chains
-                        processNestedBlocks(elseStmt, method);
-                    }
-                });
-            } else if (stmt instanceof WhileStmt) {
-                WhileStmt whileStmt = (WhileStmt) stmt;
+            if (stmt instanceof TryStmt tryStmt) {
+                processTryBlock(method, tryStmt);
+            } else if (stmt instanceof IfStmt ifStmt) {
+                processIfBlock(method, ifStmt);
+            } else if (stmt instanceof WhileStmt whileStmt) {
                 if (whileStmt.getBody() instanceof BlockStmt) {
                     extractFromBlock((BlockStmt) whileStmt.getBody(), method);
                 }
-            } else if (stmt instanceof ForStmt) {
-                ForStmt forStmt = (ForStmt) stmt;
+            } else if (stmt instanceof ForStmt forStmt) {
                 if (forStmt.getBody() instanceof BlockStmt) {
                     extractFromBlock((BlockStmt) forStmt.getBody(), method);
                 }
-            } else if (stmt instanceof ForEachStmt) {
-                ForEachStmt forEachStmt = (ForEachStmt) stmt;
+            } else if (stmt instanceof ForEachStmt forEachStmt) {
                 if (forEachStmt.getBody() instanceof BlockStmt) {
                     extractFromBlock((BlockStmt) forEachStmt.getBody(), method);
                 }
-            } else if (stmt instanceof DoStmt) {
-                DoStmt doStmt = (DoStmt) stmt;
+            } else if (stmt instanceof DoStmt doStmt) {
                 if (doStmt.getBody() instanceof BlockStmt) {
                     extractFromBlock((BlockStmt) doStmt.getBody(), method);
                 }
-            } else if (stmt instanceof SynchronizedStmt) {
-                SynchronizedStmt syncStmt = (SynchronizedStmt) stmt;
+            } else if (stmt instanceof SynchronizedStmt syncStmt) {
                 extractFromBlock(syncStmt.getBody(), method);
-            } else if (stmt instanceof SwitchStmt) {
-                SwitchStmt switchStmt = (SwitchStmt) stmt;
-                switchStmt.getEntries().forEach(entry -> {
-                    // Extract from each switch case's statements
-                    List<Statement> caseStatements = entry.getStatements();
-                    if (!caseStatements.isEmpty()) {
-                        extractSlidingWindows(caseStatements, method);
-                        // Recursively process nested blocks in case statements
-                        caseStatements.forEach(s -> processNestedBlocks(s, method));
-                    }
-                });
+            } else if (stmt instanceof SwitchStmt switchStmt) {
+                processSwitchBlock(method, switchStmt);
             }
         }
-        
+
+        private void processSwitchBlock(MethodDeclaration method, SwitchStmt switchStmt) {
+            switchStmt.getEntries().forEach(entry -> {
+                // Extract from each switch case's statements
+                List<Statement> caseStatements = entry.getStatements();
+                if (!caseStatements.isEmpty()) {
+                    extractSlidingWindows(caseStatements, method);
+                    // Recursively process nested blocks in case statements
+                    caseStatements.forEach(s -> processNestedBlocks(s, method));
+                }
+            });
+        }
+
+        private void processTryBlock(MethodDeclaration method, TryStmt tryStmt) {
+            // Extract from try block
+            extractFromBlock(tryStmt.getTryBlock(), method);
+            // Extract from each catch clause
+            tryStmt.getCatchClauses().forEach(catchClause ->
+                extractFromBlock(catchClause.getBody(), method)
+            );
+            // Extract from finally block if present
+            tryStmt.getFinallyBlock().ifPresent(finallyBlock ->
+                extractFromBlock(finallyBlock, method)
+            );
+        }
+
+        private void processIfBlock(MethodDeclaration method, IfStmt ifStmt) {
+            // Extract from then branch
+            if (ifStmt.getThenStmt() instanceof BlockStmt) {
+                extractFromBlock((BlockStmt) ifStmt.getThenStmt(), method);
+            }
+            // Extract from else branch if present
+            ifStmt.getElseStmt().ifPresent(elseStmt -> {
+                if (elseStmt instanceof BlockStmt) {
+                    extractFromBlock((BlockStmt) elseStmt, method);
+                } else if (elseStmt instanceof IfStmt) {
+                    // Handle else-if chains
+                    processNestedBlocks(elseStmt, method);
+                }
+            });
+        }
+
         /**
          * Extract sliding windows of statements with optimized strategy.
          * 
