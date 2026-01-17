@@ -200,11 +200,9 @@ public class ExtractMethodRefactorer {
         } else if (liveOutVars.size() == 1) {
             forcedReturnVar = liveOutVars.iterator().next();
             forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
-        } else {
-            // CRITICAL FIX: When no live-outs (all were literals excluded by DataFlowAnalyzer),
-            // force void return type. Literal variables will be re-declared in each caller.
-            forcedReturnType = new com.github.javaparser.ast.type.VoidType();
         }
+        // If no live-outs, don't force void - let the recommendation's return type be used
+        // (it might have a return statement even without live-outs)
 
         MethodDeclaration method = initializeHelperMethod(recommendation);
         applyMethodModifiers(method, sequence);
