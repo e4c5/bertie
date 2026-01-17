@@ -6,7 +6,7 @@ Complete guide to configuring the Duplication Detector.
 
 ## Configuration File
 
-Location: `src/main/resources/generator.yml`
+Location: `src/main/resources/bertie.yml`
 
 ### Basic Structure
 

@@ -18,7 +18,6 @@ Start here if you're new to Bertie:
 
 For developers and contributors:
 
-- **[Known Issues](P0_GAP_FIXES_README.md)** - Current bugs and fix status
 - **[Functional Equivalence Gaps](FUNCTIONAL_EQUIVALENCE_GAPS.md)** - Detailed gap analysis (1300+ lines)
 
 ### Design Documents
@@ -42,7 +41,6 @@ Located in `duplication-detector/` subdirectory:
 - Quick Start Guide
 - Configuration Reference
 - Design documents (duplication-detector/)
-- Known Issues (P0_GAP_FIXES_README.md)
 - Functional Equivalence Gaps
 
 ### ⚠️ Beta Features
@@ -72,7 +70,7 @@ mvn exec:java -Dexec.args="analyze --export csv"
 
 ### Configuration Files
 
-- Main config: `src/main/resources/generator.yml`
+- Main config: `src/main/resources/bertie.yml`
 - Test config: `src/test/resources/analyzer-tests.yml`
 
 ### Key Concepts
@@ -87,10 +85,9 @@ mvn exec:java -Dexec.args="analyze --export csv"
 ## Support
 
 For issues or questions:
-1. Check [Known Issues](P0_GAP_FIXES_README.md)
-2. Review [Functional Equivalence Gaps](FUNCTIONAL_EQUIVALENCE_GAPS.md)
-3. See main [README](../README.md)
-4. Open a GitHub issue
+1. Review [Functional Equivalence Gaps](FUNCTIONAL_EQUIVALENCE_GAPS.md)
+2. See main [README](../README.md)
+3. Open a GitHub issue
 
 ---
 

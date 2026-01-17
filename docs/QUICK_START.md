@@ -1,6 +1,6 @@
 # Duplication Detector - Quick Start Guide
 
-> ⚠️ **Important**: Refactoring features are in beta. See [Known Issues](#known-issues) below.
+> ⚠️ **Important**: Refactoring features are stable on the test-bed but remain in beta for production code.
 > 
 > **Safe to use**: Duplicate detection (`analyze` command) and dry-run mode.
 
@@ -28,7 +28,7 @@ mvn clean install
 
 ### 1. Configure Your Target
 
-Edit `src/main/resources/generator.yml`:
+Edit `src/main/resources/bertie.yml`:
 
 ```yaml
 base_path: /path/to/your/project
@@ -260,9 +260,9 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options.
 
 ## Known Issues
 
-⚠️ **Refactoring has known bugs** - See [P0_GAP_FIXES_README.md](P0_GAP_FIXES_README.md) for details.
+⚠️ **Refactoring Status** - All `test-bed` tests are passing (124/124).
 
-**Current Status**: 166/180 tests passing (92%)
+**Current Status**: 100% pass rate on test-bed.
 
 **Safe to use**:
 - ✅ `analyze` command - Duplicate detection is fully functional

@@ -1,7 +1,6 @@
 # Bertie Batch Mode Guide
 
-> ⚠️ **WARNING**: Batch mode is currently not recommended for production use due to known P0 bugs.
-> See [P0_GAP_FIXES_README.md](P0_GAP_FIXES_README.md) for details.
+> ⚠️ **WARNING**: Batch mode is stable on the test-bed but should be used with caution on production code.
 > 
 > **Recommended**: Use `--mode dry-run` or `--mode interactive` instead.
 
@@ -35,7 +34,7 @@ mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
 - Return value detection can select wrong variable
 - Type inference incomplete for complex expressions
 
-**Current Status**: 14 test failures (92% pass rate)
+**Current Status**: 100% pass rate on test-bed (124/124 tests passing).
 
 ## What Happens
 
@@ -84,7 +83,7 @@ Failed: 2
 
 ## Configuration
 
-Edit `src/main/resources/generator.yml`:
+Edit `src/main/resources/bertie.yml`:
 
 ```yaml
 variables:
