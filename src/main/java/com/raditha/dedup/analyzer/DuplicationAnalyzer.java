@@ -531,11 +531,6 @@ public class DuplicationAnalyzer {
 
     /**
      * Check if two duplicate pairs overlap.
-     * Pairs overlap if they involve the same two methods and their line ranges
-     * overlap.
-     */
-    /**
-     * Check if two duplicate pairs overlap.
      * Pairs overlap if ANY sequence in pair1 overlaps ANY sequence in pair2.
      * This prevents scheduling conflicting refactorings (e.g. Cluster A refactoring Method X
      * while Cluster B also tries to refactor Method X at the same location).

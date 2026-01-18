@@ -6,7 +6,7 @@ import java.util.*;
 
 /**
  * Clusters duplicate detection results by grouping related duplicates together.
- * Groups similarity pairs by their primary sequence (earliest occurrence) and
+ * Groups similarity pairs by their primary sequence (the earliest occurrence) and
  * calculates potential LOC reduction for each cluster.
  */
 public class DuplicateClusterer {

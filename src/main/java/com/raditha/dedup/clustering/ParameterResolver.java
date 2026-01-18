@@ -38,11 +38,6 @@ public class ParameterResolver {
     private final ReturnTypeResolver typeResolver;
     private final Map<String, CompilationUnit> allCUs;
 
-    public ParameterResolver() {
-        this(new ASTParameterExtractor(), new DataFlowAnalyzer(), 
-             new ReturnTypeResolver(), Collections.emptyMap());
-    }
-
     public ParameterResolver(Map<String, CompilationUnit> allCUs) {
         this(new ASTParameterExtractor(), new DataFlowAnalyzer(), 
              new ReturnTypeResolver(allCUs), allCUs);
