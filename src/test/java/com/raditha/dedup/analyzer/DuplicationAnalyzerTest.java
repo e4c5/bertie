@@ -71,9 +71,8 @@ class DuplicationAnalyzerTest {
     @Test
     void testPartialDuplicateInLargeMethod() {
         // Use maximalOnly=false to detect partial duplicates within larger methods
-        // Note: Cannot configure maximalOnly via static config in current implementation
-        // This test will use default configuration
         com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(5, 75, null);
+        Settings.setProperty("maximal_only", false);
         DuplicationAnalyzer partialAnalyzer = new DuplicationAnalyzer();
 
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.partial.MixedResponsibilityService");

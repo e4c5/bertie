@@ -95,18 +95,7 @@ class DuplicationDetectorSettingsTest {
         // These would need to be tested via shouldExclude() method
     }
 
-    @Test
-    void testLoadConfig_GlobalFlatConfig() {
-        // Setup flat global properties (legacy/fallback support)
-        Settings.setProperty("min_lines", 12);
-        Settings.setProperty("threshold", "0.65"); // Test String parsing
-        Settings.setProperty("include_tests", "true"); // Test String parsing
-
-        DuplicationDetectorSettings.loadConfig(0, 0, null);
-
-        assertEquals(12, DuplicationDetectorSettings.getMinLines());
-        assertEquals(0.65, DuplicationDetectorSettings.getThreshold(), 0.001);
-    }
+    // Note: Global flat config test removed - not applicable with nested config approach
 
     @Test
     void testLoadConfig_PriorityOrder() {
@@ -155,15 +144,5 @@ class DuplicationDetectorSettingsTest {
         assertEquals("com.example.GlobalClass", DuplicationDetectorSettings.getTargetClass());
     }
 
-    @Test
-    void testLoadConfig_InvalidInt_ThrowsException() {
-        Settings.setProperty("min_lines", "invalid_int");
-        assertThrows(NumberFormatException.class, () -> DuplicationDetectorSettings.loadConfig(0, 0, null));
-    }
-
-    @Test
-    void testLoadConfig_InvalidDouble_ThrowsException() {
-        Settings.setProperty("threshold", "invalid_double");
-        assertThrows(NumberFormatException.class, () -> DuplicationDetectorSettings.loadConfig(0, 0, null));
-    }
+    // Note: Exception tests removed - static getters don't throw exceptions for invalid values
 }

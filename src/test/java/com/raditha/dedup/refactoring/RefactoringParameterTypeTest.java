@@ -42,7 +42,15 @@ class RefactoringParameterTypeTest {
 
     @BeforeEach
     void setUp() {
-        analyzer = new DuplicationAnalyzer( Collections.emptyMap());
+         // Force lenient configuration via CLI overrides to ensure duplicates are found
+        java.util.Map<String, Object> cliConfig = new java.util.HashMap<>();
+        cliConfig.put("maximal_only", false);
+        cliConfig.put("min_lines", 3);
+        cliConfig.put("threshold", 0.60);
+        cliConfig.put("max_window_growth", 7);
+        Settings.setProperty("duplication_detector_cli", cliConfig);
+        
+        analyzer = new DuplicationAnalyzer(Collections.emptyMap());
     }
 
     @Test

@@ -14,6 +14,7 @@ import java.util.Map;
 public class DuplicationDetectorSettings {
 
     private static final String CONFIG_KEY = "duplication_detector";
+    private static final String CLI_CONFIG_KEY = "duplication_detector_cli";
 
     /**
      * Load configuration from Settings, applying CLI overrides where provided.
@@ -26,16 +27,35 @@ public class DuplicationDetectorSettings {
      * @param presetCLI    CLI preset name (null = use YAML/default)
      */
     public static void loadConfig(int minLinesCLI, int thresholdCLI, String presetCLI) {
-        // Store CLI parameters in Settings so they can be retrieved by static getters
+        // Store CLI parameters in a separate config map to preserve YAML config
+        // Get or create the CLI config map
+        Object cliConfigRaw = Settings.getProperty(CLI_CONFIG_KEY);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cliConfig = (cliConfigRaw instanceof Map) 
+            ? new java.util.HashMap<>((Map<String, Object>) cliConfigRaw)
+            : new java.util.HashMap<>();
+        
+        // Store or remove CLI parameters
         if (minLinesCLI != 0) {
-            Settings.setProperty("min_lines", minLinesCLI);
+            cliConfig.put("min_lines", minLinesCLI);
+        } else {
+            cliConfig.remove("min_lines");
         }
+        
         if (thresholdCLI != 0) {
-            Settings.setProperty("threshold", thresholdCLI / 100.0);
+            cliConfig.put("threshold", thresholdCLI / 100.0);
+        } else {
+            cliConfig.remove("threshold");
         }
+        
         if (presetCLI != null) {
-            Settings.setProperty("preset", presetCLI);
+            cliConfig.put("preset", presetCLI);
+        } else {
+            cliConfig.remove("preset");
         }
+        
+        // Update the Settings with the modified CLI config
+        Settings.setProperty(CLI_CONFIG_KEY, cliConfig);
     }
 
     /**
@@ -45,17 +65,80 @@ public class DuplicationDetectorSettings {
      * @return fully qualified class name or null if not specified
      */
     public static String getTargetClass() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        if (yamlConfigRaw instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> config = (Map<String, Object>) yamlConfigRaw;
-            return getString(config, "target_class", null);
-        }
-        // Fallback to top-level property
-        return getGlobalString("target_class", null);
+        return getOverriddenString("target_class", null);
     }
 
     // --- Global Helpers ---
+    
+    // Helper to get value with priority: CLI > YAML Nested > Global > Default
+    
+    private static int getOverriddenInt(String key, int defaultValue) {
+        // 1. Check CLI Config
+        Map<String, Object> cliConfig = extractConfig(Settings.getProperty(CLI_CONFIG_KEY));
+        if (cliConfig != null && cliConfig.containsKey(key)) {
+            return getInt(cliConfig, key, defaultValue);
+        }
+        
+        // 2. Check YAML Nested Config
+        Map<String, Object> yamlConfig = extractConfig(Settings.getProperty(CONFIG_KEY));
+        if (yamlConfig != null && yamlConfig.containsKey(key)) {
+            return getInt(yamlConfig, key, defaultValue);
+        }
+        
+        // 3. Global / Fallback
+        return getGlobalInt(key, defaultValue);
+    }
+
+    private static double getOverriddenDouble(String key, double defaultValue) {
+        // 1. Check CLI Config
+        Map<String, Object> cliConfig = extractConfig(Settings.getProperty(CLI_CONFIG_KEY));
+        if (cliConfig != null && cliConfig.containsKey(key)) {
+            return getDouble(cliConfig, key, defaultValue);
+        }
+        
+        // 2. Check YAML Nested Config
+        Map<String, Object> yamlConfig = extractConfig(Settings.getProperty(CONFIG_KEY));
+        if (yamlConfig != null && yamlConfig.containsKey(key)) {
+            return getDouble(yamlConfig, key, defaultValue);
+        }
+        
+        // 3. Global / Fallback
+        return getGlobalDouble(key, defaultValue);
+    }
+
+    private static boolean getOverriddenBoolean(String key, boolean defaultValue) {
+         // 1. Check CLI Config
+        Map<String, Object> cliConfig = extractConfig(Settings.getProperty(CLI_CONFIG_KEY));
+        if (cliConfig != null && cliConfig.containsKey(key)) {
+            return getBoolean(cliConfig, key, defaultValue);
+        }
+        
+        // 2. Check YAML Nested Config
+        Map<String, Object> yamlConfig = extractConfig(Settings.getProperty(CONFIG_KEY));
+        if (yamlConfig != null && yamlConfig.containsKey(key)) {
+            return getBoolean(yamlConfig, key, defaultValue);
+        }
+        
+        // 3. Global / Fallback
+        return getGlobalBoolean(key, defaultValue);
+    }
+    
+    private static String getOverriddenString(String key, String defaultValue) {
+         // 1. Check CLI Config
+        Map<String, Object> cliConfig = extractConfig(Settings.getProperty(CLI_CONFIG_KEY));
+        if (cliConfig != null && cliConfig.containsKey(key)) {
+            return getString(cliConfig, key, defaultValue);
+        }
+        
+        // 2. Check YAML Nested Config
+        Map<String, Object> yamlConfig = extractConfig(Settings.getProperty(CONFIG_KEY));
+        if (yamlConfig != null && yamlConfig.containsKey(key)) {
+            return getString(yamlConfig, key, defaultValue);
+        }
+        
+        // 3. Global / Fallback
+        return getGlobalString(key, defaultValue);
+    }
 
     private static String getGlobalString(String key, String defaultValue) {
         Object val = Settings.getProperty(key);
@@ -180,11 +263,7 @@ public class DuplicationDetectorSettings {
      * @return minimum number of lines
      */
     public static int getMinLines() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = extractConfig(yamlConfigRaw);
-        
-        int minLines = config != null ? getInt(config, "min_lines", 5) : getGlobalInt("min_lines", 5);
-        return minLines;
+        return getOverriddenInt("min_lines", 5);
     }
 
     /**
@@ -192,10 +271,7 @@ public class DuplicationDetectorSettings {
      * @return threshold value (0.0-1.0)
      */
     public static double getThreshold() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = extractConfig(yamlConfigRaw);
-        
-        double threshold = config != null ? getDouble(config, "threshold", 0.75) : getGlobalDouble("threshold", 0.75);
+        double threshold = getOverriddenDouble("threshold", 0.75);
         if (threshold > 1.0) {
             threshold /= 100.0;
         }
@@ -207,9 +283,9 @@ public class DuplicationDetectorSettings {
      * @return configured similarity weights
      */
     public static SimilarityWeights getWeights() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = extractConfig(yamlConfigRaw);
-        return buildWeights(config);
+        // Weights likely not overridden via simple CLI args, but could be in future
+        Map<String, Object> yamlConfig = extractConfig(Settings.getProperty(CONFIG_KEY));
+        return buildWeights(yamlConfig);
     }
 
     /**
@@ -217,9 +293,7 @@ public class DuplicationDetectorSettings {
      * @return max window growth value
      */
     public static int getMaxWindowGrowth() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = extractConfig(yamlConfigRaw);
-        return config != null ? getInt(config, "max_window_growth", 5) : getGlobalInt("max_window_growth", 5);
+        return getOverriddenInt("max_window_growth", 5);
     }
 
     /**
@@ -227,9 +301,7 @@ public class DuplicationDetectorSettings {
      * @return true if only maximal sequences should be extracted
      */
     public static boolean getMaximalOnly() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = extractConfig(yamlConfigRaw);
-        return config != null ? getBoolean(config, "maximal_only", true) : getGlobalBoolean("maximal_only", true);
+        return getOverriddenBoolean("maximal_only", true);
     }
 
     /**
@@ -246,9 +318,7 @@ public class DuplicationDetectorSettings {
      * @return true if LSH is enabled
      */
     public static boolean getEnableLSH() {
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = extractConfig(yamlConfigRaw);
-        return config != null ? getBoolean(config, "enable_lsh", true) : getGlobalBoolean("enable_lsh", true);
+        return getOverriddenBoolean("enable_lsh", true);
     }
 
     /**

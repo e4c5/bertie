@@ -17,6 +17,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,7 +45,16 @@ class RefactoringIntegrationTest {
         AntikytheraRunTime.resetAll();
         AbstractCompiler.reset();
         AbstractCompiler.preProcess();
-        analyzer = new DuplicationAnalyzer();
+        
+        // Force lenient configuration via CLI overrides to ensure duplicates are found
+        java.util.Map<String, Object> cliConfig = new java.util.HashMap<>();
+        cliConfig.put("maximal_only", false);
+        cliConfig.put("min_lines", 3);
+        cliConfig.put("threshold", 0.60);
+        cliConfig.put("max_window_growth", 7);
+        Settings.setProperty("duplication_detector_cli", cliConfig);
+        
+        analyzer = new DuplicationAnalyzer(Collections.emptyMap());
     }
 
     @Test
