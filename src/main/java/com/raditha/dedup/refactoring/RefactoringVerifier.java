@@ -156,6 +156,7 @@ public class RefactoringVerifier {
      * Create a temporary directory for compilation output.
      * Returns null if creation fails (fileManager will be closed).
      */
+    @SuppressWarnings("java:S5443") // Files.createTempDirectory() is secure: creates with unique names and restrictive permissions
     private Path createTempDirectory(StandardJavaFileManager fileManager) {
         try {
             return Files.createTempDirectory("bertie-compile-" + System.nanoTime());
