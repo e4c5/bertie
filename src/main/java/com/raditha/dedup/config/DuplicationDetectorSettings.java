@@ -35,23 +35,31 @@ public class DuplicationDetectorSettings {
             ? new java.util.HashMap<>((Map<String, Object>) cliConfigRaw)
             : new java.util.HashMap<>();
         
-        // Store or remove CLI parameters
+        // Apply preset values if specified
+        if (presetCLI != null) {
+            switch (presetCLI.toLowerCase()) {
+                case "strict":
+                    cliConfig.put("threshold", 0.90);
+                    cliConfig.put("min_lines", 5);
+                    break;
+                case "lenient":
+                    cliConfig.put("threshold", 0.60);
+                    cliConfig.put("min_lines", 3);
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown preset: " + presetCLI + 
+                        ". Valid presets are 'strict' or 'lenient'.");
+            }
+            // Don't store the preset name itself, just its effect
+        }
+        
+        // CLI parameters override preset values
         if (minLinesCLI != 0) {
             cliConfig.put("min_lines", minLinesCLI);
-        } else {
-            cliConfig.remove("min_lines");
         }
         
         if (thresholdCLI != 0) {
             cliConfig.put("threshold", thresholdCLI / 100.0);
-        } else {
-            cliConfig.remove("threshold");
-        }
-        
-        if (presetCLI != null) {
-            cliConfig.put("preset", presetCLI);
-        } else {
-            cliConfig.remove("preset");
         }
         
         // Update the Settings with the modified CLI config
