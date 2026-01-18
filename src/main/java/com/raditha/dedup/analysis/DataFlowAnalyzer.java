@@ -76,121 +76,111 @@ public class DataFlowAnalyzer {
      * because the extracted helper will contain the same literals.
      */
     public Set<String> findLiveOutVariables(StatementSequence sequence) {
-        Set<String> definedVars = findDefinedVariables(sequence);
+        SequenceVariableAnalysis analysis = analyzeSequenceVariables(sequence);
+        
         Set<String> usedAfter = findVariablesUsedAfter(sequence);
-        Set<String> literalVars = findLiteralInitializedVariables(sequence);
 
         // Return intersection: defined in sequence AND used after, EXCLUDING literals
-        Set<String> liveOut = new HashSet<>(definedVars);
+        Set<String> liveOut = new HashSet<>(analysis.definedVars());
         liveOut.retainAll(usedAfter);
-        liveOut.removeAll(literalVars);  // Exclude literal-initialized variables
+        liveOut.removeAll(analysis.literalVars());  // Exclude literal-initialized variables
 
         // FIX: Exclude variables whose scope is strictly internal to the sequence
         // (e.g. loop variables, catch parameters, variables in nested blocks)
-        liveOut.removeIf(varName -> isScopeInternal(sequence, varName));
+        liveOut.removeAll(analysis.internalVars());
 
         return liveOut;
     }
 
-    private boolean isScopeInternal(StatementSequence sequence, String varName) {
-        // Variable is internal if it's declared in the sequence BUT not as a top-level ExpressionStmt
-        // (which implies it's a loop var, catch param, or nested in a block)
-        VariableDeclarator decl = getVariableDeclarator(sequence, varName);
-        
-        if (decl != null) {
-            // Found at top-level. Check if it is an ExpressionStmt (standard local var)
-            Statement declStmt = decl.findAncestor(Statement.class).orElse(null);
-            if (declStmt != null && sequence.statements().contains(declStmt)) {
-                 return !declStmt.isExpressionStmt();
-            }
-            return true; // Should not happen if found by getVariableDeclarator
-        }
-        
-        // Not found at top-level. Check if declared DEEPLY in sequence.
+    private record SequenceVariableAnalysis(
+            Set<String> definedVars,
+            Set<String> literalVars,
+            Set<String> internalVars
+    ) {}
+
+    private SequenceVariableAnalysis analyzeSequenceVariables(StatementSequence sequence) {
+        Set<String> defined = new HashSet<>();
+        Set<String> literals = new HashSet<>();
+        Set<String> internal = new HashSet<>();
+        Set<Statement> topLevelStmts = new HashSet<>(sequence.statements());
+
+        SequenceAnalysisVisitor visitor = new SequenceAnalysisVisitor(topLevelStmts);
         for (Statement stmt : sequence.statements()) {
-             // Use findAll to search nested nodes
-             List<VariableDeclarator> nestedDecls = stmt.findAll(VariableDeclarator.class);
-             for (VariableDeclarator nested : nestedDecls) {
-                 if (nested.getNameAsString().equals(varName)) {
-                     // Found a nested declaration. Since it's not top-level (checked above),
-                     // it is strictly internal to the sequence.
-                     return true; 
-                 }
-             }
-             // Also check Catch params (not VariableDeclarator but Parameter)
-             List<com.github.javaparser.ast.stmt.CatchClause> catches = stmt.findAll(com.github.javaparser.ast.stmt.CatchClause.class);
-             for (com.github.javaparser.ast.stmt.CatchClause cc : catches) {
-                 if (cc.getParameter().getNameAsString().equals(varName)) {
-                     return true;
-                 }
-             }
+            stmt.accept(visitor, new AnalysisContext(defined, literals, internal));
         }
-        
-        // Not declared in sequence at all (must be an assignment to external var).
-        // Potentially live-out.
-        return false; 
+        return new SequenceVariableAnalysis(defined, literals, internal);
+    }
+
+    private record AnalysisContext(
+            Set<String> defined,
+            Set<String> literals,
+            Set<String> internal
+    ) {}
+
+    private static class SequenceAnalysisVisitor extends com.github.javaparser.ast.visitor.VoidVisitorAdapter<AnalysisContext> {
+        private final Set<Statement> topLevelStmts;
+
+        public SequenceAnalysisVisitor(Set<Statement> topLevelStmts) {
+            this.topLevelStmts = topLevelStmts;
+        }
+
+        @Override
+        public void visit(VariableDeclarator n, AnalysisContext ctx) {
+            super.visit(n, ctx);
+            String name = n.getNameAsString();
+            ctx.defined().add(name);
+
+            // Check if literal
+            if (n.getInitializer().isPresent() && n.getInitializer().get().isLiteralExpr()) {
+                ctx.literals().add(name);
+            }
+
+            // Check if internal
+            Statement stmt = n.findAncestor(Statement.class).orElse(null);
+            if (stmt == null || !topLevelStmts.contains(stmt) || !stmt.isExpressionStmt()) {
+                ctx.internal().add(name);
+            }
+        }
+
+        @Override
+        public void visit(com.github.javaparser.ast.expr.AssignExpr n, AnalysisContext ctx) {
+            super.visit(n, ctx);
+            if (n.getTarget().isNameExpr()) {
+                ctx.defined().add(n.getTarget().asNameExpr().getNameAsString());
+            }
+        }
+
+        @Override
+        public void visit(com.github.javaparser.ast.expr.LambdaExpr n, AnalysisContext ctx) {
+            super.visit(n, ctx);
+            n.getParameters().forEach(p -> {
+                String name = p.getNameAsString();
+                ctx.defined().add(name);
+                ctx.internal().add(name);
+            });
+        }
+
+        @Override
+        public void visit(com.github.javaparser.ast.stmt.CatchClause n, AnalysisContext ctx) {
+            super.visit(n, ctx);
+            String name = n.getParameter().getNameAsString();
+            ctx.defined().add(name);
+            ctx.internal().add(name);
+        }
     }
 
     /**
-     * Find variables initialized exclusively from literal values.
-     * These include: StringLiteralExpr, IntegerLiteralExpr, BooleanLiteralExpr, etc.
-     * <p>
-     * Literal-initialized variables are NOT true live-outs because:
-     * 1. The extracted helper method will contain the same literal values
-     * 2. The caller can replicate these constants trivially
-     * 3. There's no information flow dependency - they're compile-time constants
+     * Finds variables initialized exclusively from literal values.
      */
     public Set<String> findLiteralInitializedVariables(StatementSequence sequence) {
-        Set<String> literalVars = new HashSet<>();
-        
-        for (Statement stmt : sequence.statements()) {
-            stmt.findAll(VariableDeclarator.class).forEach(v -> {
-                if (v.getInitializer().isPresent()) {
-                    com.github.javaparser.ast.expr.Expression init = v.getInitializer().get();
-                    if (init.isLiteralExpr()) {
-                        literalVars.add(v.getNameAsString());
-                    }
-                }
-            });
-        }
-        
-        return literalVars;
+        return analyzeSequenceVariables(sequence).literalVars();
     }
 
     /**
-     * Find all variables defined (assigned or declared) in the sequence.
+     * Finds variables defined (assigned or declared) in the sequence.
      */
     public Set<String> findDefinedVariables(StatementSequence sequence) {
-        Set<String> defined = new HashSet<>();
-
-        for (Statement stmt : sequence.statements()) {
-            // 1. Variable declarations (Explicit check + findAll for nested)
-            if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
-                stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()
-                        .forEach(v -> defined.add(v.getNameAsString()));
-            } else {
-                stmt.findAll(VariableDeclarationExpr.class)
-                        .forEach(vde -> vde.getVariables().forEach(v -> defined.add(v.getNameAsString())));
-            }
-
-            // 2. Assignments (target variables)
-            stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class).forEach(ae -> {
-                var target = ae.getTarget();
-                if (target.isNameExpr()) {
-                    defined.add(target.asNameExpr().getNameAsString());
-                }
-            });
-
-            // 3. Lambda parameters
-            stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)
-                    .forEach(lambda -> lambda.getParameters().forEach(p -> defined.add(p.getNameAsString())));
-
-            // 4. Catch clause parameters
-            stmt.findAll(com.github.javaparser.ast.stmt.CatchClause.class)
-                    .forEach(catchClause -> defined.add(catchClause.getParameter().getNameAsString()));
-        }
-
-        return defined;
+        return analyzeSequenceVariables(sequence).definedVars();
     }
 
     /**
