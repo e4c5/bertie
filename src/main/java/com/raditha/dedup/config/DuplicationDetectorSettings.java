@@ -49,8 +49,8 @@ public class DuplicationDetectorSettings {
                     cliConfig.put(KEY_MIN_LINES, 3);
                     break;
                 default:
-                    throw new IllegalArgumentException("Unknown preset: " + presetCLI + 
-                        ". Valid presets are 'strict' or 'lenient'.");
+                    // Log and ignore unknown presets instead of throwing exception
+                    System.err.println("Unknown preset: " + presetCLI + ". Valid presets are 'strict' or 'lenient'.");
             }
             // Don't store the preset name itself, just its effect
         }
@@ -58,10 +58,16 @@ public class DuplicationDetectorSettings {
         // CLI parameters override preset values
         if (minLinesCLI != 0) {
             cliConfig.put(KEY_MIN_LINES, minLinesCLI);
+        } else {
+            // Restore: remove stale CLI override
+            cliConfig.remove(KEY_MIN_LINES);
         }
         
         if (thresholdCLI != 0) {
             cliConfig.put(KEY_THRESHOLD, thresholdCLI / 100.0);
+        } else {
+            // Restore: remove stale CLI override
+            cliConfig.remove(KEY_THRESHOLD);
         }
         
         // Update the Settings with the modified CLI config
