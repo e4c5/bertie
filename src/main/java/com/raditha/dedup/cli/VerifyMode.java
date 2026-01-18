@@ -21,7 +21,13 @@ public enum VerifyMode {
      * Test verification - Run the full test suite.
      * Most thorough verification but takes the longest time.
      */
-    TEST;
+    TEST,
+
+    /**
+     * Fast compilation verification using javax.tools.JavaCompiler API.
+     * Checks for compilation errors in modified files without spawning Maven.
+     */
+    FAST_COMPILE;
     
     /**
      * Convert a string value to VerifyMode enum.
@@ -39,8 +45,9 @@ public enum VerifyMode {
             case "none" -> NONE;
             case "compile" -> COMPILE;
             case "test" -> TEST;
+            case "fast_compile", "fast-compile" -> FAST_COMPILE;
             default -> throw new IllegalArgumentException(
-                "Invalid verify mode: " + value + ". Must be: none, compile, or test");
+                "Invalid verify mode: " + value + ". Must be: none, compile, test, or fast_compile");
         };
     }
     
@@ -54,6 +61,7 @@ public enum VerifyMode {
             case NONE -> "none";
             case COMPILE -> "compile";
             case TEST -> "test";
+            case FAST_COMPILE -> "fast_compile";
         };
     }
 }

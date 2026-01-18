@@ -322,6 +322,42 @@ public class DuplicationDetectorSettings {
     }
 
     /**
+     * Get target Java version for compilation.
+     * Priority: CLI -> YAML "java_version" -> System property "java.version"
+     * @return Java version string (e.g. "17", "21")
+     */
+    public static String getJavaVersion() {
+        String version = getOverriddenString("java_version", null);
+        if (version == null) {
+            version = System.getProperty("java.version");
+            // If full version string like "21.0.1", we might want just major version?
+            // For now, return as-is, JavaCompiler API handles full strings.
+            // But for Release option, we usually need "11", "17", etc.
+            if (version.contains(".")) {
+                 String[] parts = version.split("\\.");
+                 if (parts[0].equals("1")) {
+                     return parts[1]; // Handle 1.8 -> 8
+                 }
+                 return parts[0]; // Handle 11.0.1 -> 11
+            }
+        }
+        return version;
+    }
+
+    /**
+     * Get custom Java Home path.
+     * Priority: CLI -> YAML "java_home" -> Environment JAVA_HOME
+     * @return Path to Java home or null if not set
+     */
+    public static String getJavaHome() {
+        String home = getOverriddenString("java_home", null);
+        if (home == null) {
+            home = System.getenv("JAVA_HOME");
+        }
+        return home;
+    }
+
+    /**
      * Check if a file path should be excluded from analysis.
      * @param filePath the file path to check
      * @return true if the file should be excluded

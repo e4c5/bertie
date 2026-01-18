@@ -81,6 +81,12 @@ public class BertieCLI implements Callable<Integer> {
     @Option(names = "--verify", description = "Verification level: ${COMPLETION-CANDIDATES}", paramLabel = "<level>", converter = VerifyModeConverter.class)
     private VerifyMode verifyMode = VerifyMode.COMPILE;
 
+    @Option(names = "--java-version", description = "Target Java version (e.g., 17, 21)")
+    private String javaVersion;
+
+    @Option(names = "--java-home", description = "Path to specific JDK home")
+    private String javaHome;
+
     /**
      * Picocli call method - executes the main logic.
      * 
@@ -111,6 +117,18 @@ public class BertieCLI implements Callable<Integer> {
         } else if (lenient) {
             preset = "lenient";
         }
+        if (preset != null) {
+            System.out.println("Using preset: " + preset);
+        }
+        
+        // Pass java settings to DuplicationDetectorSettings (they are handled as regular properties)
+        if (javaVersion != null) {
+            Settings.setProperty("java_version", javaVersion);
+        }
+        if (javaHome != null) {
+            Settings.setProperty("java_home", javaHome);
+        }
+
         DuplicationDetectorSettings.loadConfig(minLines, threshold, preset);
 
         // Update verifyMode from Settings if present (and not overridden by CLI -
@@ -310,13 +328,6 @@ public class BertieCLI implements Callable<Integer> {
         System.out.println("=== PHASE 2: Automated Refactoring ===");
         System.out.println();
 
-        // Determine verification level
-        RefactoringVerifier.VerificationLevel verifyLevel = switch (verifyMode) {
-            case NONE -> RefactoringVerifier.VerificationLevel.NONE;
-            case TEST -> RefactoringVerifier.VerificationLevel.TEST;
-            case COMPILE -> RefactoringVerifier.VerificationLevel.COMPILE;
-        };
-
         // Create refactoring engine
         Path projectRoot = Paths.get(Settings.getBasePath());
         RefactoringEngine.RefactoringMode mode = switch (refactorMode) {
@@ -325,7 +336,7 @@ public class BertieCLI implements Callable<Integer> {
             case INTERACTIVE -> RefactoringEngine.RefactoringMode.INTERACTIVE;
         };
 
-        RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyLevel);
+        RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyMode);
 
         // Process each report
         int totalSuccess = 0;
