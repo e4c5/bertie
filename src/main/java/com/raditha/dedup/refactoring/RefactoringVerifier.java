@@ -105,57 +105,19 @@ public class RefactoringVerifier {
         filesToCompile.addAll(createdFiles);
         
         if (filesToCompile.isEmpty()) {
-            try {
-                fileManager.close();
-            } catch (IOException e) {
-                // ignore
-            }
+            closeFileManager(fileManager);
             return new CompilationResult(true, List.of(), "No files modified");
         }
 
         // Create temporary directory for compilation output
-        Path tempOutput = null;
-        try {
-            tempOutput = Files.createTempDirectory("bertie-compile-" + System.nanoTime());
-        } catch (IOException e) {
-            try {
-                fileManager.close();
-            } catch (IOException ex) {
-                // ignore
-            }
-            return new CompilationResult(false, List.of("Failed to create temp directory: " + e.getMessage()), "");
+        Path tempOutput = createTempDirectory(fileManager);
+        if (tempOutput == null) {
+            return new CompilationResult(false, List.of("Failed to create temp directory"), "");
         }
 
         try {
             Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromPaths(filesToCompile);
-
-            // Build classpath
-            List<String> options = new ArrayList<>();
-            options.add("-classpath");
-            
-            StringBuilder cp = new StringBuilder();
-            // 1. External dependencies
-            for (String jar : MavenHelper.getJarPaths()) {
-                cp.append(jar).append(java.io.File.pathSeparator);
-            }
-            // 2. Project classes (so we can resolve other classes in the project)
-            cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
-            cp.append(projectRoot.resolve("target/test-classes"));
-            
-            options.add(cp.toString());
-            
-            // Output directory
-            options.add("-d");
-            options.add(tempOutput.toString());
-            
-            // Java version
-            String javaVersion = DuplicationDetectorSettings.getJavaVersion();
-            if (javaVersion != null) {
-                 options.add("-source");
-                 options.add(javaVersion);
-                 options.add("-target");
-                 options.add(javaVersion);
-            }
+            List<String> options = buildCompilerOptions(tempOutput);
 
             JavaCompiler.CompilationTask task = compiler.getTask(
                 null, // default writer (system.err) if not null, but we capture diagnostics
@@ -167,34 +129,95 @@ public class RefactoringVerifier {
             );
 
             boolean success = task.call();
-            
-            List<String> errors = new ArrayList<>();
-            if (!success) {
-                for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
-                    if (diagnostic.getKind() == Diagnostic.Kind.ERROR) {
-                        JavaFileObject source = diagnostic.getSource();
-                        String sourcePath = (source != null) ? source.toUri().getPath() : "<unknown>";
-                        errors.add(String.format("%s:%d: %s",
-                            sourcePath,
-                            diagnostic.getLineNumber(),
-                            diagnostic.getMessage(null)));
-                    }
-                }
-            }
+            List<String> errors = extractCompilationErrors(diagnostics);
             
             return new CompilationResult(success, errors, success ? "Fast compilation succeeded" : "Fast compilation failed");
             
         } finally {
-            try {
-                fileManager.close();
-            } catch (IOException e) {
-                // ignore
-            }
-            // Cleanup temp directory
+            closeFileManager(fileManager);
             if (tempOutput != null) {
                 deleteDirectoryRecursively(tempOutput);
             }
         }
+    }
+
+    /**
+     * Close the file manager, ignoring any exceptions.
+     */
+    private void closeFileManager(StandardJavaFileManager fileManager) {
+        try {
+            fileManager.close();
+        } catch (IOException e) {
+            // ignore
+        }
+    }
+
+    /**
+     * Create a temporary directory for compilation output.
+     * Returns null if creation fails (fileManager will be closed).
+     */
+    private Path createTempDirectory(StandardJavaFileManager fileManager) {
+        try {
+            return Files.createTempDirectory("bertie-compile-" + System.nanoTime());
+        } catch (IOException e) {
+            closeFileManager(fileManager);
+            return null;
+        }
+    }
+
+    /**
+     * Build compiler options including classpath and Java version.
+     */
+    private List<String> buildCompilerOptions(Path tempOutput) {
+        List<String> options = new ArrayList<>();
+        options.add("-classpath");
+        options.add(buildClasspath());
+        options.add("-d");
+        options.add(tempOutput.toString());
+        
+        // Java version
+        String javaVersion = DuplicationDetectorSettings.getJavaVersion();
+        if (javaVersion != null) {
+             options.add("-source");
+             options.add(javaVersion);
+             options.add("-target");
+             options.add(javaVersion);
+        }
+        
+        return options;
+    }
+
+    /**
+     * Build the classpath string for compilation.
+     */
+    private String buildClasspath() {
+        StringBuilder cp = new StringBuilder();
+        // 1. External dependencies
+        for (String jar : MavenHelper.getJarPaths()) {
+            cp.append(jar).append(java.io.File.pathSeparator);
+        }
+        // 2. Project classes (so we can resolve other classes in the project)
+        cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
+        cp.append(projectRoot.resolve("target/test-classes"));
+        return cp.toString();
+    }
+
+    /**
+     * Extract compilation errors from diagnostics.
+     */
+    private List<String> extractCompilationErrors(DiagnosticCollector<JavaFileObject> diagnostics) {
+        List<String> errors = new ArrayList<>();
+        for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+            if (diagnostic.getKind() == Diagnostic.Kind.ERROR) {
+                JavaFileObject source = diagnostic.getSource();
+                String sourcePath = (source != null) ? source.toUri().getPath() : "<unknown>";
+                errors.add(String.format("%s:%d: %s",
+                    sourcePath,
+                    diagnostic.getLineNumber(),
+                    diagnostic.getMessage(null)));
+            }
+        }
+        return errors;
     }
 
     private void deleteDirectoryRecursively(Path path) {

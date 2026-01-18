@@ -15,6 +15,8 @@ public class DuplicationDetectorSettings {
 
     private static final String CONFIG_KEY = "duplication_detector";
     private static final String CLI_CONFIG_KEY = "duplication_detector_cli";
+    private static final String KEY_THRESHOLD = "threshold";
+    private static final String KEY_MIN_LINES = "min_lines";
 
     /**
      * Load configuration from Settings, applying CLI overrides where provided.
@@ -39,12 +41,12 @@ public class DuplicationDetectorSettings {
         if (presetCLI != null) {
             switch (presetCLI.toLowerCase()) {
                 case "strict":
-                    cliConfig.put("threshold", 0.90);
-                    cliConfig.put("min_lines", 5);
+                    cliConfig.put(KEY_THRESHOLD, 0.90);
+                    cliConfig.put(KEY_MIN_LINES, 5);
                     break;
                 case "lenient":
-                    cliConfig.put("threshold", 0.60);
-                    cliConfig.put("min_lines", 3);
+                    cliConfig.put(KEY_THRESHOLD, 0.60);
+                    cliConfig.put(KEY_MIN_LINES, 3);
                     break;
                 default:
                     throw new IllegalArgumentException("Unknown preset: " + presetCLI + 
@@ -55,11 +57,11 @@ public class DuplicationDetectorSettings {
         
         // CLI parameters override preset values
         if (minLinesCLI != 0) {
-            cliConfig.put("min_lines", minLinesCLI);
+            cliConfig.put(KEY_MIN_LINES, minLinesCLI);
         }
         
         if (thresholdCLI != 0) {
-            cliConfig.put("threshold", thresholdCLI / 100.0);
+            cliConfig.put(KEY_THRESHOLD, thresholdCLI / 100.0);
         }
         
         // Update the Settings with the modified CLI config
@@ -271,7 +273,7 @@ public class DuplicationDetectorSettings {
      * @return minimum number of lines
      */
     public static int getMinLines() {
-        return getOverriddenInt("min_lines", 5);
+        return getOverriddenInt(KEY_MIN_LINES, 5);
     }
 
     /**
@@ -279,7 +281,7 @@ public class DuplicationDetectorSettings {
      * @return threshold value (0.0-1.0)
      */
     public static double getThreshold() {
-        double threshold = getOverriddenDouble("threshold", 0.75);
+        double threshold = getOverriddenDouble(KEY_THRESHOLD, 0.75);
         if (threshold > 1.0) {
             threshold /= 100.0;
         }
