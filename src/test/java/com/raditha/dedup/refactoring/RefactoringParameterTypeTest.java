@@ -1,6 +1,7 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.cli.VerifyMode;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import org.junit.jupiter.api.BeforeAll;
@@ -109,7 +110,7 @@ public class ServiceWithTryCatchBlocks {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.INTERACTIVE,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
         

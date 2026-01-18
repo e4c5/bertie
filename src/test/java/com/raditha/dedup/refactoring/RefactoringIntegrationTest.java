@@ -1,6 +1,7 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.StaticJavaParser;
+import com.raditha.dedup.cli.VerifyMode;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.nodeTypes.NodeWithSimpleName;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
@@ -74,7 +75,7 @@ class RefactoringIntegrationTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE // Skip compilation for speed
+                VerifyMode.NONE // Skip compilation for speed
         );
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
@@ -143,7 +144,7 @@ class RefactoringIntegrationTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 
@@ -166,7 +167,7 @@ class RefactoringIntegrationTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 

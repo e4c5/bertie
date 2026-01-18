@@ -13,6 +13,7 @@ Location: `src/main/resources/generator.yml` (default) or custom file via CLI.
 ```yaml
 variables:
   projects_folder: ${HOME}/projects
+  m2_folder: ${HOME}/.m2/repository
 
 base_path: /absolute/path/to/your/project
 
