@@ -30,6 +30,8 @@ public class RefactoringVerifier {
     private final Map<Path, String> backups = new HashMap<>();
     private final List<Path> createdFiles = new ArrayList<>();
     private final VerifyMode verificationLevel;
+    private String cachedClasspath;
+    private String cachedSourcepath;
 
     public RefactoringVerifier(Path projectRoot) {
         this(projectRoot, VerifyMode.COMPILE);
@@ -46,6 +48,7 @@ public class RefactoringVerifier {
     public void createBackup(Path file) throws IOException {
         if (!Files.exists(file)) {
             createdFiles.add(file);
+            invalidateCache();
             return;
         }
         String originalContent = Files.readString(file);
@@ -119,17 +122,11 @@ public class RefactoringVerifier {
             // Build classpath
             List<String> options = new ArrayList<>();
             options.add("-classpath");
+            options.add(getClasspath());
             
-            StringBuilder cp = new StringBuilder();
-            // 1. External dependencies
-            for (String jar : MavenHelper.getJarPaths()) {
-                cp.append(jar).append(java.io.File.pathSeparator);
-            }
-            // 2. Project classes (so we can resolve other classes in the project)
-            cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
-            cp.append(projectRoot.resolve("target/test-classes"));
-            
-            options.add(cp.toString());
+            // Add source path so compiler can find other classes in the project
+            options.add("-sourcepath");
+            options.add(getSourcepath());
             
             // Output directory
             options.add("-d");
@@ -180,6 +177,40 @@ public class RefactoringVerifier {
                 deleteDirectoryRecursively(tempOutput);
             }
         }
+    }
+
+    private String getClasspath() {
+        if (cachedClasspath == null) {
+            StringBuilder cp = new StringBuilder();
+            // 1. External dependencies
+            for (String jar : MavenHelper.getJarPaths()) {
+                cp.append(jar).append(java.io.File.pathSeparator);
+            }
+            // 2. Project classes (so we can resolve other classes in the project)
+            cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
+            cp.append(projectRoot.resolve("target/test-classes"));
+            cachedClasspath = cp.toString();
+        }
+        return cachedClasspath;
+    }
+
+    private String getSourcepath() {
+        if (cachedSourcepath == null) {
+            StringBuilder sp = new StringBuilder();
+            sp.append(projectRoot.resolve("src/main/java")).append(java.io.File.pathSeparator);
+            sp.append(projectRoot.resolve("src/test/java"));
+            cachedSourcepath = sp.toString();
+        }
+        return cachedSourcepath;
+    }
+
+    /**
+     * Invalidate the cached classpath and sourcepath.
+     * Should be called when the project structure changes (e.g., new file created).
+     */
+    public void invalidateCache() {
+        cachedClasspath = null;
+        cachedSourcepath = null;
     }
 
     private void deleteDirectoryRecursively(Path path) {
