@@ -33,23 +33,20 @@ public class MinHash {
         Set<Integer> shingles = generateShingleHashes(tokens);
 
         // 2. Compute min-hash for each seed
+        // OPTIMIZATION: Inverted loop for better cache locality
+        // Instead of: for each hash function { for each shingle { ... } }
+        // We do: for each shingle { for each hash function { ... } }
+        // This reduces cache misses by iterating through shingles once
         int[] signature = new int[numHashFunctions];
+        java.util.Arrays.fill(signature, Integer.MAX_VALUE);
 
-        for (int i = 0; i < numHashFunctions; i++) {
-            long seed = seeds[i];
-            int minHash = Integer.MAX_VALUE;
-
-            for (int shingleHash : shingles) {
-                // Apply a universal hash function based on the seed
-                // h(x) = (a*x + b) % large_prime
-                // Simplified here using simple XOR/multiplication for speed,
-                // or specific hash mixing.
-                int hash = hash(shingleHash, seed);
-                if (hash < minHash) {
-                    minHash = hash;
+        for (int shingleHash : shingles) {
+            for (int i = 0; i < numHashFunctions; i++) {
+                int hash = hash(shingleHash, seeds[i]);
+                if (hash < signature[i]) {
+                    signature[i] = hash;
                 }
             }
-            signature[i] = minHash;
         }
 
         return signature;
