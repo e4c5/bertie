@@ -4,7 +4,6 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringVerifier;
 import org.junit.jupiter.api.BeforeAll;
@@ -59,10 +58,8 @@ class DuplicateEliminationIntegrationTest {
                 Files.writeString(sourceFile, cu.toString());
 
                 // 2. Configure Analyzer
-                DuplicationConfig config = new DuplicationConfig(3, 0.70,
-                                com.raditha.dedup.config.SimilarityWeights.balanced(),
-                                true, List.of(), 5, true, true, true);
-                DuplicationAnalyzer analyzer = new DuplicationAnalyzer(config, cus);
+                com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(3, 70, null);
+                DuplicationAnalyzer analyzer = new DuplicationAnalyzer(cus);
 
                 DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
                 assertTrue(report.hasDuplicates(), "Should have found duplicates");

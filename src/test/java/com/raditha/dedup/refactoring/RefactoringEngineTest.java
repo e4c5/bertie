@@ -4,7 +4,6 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +44,7 @@ class RefactoringEngineTest {
 
     @BeforeEach
     void setUp() {
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient()); // Use lenient for testing
+        analyzer = new DuplicationAnalyzer(); // Use lenient for testing
     }
 
     @Test

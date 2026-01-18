@@ -3,7 +3,6 @@ package com.raditha.dedup.cli;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -33,7 +32,7 @@ class BertieLambdaIntegrationTest {
             cu = com.github.javaparser.StaticJavaParser.parse(sourceFile);
         }
 
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient());
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
 
         // Analysis - this should NOT throw exception
         DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);

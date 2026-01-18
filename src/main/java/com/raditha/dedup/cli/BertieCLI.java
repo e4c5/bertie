@@ -7,7 +7,6 @@ import picocli.CommandLine;
 import picocli.CommandLine.ITypeConverter;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.metrics.MetricsExporter;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -104,6 +103,15 @@ public class BertieCLI implements Callable<Integer> {
         if (outputPath != null) {
             Settings.setProperty(Settings.OUTPUT_PATH, outputPath);
         }
+
+        // Load configuration once at startup
+        String preset = null;
+        if (strict) {
+            preset = "strict";
+        } else if (lenient) {
+            preset = "lenient";
+        }
+        DuplicationDetectorSettings.loadConfig(minLines, threshold, preset);
 
         // Update verifyMode from Settings if present (and not overridden by CLI -
         // simplified check)
@@ -224,24 +232,12 @@ public class BertieCLI implements Callable<Integer> {
     }
 
     private List<DuplicationReport> performAnalysis() {
-        // Load configuration
-        String preset = null;
-        if (strict) {
-            preset = "strict";
-        } else if (lenient) {
-            preset = "lenient";
-        }
-
-        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                minLines,
-                threshold,
-                preset);
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
         System.out.println("DEBUG: allCUs detected " + allCUs.size() + " files.");
         // allCUs.keySet().forEach(k -> System.out.println(" - " + k));
 
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(allCUs);
 
         // Filter map based on target class
         String targetClass = DuplicationDetectorSettings.getTargetClass();
@@ -258,24 +254,11 @@ public class BertieCLI implements Callable<Integer> {
     private void runAnalysis() throws IOException {
         List<DuplicationReport> reports = performAnalysis();
 
-        // Load config again for display purposes
-        String preset = null;
-        if (strict) {
-            preset = "strict";
-        } else if (lenient) {
-            preset = "lenient";
-        }
-
-        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                minLines,
-                threshold,
-                preset);
-
         // Print the detailed report
         if (jsonOutput) {
             printJsonReport(reports);
         } else {
-            printTextReport(reports, dupConfig);
+            printTextReport(reports);
         }
 
         // Export metrics if requested
@@ -376,7 +359,7 @@ public class BertieCLI implements Callable<Integer> {
     }
 
 
-    private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
+    private static void printTextReport(List<DuplicationReport> reports) {
         int totalDuplicates = reports.stream()
                 .mapToInt(DuplicationReport::getDuplicateCount)
                 .sum();
@@ -393,7 +376,7 @@ public class BertieCLI implements Callable<Integer> {
         System.out.printf("Total duplicates found: %d%n", totalDuplicates);
         System.out.printf("Duplicate clusters: %d%n", totalClusters);
         System.out.printf("Configuration: min-lines=%d, threshold=%.0f%%%n",
-                config.minLines(), config.threshold() * 100);
+                DuplicationDetectorSettings.getMinLines(), DuplicationDetectorSettings.getThreshold() * 100);
         System.out.println();
 
         if (totalDuplicates == 0) {

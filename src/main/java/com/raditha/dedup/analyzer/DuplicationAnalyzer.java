@@ -3,7 +3,7 @@ package com.raditha.dedup.analyzer;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
-import com.raditha.dedup.config.DuplicationConfig;
+import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
 import com.raditha.dedup.clustering.DuplicateClusterer;
@@ -25,7 +25,6 @@ import java.util.Set;
  * aggregation.
  */
 public class DuplicationAnalyzer {
-    private final DuplicationConfig config;
     private final StatementExtractor extractor;
     private final PreFilterChain preFilter;
     private final com.raditha.dedup.normalization.ASTNormalizer astNormalizer; // NEW: AST-based
@@ -38,28 +37,26 @@ public class DuplicationAnalyzer {
      * Create analyzer with default configuration.
      */
     public DuplicationAnalyzer() {
-        this(DuplicationConfig.moderate(), Collections.emptyMap());
+        this(Collections.emptyMap());
     }
 
     /**
-     * Create analyzer with custom configuration.
+     * Create analyzer with compilation units for cross-file analysis.
      */
-    public DuplicationAnalyzer(DuplicationConfig config) {
-        this(config, Collections.emptyMap());
-    }
-
-    public DuplicationAnalyzer(DuplicationConfig config, Map<String, CompilationUnit> allCUs) {
-        this.config = config;
-        this.extractor = new StatementExtractor(config.minLines(), config.maxWindowGrowth(), config.maximalOnly());
+    public DuplicationAnalyzer(Map<String, CompilationUnit> allCUs) {
+        this.extractor = new StatementExtractor(
+                DuplicationDetectorSettings.getMinLines(),
+                DuplicationDetectorSettings.getMaxWindowGrowth(),
+                DuplicationDetectorSettings.getMaximalOnly());
         this.preFilter = new PreFilterChain();
         this.astNormalizer = new com.raditha.dedup.normalization.ASTNormalizer(); // NEW
         this.astSimilarityCalculator = new com.raditha.dedup.similarity.ASTSimilarityCalculator(); // NEW
-        this.clusterer = new DuplicateClusterer(config.threshold());
+        this.clusterer = new DuplicateClusterer(DuplicationDetectorSettings.getThreshold());
         this.recommendationGenerator = new RefactoringRecommendationGenerator(allCUs);
         this.boundaryRefiner = new BoundaryRefiner(
                 new DataFlowAnalyzer(),
-                config.minLines(),
-                config.threshold());
+                DuplicationDetectorSettings.getMinLines(),
+                DuplicationDetectorSettings.getThreshold());
     }
 
     /**
@@ -83,8 +80,7 @@ public class DuplicationAnalyzer {
                 processed.duplicates,
                 processed.clustersWithRecommendations,
                 sequences.size(),
-                processed.candidatesCount,
-                config);
+                processed.candidatesCount);
     }
 
     /**
@@ -153,7 +149,7 @@ public class DuplicationAnalyzer {
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
 
         // Step 3: Refine boundaries (trim usage-only statements) - optional
-        if (config.enableBoundaryRefinement()) {
+        if (DuplicationDetectorSettings.getEnableBoundaryRefinement()) {
             duplicates = boundaryRefiner.refineBoundaries(duplicates);
         }
 
@@ -221,8 +217,7 @@ public class DuplicationAnalyzer {
                     fileDups,
                     fileClusters,
                     seqs.size(),
-                    totalCandidates,
-                    config));
+                    totalCandidates));
         }
         return reports;
     }
@@ -261,7 +256,7 @@ public class DuplicationAnalyzer {
      * @return List of candidate similarity pairs
      */
     private List<SimilarityPair> findCandidates(List<StatementSequence> sequences) {
-        if (config.enableLSH()) {
+        if (DuplicationDetectorSettings.getEnableLSH()) {
             return findCandidatesLSH(sequences);
         } else {
             // Brute force fallback - requires full normalization
@@ -404,7 +399,7 @@ public class DuplicationAnalyzer {
         SimilarityResult similarity = astSimilarityCalculator.calculate(
                 nodes1,
                 nodes2,
-                config.weights());
+                DuplicationDetectorSettings.getWeights());
 
         return new SimilarityPair(norm1.sequence(), norm2.sequence(), similarity);
     }
@@ -414,7 +409,7 @@ public class DuplicationAnalyzer {
      */
     private List<SimilarityPair> filterByThreshold(List<SimilarityPair> candidates) {
         return candidates.stream()
-                .filter(pair -> pair.similarity().overallScore() >= config.threshold())
+                .filter(pair -> pair.similarity().overallScore() >= DuplicationDetectorSettings.getThreshold())
                 .sorted((a, b) -> Double.compare(
                         b.similarity().overallScore(),
                         a.similarity().overallScore()))
@@ -589,10 +584,4 @@ public class DuplicationAnalyzer {
                 range2.startLine() <= range1.endLine();
     }
 
-    /**
-     * Get the configuration used by this analyzer.
-     */
-    public DuplicationConfig getConfig() {
-        return config;
-    }
 }

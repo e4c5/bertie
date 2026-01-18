@@ -3,7 +3,6 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +42,7 @@ class RefactoringParameterTypeTest {
 
     @BeforeEach
     void setUp() {
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient(), Collections.emptyMap());
+        analyzer = new DuplicationAnalyzer( Collections.emptyMap());
     }
 
     @Test

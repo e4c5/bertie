@@ -24,87 +24,18 @@ public class DuplicationDetectorSettings {
      * @param minLinesCLI  CLI min lines (0 = use YAML/default)
      * @param thresholdCLI CLI threshold percentage 0-100 (0 = use YAML/default)
      * @param presetCLI    CLI preset name (null = use YAML/default)
-     * @return Complete duplication configuration
      */
-    public static DuplicationConfig loadConfig(int minLinesCLI, int thresholdCLI, String presetCLI) {
-        // Get config from generator.yml (nested)
-        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
-        Map<String, Object> config = null;
-
-        if (yamlConfigRaw instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> map = (Map<String, Object>) yamlConfigRaw;
-            config = map;
+    public static void loadConfig(int minLinesCLI, int thresholdCLI, String presetCLI) {
+        // Store CLI parameters in Settings so they can be retrieved by static getters
+        if (minLinesCLI != 0) {
+            Settings.setProperty("min_lines", minLinesCLI);
         }
-
-        // Determine preset (CLI > YAML nested > YAML flat)
-        String preset = presetCLI;
-        if (preset == null) {
-            if (config != null) {
-                preset = getString(config, "preset", null);
-            }
-            if (preset == null) {
-                preset = getGlobalString("preset", null); // Flat fallback
-            }
+        if (thresholdCLI != 0) {
+            Settings.setProperty("threshold", thresholdCLI / 100.0);
         }
-
-        // Use preset if specified
-        if (preset != null) {
-            return switch (preset) {
-                case "strict" -> DuplicationConfig.strict();
-                case "lenient" -> DuplicationConfig.lenient();
-                default -> DuplicationConfig.moderate();
-            };
+        if (presetCLI != null) {
+            Settings.setProperty("preset", presetCLI);
         }
-
-        // Build custom config (CLI > YAML nested > YAML flat > defaults)
-        int minLines = minLinesCLI != 0 ? minLinesCLI
-                : (config != null ? getInt(config, "min_lines", 5) : getGlobalInt("min_lines", 5));
-
-        double thresholdDefault = (config != null ? getDouble(config, "threshold", 0.75)
-                : getGlobalDouble("threshold", 0.75));
-        if (thresholdDefault > 1.0) {
-            thresholdDefault /= 100.0;
-        }
-        double threshold = thresholdCLI != 0 ? thresholdCLI / 100.0 : thresholdDefault;
-
-        boolean includeTests = (config != null ? getBoolean(config, "include_tests", false)
-                : getGlobalBoolean("include_tests", false));
-
-        List<String> excludePatterns;
-        if (config != null && config.containsKey("exclude_patterns")) {
-            excludePatterns = getListString(config, "exclude_patterns");
-        } else {
-            excludePatterns = getGlobalListString("exclude_patterns");
-        }
-
-        if (excludePatterns == null || excludePatterns.isEmpty()) {
-            excludePatterns = getDefaultExcludes();
-        }
-
-        // Build similarity weights (from YAML or defaults)
-        SimilarityWeights weights = buildWeights(config); // Simplified, ignore flat weights for now or impl later if
-                                                          // needed
-
-        // Other settings
-        int maxWindowGrowth = (config != null ? getInt(config, "max_window_growth", 5)
-                : getGlobalInt("max_window_growth", 5));
-        boolean maximalOnly = (config != null ? getBoolean(config, "maximal_only", true)
-                : getGlobalBoolean("maximal_only", true));
-
-        boolean enableLSH = (config != null ? getBoolean(config, "enable_lsh", true)
-                : getGlobalBoolean("enable_lsh", true));
-
-        return new DuplicationConfig(
-                minLines,
-                threshold,
-                weights,
-                includeTests,
-                excludePatterns,
-                maxWindowGrowth,
-                maximalOnly,
-                true, // enableBoundaryRefinement
-                enableLSH); // enableLSH
     }
 
     /**
@@ -238,5 +169,137 @@ public class DuplicationDetectorSettings {
                 "**/target/**",
                 "**/build/**",
                 "**/.git/**");
+    }
+
+    // ========== Public Static Getters ==========
+    // These methods provide direct access to configuration values
+    // without needing to pass DuplicationConfig around
+
+    /**
+     * Get minimum lines for duplicate detection.
+     * @return minimum number of lines
+     */
+    public static int getMinLines() {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        
+        int minLines = config != null ? getInt(config, "min_lines", 5) : getGlobalInt("min_lines", 5);
+        return minLines;
+    }
+
+    /**
+     * Get similarity threshold for duplicate detection.
+     * @return threshold value (0.0-1.0)
+     */
+    public static double getThreshold() {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        
+        double threshold = config != null ? getDouble(config, "threshold", 0.75) : getGlobalDouble("threshold", 0.75);
+        if (threshold > 1.0) {
+            threshold /= 100.0;
+        }
+        return threshold;
+    }
+
+    /**
+     * Get similarity weights for duplicate detection.
+     * @return configured similarity weights
+     */
+    public static SimilarityWeights getWeights() {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        return buildWeights(config);
+    }
+
+    /**
+     * Get maximum window growth for duplicate detection.
+     * @return max window growth value
+     */
+    public static int getMaxWindowGrowth() {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        return config != null ? getInt(config, "max_window_growth", 5) : getGlobalInt("max_window_growth", 5);
+    }
+
+    /**
+     * Get maximal only flag for duplicate detection.
+     * @return true if only maximal sequences should be extracted
+     */
+    public static boolean getMaximalOnly() {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        return config != null ? getBoolean(config, "maximal_only", true) : getGlobalBoolean("maximal_only", true);
+    }
+
+    /**
+     * Get boundary refinement flag.
+     * @return true if boundary refinement is enabled
+     */
+    public static boolean getEnableBoundaryRefinement() {
+        // Always enabled for now
+        return true;
+    }
+
+    /**
+     * Get LSH enabled flag.
+     * @return true if LSH is enabled
+     */
+    public static boolean getEnableLSH() {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        return config != null ? getBoolean(config, "enable_lsh", true) : getGlobalBoolean("enable_lsh", true);
+    }
+
+    /**
+     * Check if a file path should be excluded from analysis.
+     * @param filePath the file path to check
+     * @return true if the file should be excluded
+     */
+    public static boolean shouldExclude(String filePath) {
+        Object yamlConfigRaw = Settings.getProperty(CONFIG_KEY);
+        Map<String, Object> config = extractConfig(yamlConfigRaw);
+        
+        List<String> excludePatterns;
+        if (config != null && config.containsKey("exclude_patterns")) {
+            excludePatterns = getListString(config, "exclude_patterns");
+        } else {
+            excludePatterns = getGlobalListString("exclude_patterns");
+        }
+
+        if (excludePatterns == null || excludePatterns.isEmpty()) {
+            excludePatterns = getDefaultExcludes();
+        }
+
+        for (String pattern : excludePatterns) {
+            if (matchesGlobPattern(filePath, pattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Simple glob pattern matching.
+     * Supports ** and * wildcards.
+     */
+    private static boolean matchesGlobPattern(String path, String pattern) {
+        // Convert glob pattern to regex
+        String regex = pattern
+                .replace(".", "\\.")
+                .replace("**", ".*")
+                .replace("*", "[^/]*");
+        return path.matches(regex);
+    }
+
+    /**
+     * Extract config map from YAML config raw object.
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> extractConfig(Object yamlConfigRaw) {
+        if (yamlConfigRaw instanceof Map) {
+            return (Map<String, Object>) yamlConfigRaw;
+        }
+        return null;
     }
 }
