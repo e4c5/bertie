@@ -76,7 +76,7 @@ public class DataFlowAnalyzer {
      * because the extracted helper will contain the same literals.
      */
     public Set<String> findLiveOutVariables(StatementSequence sequence) {
-        SequenceVariableAnalysis analysis = analyzeSequenceVariables(sequence);
+        SequenceAnalysis analysis = analyzeSequenceVariables(sequence);
         
         Set<String> usedAfter = findVariablesUsedAfter(sequence);
 
@@ -92,29 +92,38 @@ public class DataFlowAnalyzer {
         return liveOut;
     }
 
-    private record SequenceVariableAnalysis(
+    public record SequenceAnalysis(
             Set<String> definedVars,
             Set<String> literalVars,
-            Set<String> internalVars
+            Set<String> internalVars,
+            Set<String> usedVars,
+            Set<String> returnedVars,
+            java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap
     ) {}
 
-    private SequenceVariableAnalysis analyzeSequenceVariables(StatementSequence sequence) {
+    public SequenceAnalysis analyzeSequenceVariables(StatementSequence sequence) {
         Set<String> defined = new HashSet<>();
         Set<String> literals = new HashSet<>();
         Set<String> internal = new HashSet<>();
+        Set<String> used = new HashSet<>();
+        Set<String> returned = new HashSet<>();
+        java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap = new java.util.HashMap<>();
         Set<Statement> topLevelStmts = new HashSet<>(sequence.statements());
 
         SequenceAnalysisVisitor visitor = new SequenceAnalysisVisitor(topLevelStmts);
         for (Statement stmt : sequence.statements()) {
-            stmt.accept(visitor, new AnalysisContext(defined, literals, internal));
+            stmt.accept(visitor, new AnalysisContext(defined, literals, internal, used, returned, typeMap));
         }
-        return new SequenceVariableAnalysis(defined, literals, internal);
+        return new SequenceAnalysis(defined, literals, internal, used, returned, typeMap);
     }
 
     private record AnalysisContext(
             Set<String> defined,
             Set<String> literals,
-            Set<String> internal
+            Set<String> internal,
+            Set<String> used,
+            Set<String> returned,
+            java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap
     ) {}
 
     private static class SequenceAnalysisVisitor extends com.github.javaparser.ast.visitor.VoidVisitorAdapter<AnalysisContext> {
@@ -125,10 +134,19 @@ public class DataFlowAnalyzer {
         }
 
         @Override
+        public void visit(com.github.javaparser.ast.stmt.ReturnStmt n, AnalysisContext ctx) {
+            super.visit(n, ctx);
+            if (n.getExpression().isPresent()) {
+                n.getExpression().get().findAll(NameExpr.class).forEach(ne -> ctx.returned().add(ne.getNameAsString()));
+            }
+        }
+
+        @Override
         public void visit(VariableDeclarator n, AnalysisContext ctx) {
             super.visit(n, ctx);
             String name = n.getNameAsString();
             ctx.defined().add(name);
+            ctx.typeMap().put(name, n.getType());
 
             // Check if literal
             if (n.getInitializer().isPresent() && n.getInitializer().get().isLiteralExpr()) {
@@ -161,11 +179,18 @@ public class DataFlowAnalyzer {
         }
 
         @Override
+        public void visit(NameExpr n, AnalysisContext ctx) {
+            super.visit(n, ctx);
+            ctx.used().add(n.getNameAsString());
+        }
+
+        @Override
         public void visit(com.github.javaparser.ast.stmt.CatchClause n, AnalysisContext ctx) {
             super.visit(n, ctx);
             String name = n.getParameter().getNameAsString();
             ctx.defined().add(name);
             ctx.internal().add(name);
+            ctx.typeMap().put(name, n.getParameter().getType());
         }
     }
 
@@ -237,35 +262,23 @@ public class DataFlowAnalyzer {
         return used;
     }
 
-    public List<String> findCandidates(StatementSequence sequence, Set<String> liveOut) {
+    public List<String> findCandidates(StatementSequence sequence, Set<String> liveOut, SequenceAnalysis analysis) {
         List<String> candidates = new ArrayList<>();
-        Set<String> returnedVars = new HashSet<>();
-        List<VariableDeclarationExpr> varDecls = new ArrayList<>();
+        Set<String> returnedVars = analysis.returnedVars();
 
-        // Optimization: Single pass through statements to collect returns and
-        // declarations
+        // Check for Variable Declarations in the sequence
         for (Statement stmt : sequence.statements()) {
-            // Check for Return Statements
-            // Check for Return Statements
-            if (stmt.isReturnStmt() && stmt.asReturnStmt().getExpression().isPresent()) {
-                stmt.asReturnStmt().getExpression().get()
-                        .findAll(NameExpr.class) // Restored original logic to support extracting vars from complex
-                                                 // returns
-                        .forEach(n -> returnedVars.add(n.getNameAsString()));
-            }
-
-            // Check for Variable Declarations
             if (stmt.isExpressionStmt()) {
                 var expr = stmt.asExpressionStmt().getExpression();
                 if (expr.isVariableDeclarationExpr()) {
-                    varDecls.add(expr.asVariableDeclarationExpr());
+                    for (var variable : expr.asVariableDeclarationExpr().getVariables()) {
+                        String varName = variable.getNameAsString();
+                        if (liveOut.contains(varName) || returnedVars.contains(varName)) {
+                            candidates.add(varName);
+                        }
+                    }
                 }
             }
-        }
-
-        // Process declarations with the full set of returned variables
-        for (VariableDeclarationExpr expr : varDecls) {
-            findCandidate(liveOut, returnedVars, expr, candidates);
         }
 
         return candidates;
@@ -282,9 +295,19 @@ public class DataFlowAnalyzer {
      * Returns null if no suitable variable found or multiple candidates.
      */
     public String findReturnVariable(StatementSequence sequence, String returnType) {
-        Set<String> liveOut = findLiveOutVariables(sequence);
+        SequenceAnalysis analysis = analyzeSequenceVariables(sequence);
+        return findReturnVariable(sequence, returnType, analysis);
+    }
 
-        List<String> candidates = findCandidates(sequence, liveOut);
+    public String findReturnVariable(StatementSequence sequence, String returnType, SequenceAnalysis analysis) {
+        Set<String> usedAfter = findVariablesUsedAfter(sequence);
+
+        Set<String> liveOut = new HashSet<>(analysis.definedVars());
+        liveOut.retainAll(usedAfter);
+        liveOut.removeAll(analysis.literalVars());
+        liveOut.removeAll(analysis.internalVars());
+
+        List<String> candidates = findCandidates(sequence, liveOut, analysis);
 
         // Filter candidates by type compatibility
         if (returnType != null && !"void".equals(returnType)) {
@@ -303,8 +326,6 @@ public class DataFlowAnalyzer {
 
         // FALLBACK: If standard analysis found nothing, check if there is exactly
         // one DEFINED variable matching the return type.
-        // This handles cases where:
-        // 1. Live-out analysis missed a usage (false negative)
         return findFallBackCandidate(sequence, returnType);
     }
 

@@ -207,9 +207,16 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean hasNestedReturn(StatementSequence seq) {
+        class ReturnVisitor extends com.github.javaparser.ast.visitor.GenericVisitorAdapter<Boolean, Void> {
+            @Override
+            public Boolean visit(com.github.javaparser.ast.stmt.ReturnStmt n, Void arg) {
+                return true;
+            }
+        }
+        ReturnVisitor visitor = new ReturnVisitor();
         for (Statement stmt : seq.statements()) {
             if (stmt.isReturnStmt()) continue;
-            if (!stmt.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class).isEmpty()) {
+            if (Boolean.TRUE.equals(stmt.accept(visitor, null))) {
                 return true;
             }
         }
@@ -222,20 +229,28 @@ public class RefactoringRecommendationGenerator {
             return false;
         }
 
-        boolean hasTestAnnotations = cu.findAll(com.github.javaparser.ast.body.MethodDeclaration.class).stream()
-                .anyMatch(m -> m.getAnnotations().stream()
-                        .anyMatch(a -> {
-                            String name = a.getNameAsString();
-                            return name.equals("Test") || name.equals("ParameterizedTest") ||
-                                    name.equals("RepeatedTest") || name.equals("TestFactory");
-                        }));
-
-        if (hasTestAnnotations) {
+        // Optimization: check imports first as it's faster than full AST traversal
+        boolean hasJunitImport = cu.getImports().stream()
+                .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
+        if (hasJunitImport) {
             return true;
         }
 
-        return cu.getImports().stream()
-                .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
+        class TestAnnotationVisitor extends com.github.javaparser.ast.visitor.GenericVisitorAdapter<Boolean, Void> {
+            @Override
+            public Boolean visit(com.github.javaparser.ast.body.MethodDeclaration m, Void arg) {
+                for (com.github.javaparser.ast.expr.AnnotationExpr a : m.getAnnotations()) {
+                    String name = a.getNameAsString();
+                    if (name.equals("Test") || name.equals("ParameterizedTest") ||
+                            name.equals("RepeatedTest") || name.equals("TestFactory")) {
+                        return true;
+                    }
+                }
+                return super.visit(m, arg);
+            }
+        }
+
+        return Boolean.TRUE.equals(cu.accept(new TestAnnotationVisitor(), null));
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
