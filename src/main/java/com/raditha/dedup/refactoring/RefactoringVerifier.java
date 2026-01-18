@@ -94,7 +94,7 @@ public class RefactoringVerifier {
     /**
      * Run fast in-process compilation using JavaCompiler API.
      */
-    private CompilationResult runFastCompile() throws IOException {
+    CompilationResult runFastCompile() throws IOException {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
              return new CompilationResult(false, List.of("No Java compiler provided. Please ensure you are running with a JDK, not a JRE."), "");
@@ -179,7 +179,7 @@ public class RefactoringVerifier {
         }
     }
 
-    private String getClasspath() {
+    String getClasspath() {
         if (cachedClasspath == null) {
             StringBuilder cp = new StringBuilder();
             // 1. External dependencies
@@ -194,7 +194,7 @@ public class RefactoringVerifier {
         return cachedClasspath;
     }
 
-    private String getSourcepath() {
+    String getSourcepath() {
         if (cachedSourcepath == null) {
             StringBuilder sp = new StringBuilder();
             sp.append(projectRoot.resolve("src/main/java")).append(java.io.File.pathSeparator);
@@ -213,7 +213,7 @@ public class RefactoringVerifier {
         cachedSourcepath = null;
     }
 
-    private void deleteDirectoryRecursively(Path path) {
+    void deleteDirectoryRecursively(Path path) {
         try (java.util.stream.Stream<Path> walk = Files.walk(path)) {
             walk.sorted(java.util.Comparator.reverseOrder())
                 .map(Path::toFile)
@@ -226,7 +226,7 @@ public class RefactoringVerifier {
     /**
      * Run maven compile.
      */
-    private CompilationResult runMavenCompile() throws IOException, InterruptedException {
+     CompilationResult runMavenCompile() throws IOException, InterruptedException {
         List<String> command = new ArrayList<>();
         command.add("mvn");
         command.add("test-compile");
@@ -255,7 +255,7 @@ public class RefactoringVerifier {
     /**
      * Run maven test.
      */
-    private TestResult runMavenTest() throws IOException, InterruptedException {
+    TestResult runMavenTest() throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder("mvn", "test", "-q");
         pb.directory(projectRoot.toFile());
         pb.redirectErrorStream(true);
@@ -273,7 +273,7 @@ public class RefactoringVerifier {
     /**
      * Read process output.
      */
-    private String readOutput(Process process) throws IOException {
+    String readOutput(Process process) throws IOException {
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream()))) {
@@ -288,7 +288,7 @@ public class RefactoringVerifier {
     /**
      * Extract error messages from maven output.
      */
-    private List<String> extractErrors(String output) {
+    List<String> extractErrors(String output) {
         List<String> errors = new ArrayList<>();
         String[] lines = output.split("\n");
 
@@ -331,11 +331,6 @@ public class RefactoringVerifier {
     }
 
     /**
-     * Verification levels.
-     */
-    // VerifyMode import replaces VerificationLevel enum
-
-    /**
      * Result of verification.
      */
     public record VerificationResult(boolean success, List<String> errors, String message) {
@@ -344,15 +339,9 @@ public class RefactoringVerifier {
         }
     }
 
-    /**
-     * Result of compilation.
-     */
-    private record CompilationResult(boolean success, List<String> errors, String output) {
+    record CompilationResult(boolean success, List<String> errors, String output) {
     }
 
-    /**
-     * Result of test execution.
-     */
-    private record TestResult(boolean success, List<String> errors, String output) {
+    record TestResult(boolean success, List<String> errors, String output) {
     }
 }
