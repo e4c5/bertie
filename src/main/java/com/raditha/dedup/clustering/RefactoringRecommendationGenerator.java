@@ -146,16 +146,7 @@ public class RefactoringRecommendationGenerator {
                 .allMatch(this::isTestFile);
 
         if (allTestFiles) {
-            // Strategy 2: Extract to @BeforeEach
-            // Logic: All duplicates must start at the beginning of their methods
-            boolean allAtStart = cluster.allSequences().stream()
-                    .allMatch(this::isAtStartOfMethod);
-            
-            if (allAtStart) {
-                return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
-            }
-
-            // Strategy 3: Extract to @ParameterizedTest
+            // Strategy: Extract to @ParameterizedTest
             // Logic: If we have multiple sequences in the same file with similar structure
             // but different literals (handled by clustering), recommend parameterization.
             // We need 3+ instances for it to be worthwhile.
@@ -165,26 +156,6 @@ public class RefactoringRecommendationGenerator {
         }
 
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
-    }
-
-    private boolean isAtStartOfMethod(StatementSequence seq) {
-        MethodDeclaration method = seq.containingMethod();
-        if (method == null || method.getBody().isEmpty())
-            return false;
-
-        List<Statement> methodStmts = method.getBody().get().getStatements();
-        if (methodStmts.isEmpty())
-            return false;
-
-        Statement firstInSeq = seq.statements().get(0);
-
-        // Find the index of the first statement of the sequence in the method body
-        for (int i = 0; i < methodStmts.size(); i++) {
-            if (methodStmts.get(i) == firstInSeq) {
-                return i == 0;
-            }
-        }
-        return false;
     }
 
     private boolean isCrossFileDuplication(DuplicateCluster cluster) {

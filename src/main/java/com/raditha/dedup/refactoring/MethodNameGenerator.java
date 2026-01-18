@@ -60,7 +60,6 @@ public class MethodNameGenerator {
             String inferredReturnVariable) {
 
         String baseName = switch (strategy) {
-            case EXTRACT_TO_BEFORE_EACH -> "setUp";
             case EXTRACT_TO_PARAMETERIZED_TEST -> "test";
             case EXTRACT_TO_UTILITY_CLASS -> "extractedUtility";
             default -> null; // Will generate name

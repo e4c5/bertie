@@ -8,9 +8,6 @@ public enum RefactoringStrategy {
     /** Extract to a private helper method in the same class */
     EXTRACT_HELPER_METHOD,
 
-    /** Extract test setup code to @BeforeEach method */
-    EXTRACT_TO_BEFORE_EACH,
-
     /** Consolidate similar tests into @ParameterizedTest */
     EXTRACT_TO_PARAMETERIZED_TEST,
 

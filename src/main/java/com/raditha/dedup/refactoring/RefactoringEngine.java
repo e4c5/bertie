@@ -183,16 +183,6 @@ public class RefactoringEngine {
                 ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
                 yield refactorer.refactor(cluster, recommendation);
             }
-            case EXTRACT_TO_BEFORE_EACH -> {
-                ExtractBeforeEachRefactorer refactorer = new ExtractBeforeEachRefactorer();
-                ExtractBeforeEachRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
-                // Convert to ExtractMethodRefactorer.RefactoringResult for compatibility
-                yield new ExtractMethodRefactorer.RefactoringResult(
-                        result.sourceFile(),
-                        result.refactoredCode(),
-                        recommendation.getStrategy(),
-                        "Extracted to @BeforeEach: " + recommendation.getSuggestedMethodName());
-            }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
                 ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
                 ExtractParameterizedTestRefactorer.RefactoringResult result = refactorer.refactor(cluster,
