@@ -91,7 +91,7 @@ public class RefactoringVerifier {
     /**
      * Run fast in-process compilation using JavaCompiler API.
      */
-    private CompilationResult runFastCompile() {
+    private CompilationResult runFastCompile() throws IOException {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
              return new CompilationResult(false, List.of("No Java compiler provided. Please ensure you are running with a JDK, not a JRE."), "");
@@ -110,11 +110,8 @@ public class RefactoringVerifier {
 
         // Create temporary directory for compilation output
         Path tempOutput = null;
-        try {
-            tempOutput = Files.createTempDirectory("bertie-compile-" + System.nanoTime());
-        } catch (IOException e) {
-            return new CompilationResult(false, List.of("Failed to create temp directory: " + e.getMessage()), "");
-        }
+        tempOutput = Files.createTempDirectory("bertie-compile-" + System.nanoTime());
+
 
         try {
             Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromPaths(filesToCompile);

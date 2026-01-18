@@ -3,6 +3,7 @@
 
 variables:
   projects_folder: ${HOME}/csi/Antikythera
+  m2_folder: ${HOME}/.m2/repository
 
 # Point to Bertie's test-bed MAIN source (not tests!)
 base_path: ${projects_folder}/csi-bm-invoice-java-service
