@@ -1,6 +1,7 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.StaticJavaParser;
+import com.raditha.dedup.cli.VerifyMode;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
@@ -74,7 +75,7 @@ class RefactoringEngineTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.DRY_RUN,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 
@@ -99,7 +100,7 @@ class RefactoringEngineTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 
@@ -176,7 +177,7 @@ class RefactoringEngineTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.BATCH,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 

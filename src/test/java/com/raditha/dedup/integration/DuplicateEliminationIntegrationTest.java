@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
+import com.raditha.dedup.cli.VerifyMode;
 import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringVerifier;
 import org.junit.jupiter.api.BeforeAll;
@@ -68,7 +69,7 @@ class DuplicateEliminationIntegrationTest {
                 RefactoringEngine engine = new RefactoringEngine(
                                 Paths.get(Settings.getBasePath()),
                                 RefactoringEngine.RefactoringMode.BATCH,
-                                RefactoringVerifier.VerificationLevel.NONE // Skip compilation for unit test speed
+                                VerifyMode.NONE // Skip compilation for unit test speed
                 );
 
                 RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
