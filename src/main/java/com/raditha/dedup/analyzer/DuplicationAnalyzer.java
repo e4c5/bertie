@@ -428,57 +428,109 @@ public class DuplicationAnalyzer {
      * overlap.
      * When duplicates overlap, we keep the one with the BROADEST SCOPE (largest line range),
      * which ensures we prefer full method bodies over nested block contents.
+     * 
+     * OPTIMIZATION: Groups pairs by method-pair to reduce O(N²) to O(G×k²).
+     * Since pairsOverlap requires sameMethodPair==true, we can partition by method-pair.
+     * Typical case: G=hundreds of method-pairs, k=2-5 pairs/group → G×k² << N²
      */
     private List<SimilarityPair> removeOverlappingDuplicates(List<SimilarityPair> pairs) {
         if (pairs.isEmpty()) {
             return pairs;
         }
 
-        List<SimilarityPair> filtered = new ArrayList<>();
-        List<SimilarityPair> sorted = new ArrayList<>(pairs);
+        // Group pairs by their canonical method-pair
+        // Pairs can only overlap if they involve the same method-pair
+        Map<MethodPairKey, List<SimilarityPair>> groups = new java.util.HashMap<>();
+        for (SimilarityPair pair : pairs) {
+            MethodPairKey key = makeMethodPairKey(pair);
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(pair);
+        }
 
-        // Sort by SCOPE (line range) first, then by statement count
-        // This ensures we prefer full method bodies over nested block contents
+        // Process each group independently with O(k²) algorithm
+        List<SimilarityPair> result = new ArrayList<>();
+        for (List<SimilarityPair> group : groups.values()) {
+            result.addAll(removeOverlapsInGroup(group));
+        }
+
+        return result;
+    }
+
+    /**
+     * Create canonical method-pair key (order-independent).
+     * (methodA, methodB) should equal (methodB, methodA)
+     */
+    private MethodPairKey makeMethodPairKey(SimilarityPair pair) {
+        var m1 = pair.seq1().containingMethod();
+        var m2 = pair.seq2().containingMethod();
+        
+        // Canonical ordering: use identity hash codes for stable comparison
+        int h1 = System.identityHashCode(m1);
+        int h2 = System.identityHashCode(m2);
+        
+        // Always put smaller hash first for canonical ordering
+        if (h1 <= h2) {
+            return new MethodPairKey(m1, m2);
+        } else {
+            return new MethodPairKey(m2, m1);
+        }
+    }
+
+    /**
+     * Canonical method-pair key for grouping.
+     * Ensures (m1, m2) == (m2, m1) via constructor ordering.
+     */
+    private record MethodPairKey(
+        com.github.javaparser.ast.body.MethodDeclaration method1,
+        com.github.javaparser.ast.body.MethodDeclaration method2
+    ) {}
+
+    /**
+     * Remove overlaps within a single method-pair group using O(k²) algorithm.
+     * Since all pairs in the group have sameMethodPair==true, we only check physical overlap.
+     */
+    private List<SimilarityPair> removeOverlapsInGroup(List<SimilarityPair> group) {
+        if (group.size() <= 1) {
+            return group;
+        }
+
+        // Sort by scope (descending), then statement count, then start line
+        List<SimilarityPair> sorted = new ArrayList<>(group);
         sorted.sort((a, b) -> {
-            // Calculate line range (scope) for each duplicate
             int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
             int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
-            
-            // Prefer broader scope (larger line range)
             int scopeCompare = Integer.compare(scopeB, scopeA);
-            if (scopeCompare != 0)
-                return scopeCompare;
+            if (scopeCompare != 0) return scopeCompare;
             
-            // If scope is equal, prefer more statements
             int sizeCompare = Integer.compare(
                     b.seq1().statements().size(),
                     a.seq1().statements().size());
-            if (sizeCompare != 0)
-                return sizeCompare;
-                
-            // Finally, sort by start line for deterministic ordering
+            if (sizeCompare != 0) return sizeCompare;
+            
             return Integer.compare(
                     a.seq1().range().startLine(),
                     b.seq1().range().startLine());
         });
 
-        // Keep track of which pairs we've already covered
+        // Filter overlaps - same logic as original O(N²) but within group
+        List<SimilarityPair> filtered = new ArrayList<>();
         for (SimilarityPair current : sorted) {
             boolean overlaps = false;
-
-            // Check if current overlaps with any already-kept pair
+            
             for (SimilarityPair kept : filtered) {
-                if (pairsOverlap(current, kept)) {
+                // Within same method-pair group, only check physical overlap
+                // (sameMethodPair is guaranteed true by grouping)
+                if (isPhysicallyOverlapping(current.seq1(), kept.seq1()) ||
+                    isPhysicallyOverlapping(current.seq2(), kept.seq2())) {
                     overlaps = true;
                     break;
                 }
             }
-
-            // Only keep if it doesn't overlap with a broader-scope duplicate
+            
             if (!overlaps) {
                 filtered.add(current);
             }
         }
+        
         return filtered;
     }
 
