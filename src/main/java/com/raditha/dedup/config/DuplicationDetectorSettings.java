@@ -15,6 +15,8 @@ public class DuplicationDetectorSettings {
 
     private static final String CONFIG_KEY = "duplication_detector";
     private static final String CLI_CONFIG_KEY = "duplication_detector_cli";
+    private static final String KEY_THRESHOLD = "threshold";
+    private static final String KEY_MIN_LINES = "min_lines";
 
     /**
      * Load configuration from Settings, applying CLI overrides where provided.
@@ -35,23 +37,31 @@ public class DuplicationDetectorSettings {
             ? new java.util.HashMap<>((Map<String, Object>) cliConfigRaw)
             : new java.util.HashMap<>();
         
-        // Store or remove CLI parameters
+        // Apply preset values if specified
+        if (presetCLI != null) {
+            switch (presetCLI.toLowerCase()) {
+                case "strict":
+                    cliConfig.put(KEY_THRESHOLD, 0.90);
+                    cliConfig.put(KEY_MIN_LINES, 5);
+                    break;
+                case "lenient":
+                    cliConfig.put(KEY_THRESHOLD, 0.60);
+                    cliConfig.put(KEY_MIN_LINES, 3);
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown preset: " + presetCLI + 
+                        ". Valid presets are 'strict' or 'lenient'.");
+            }
+            // Don't store the preset name itself, just its effect
+        }
+        
+        // CLI parameters override preset values
         if (minLinesCLI != 0) {
-            cliConfig.put("min_lines", minLinesCLI);
-        } else {
-            cliConfig.remove("min_lines");
+            cliConfig.put(KEY_MIN_LINES, minLinesCLI);
         }
         
         if (thresholdCLI != 0) {
-            cliConfig.put("threshold", thresholdCLI / 100.0);
-        } else {
-            cliConfig.remove("threshold");
-        }
-        
-        if (presetCLI != null) {
-            cliConfig.put("preset", presetCLI);
-        } else {
-            cliConfig.remove("preset");
+            cliConfig.put(KEY_THRESHOLD, thresholdCLI / 100.0);
         }
         
         // Update the Settings with the modified CLI config
@@ -263,7 +273,7 @@ public class DuplicationDetectorSettings {
      * @return minimum number of lines
      */
     public static int getMinLines() {
-        return getOverriddenInt("min_lines", 5);
+        return getOverriddenInt(KEY_MIN_LINES, 5);
     }
 
     /**
@@ -271,7 +281,7 @@ public class DuplicationDetectorSettings {
      * @return threshold value (0.0-1.0)
      */
     public static double getThreshold() {
-        double threshold = getOverriddenDouble("threshold", 0.75);
+        double threshold = getOverriddenDouble(KEY_THRESHOLD, 0.75);
         if (threshold > 1.0) {
             threshold /= 100.0;
         }
@@ -330,16 +340,15 @@ public class DuplicationDetectorSettings {
         String version = getOverriddenString("java_version", null);
         if (version == null) {
             version = System.getProperty("java.version");
-            // If full version string like "21.0.1", we might want just major version?
-            // For now, return as-is, JavaCompiler API handles full strings.
-            // But for Release option, we usually need "11", "17", etc.
-            if (version.contains(".")) {
-                 String[] parts = version.split("\\.");
-                 if (parts[0].equals("1")) {
-                     return parts[1]; // Handle 1.8 -> 8
-                 }
-                 return parts[0]; // Handle 11.0.1 -> 11
+        }
+        // Normalize version string to major version (e.g., "21.0.1" -> "21", "1.8" -> "8")
+        // This applies to both CLI/YAML overrides and system property values
+        if (version != null && version.contains(".")) {
+            String[] parts = version.split("\\.");
+            if (parts[0].equals("1")) {
+                return parts[1]; // Handle 1.8 -> 8
             }
+            return parts[0]; // Handle 11.0.1 -> 11
         }
         return version;
     }

@@ -29,14 +29,16 @@ public class FuzzyTokenizer {
     /**
      * Generate fuzzy tokens for a single statement.
      * Results are cached to avoid redundant AST traversal.
+     * Returns an unmodifiable view to prevent cache corruption.
      */
     public List<String> tokenizeStatement(Statement statement) {
-        return statementCache.computeIfAbsent(statement, stmt -> {
-            List<String> tokens = new ArrayList<>();
-            TokenizingVisitor visitor = new TokenizingVisitor(tokens);
+        List<String> tokens = statementCache.computeIfAbsent(statement, stmt -> {
+            List<String> newTokens = new ArrayList<>();
+            TokenizingVisitor visitor = new TokenizingVisitor(newTokens);
             stmt.accept(visitor, null);
-            return tokens;
+            return newTokens;
         });
+        return java.util.Collections.unmodifiableList(tokens);
     }
 
     /**
