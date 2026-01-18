@@ -27,11 +27,16 @@ public class LSHIndex {
     /**
      * @param minHash     MinHash instance to use for signature generation.
      * @param numBands    Number of bands to split the signature into.
+     *                    Must be between 1 and 256 (8-bit band index limit).
      * @param rowsPerBand Number of rows (hash values) per band.
      * @throws IllegalArgumentException if signature length doesn't match band
-     *                                  configuration
+     *                                  configuration or numBands exceeds 256
      */
     public LSHIndex(MinHash minHash, int numBands, int rowsPerBand) {
+        if (numBands < 1 || numBands > 256) {
+            throw new IllegalArgumentException(
+                "numBands must be between 1 and 256 (8-bit band index limit in bucket key), got: " + numBands);
+        }
         this.minHash = minHash;
         this.numBands = numBands;
         this.rowsPerBand = rowsPerBand;

@@ -105,7 +105,12 @@ public class RefactoringVerifier {
         filesToCompile.addAll(createdFiles);
         
         if (filesToCompile.isEmpty()) {
-             return new CompilationResult(true, List.of(), "No files modified");
+            try {
+                fileManager.close();
+            } catch (IOException e) {
+                // ignore
+            }
+            return new CompilationResult(true, List.of(), "No files modified");
         }
 
         // Create temporary directory for compilation output
@@ -113,6 +118,11 @@ public class RefactoringVerifier {
         try {
             tempOutput = Files.createTempDirectory("bertie-compile-" + System.nanoTime());
         } catch (IOException e) {
+            try {
+                fileManager.close();
+            } catch (IOException ex) {
+                // ignore
+            }
             return new CompilationResult(false, List.of("Failed to create temp directory: " + e.getMessage()), "");
         }
 
@@ -162,10 +172,12 @@ public class RefactoringVerifier {
             if (!success) {
                 for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
                     if (diagnostic.getKind() == Diagnostic.Kind.ERROR) {
-                         errors.add(String.format("%s:%d: %s",
-                             diagnostic.getSource().toUri().getPath(),
-                             diagnostic.getLineNumber(),
-                             diagnostic.getMessage(null)));
+                        JavaFileObject source = diagnostic.getSource();
+                        String sourcePath = (source != null) ? source.toUri().getPath() : "<unknown>";
+                        errors.add(String.format("%s:%d: %s",
+                            sourcePath,
+                            diagnostic.getLineNumber(),
+                            diagnostic.getMessage(null)));
                     }
                 }
             }

@@ -330,16 +330,15 @@ public class DuplicationDetectorSettings {
         String version = getOverriddenString("java_version", null);
         if (version == null) {
             version = System.getProperty("java.version");
-            // If full version string like "21.0.1", we might want just major version?
-            // For now, return as-is, JavaCompiler API handles full strings.
-            // But for Release option, we usually need "11", "17", etc.
-            if (version.contains(".")) {
-                 String[] parts = version.split("\\.");
-                 if (parts[0].equals("1")) {
-                     return parts[1]; // Handle 1.8 -> 8
-                 }
-                 return parts[0]; // Handle 11.0.1 -> 11
+        }
+        // Normalize version string to major version (e.g., "21.0.1" -> "21", "1.8" -> "8")
+        // This applies to both CLI/YAML overrides and system property values
+        if (version != null && version.contains(".")) {
+            String[] parts = version.split("\\.");
+            if (parts[0].equals("1")) {
+                return parts[1]; // Handle 1.8 -> 8
             }
+            return parts[0]; // Handle 11.0.1 -> 11
         }
         return version;
     }
