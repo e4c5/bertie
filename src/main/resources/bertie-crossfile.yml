@@ -1,5 +1,0 @@
-min_lines: 3
-threshold: 70
-target_class: com.raditha.bertie.testbed.crossfile
-enable_lsh: false
-base_path: /home/raditha/csi/Antikythera/bertie/test-bed
