@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.Set;
 
@@ -99,7 +100,7 @@ public class ExtractMethodRefactorer {
                      String candNorm = normalizeMethodBody(m);
                      String helperNorm = normalizeMethodBody(helperMethod);
                      if (candNorm != null && candNorm.equals(helperNorm)) {
-                         System.out.println("DEBUG: Reusing existing method: " + m.getNameAsString());
+
                          return m.getNameAsString();
                      }
                  }
@@ -211,6 +212,7 @@ public class ExtractMethodRefactorer {
      */
     private HelperMethodResult createHelperMethod(StatementSequence sequence, Set<StatementSequence> allSequences,
             RefactoringRecommendation recommendation) {
+
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
         Set<String> liveOutVars = getLiveOuts(allSequences, recommendation, dfa);
 
@@ -262,6 +264,7 @@ public class ExtractMethodRefactorer {
                                                            RefactoringRecommendation recommendation,
                                                            Map<ParameterSpec, String> paramNameOverrides,
                                                            Set<String> declaredVars) {
+
         // Sort parameters to match ArgumentBuilder order
         List<ParameterSpec> sortedParams = new ArrayList<>(recommendation.getSuggestedParameters());
         sortedParams.sort((p1, p2) -> {
@@ -288,6 +291,7 @@ public class ExtractMethodRefactorer {
                     .anyMatch(n -> n.getIdentifier().equals(targetName));
             if (isUsed) {
                 usedParams.add(param);
+            } else {
             }
         }
         return usedParams;
@@ -1014,9 +1018,9 @@ public class ExtractMethodRefactorer {
                 }
             }
 
-            // Priority 1.5: Invariant Fallback (for variationIndex == -1)
-            // If structural path failed but it's an invariant, use the name.
-            if (param.getVariationIndex() != null && param.getVariationIndex() == -1) {
+            // Priority 1.5: Invariant Fallback (for variationIndex == -1 or null)
+            // If structural path failed but it's an invariant (or captured param), use the name.
+            if (param.getVariationIndex() == null || param.getVariationIndex() == -1) {
                 return new NameExpr(param.getName());
             }
             return null; // Fail if structural extraction cannot find it

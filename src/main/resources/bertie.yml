@@ -6,8 +6,8 @@ variables:
   m2_folder: ${HOME}/.m2/repository
 
 # Point to Bertie's test-bed MAIN source (not tests!)
-#base_path: ${projects_folder}/csi-bm-invoice-java-service
 base_path: ${projects_folder}/bertie/test-bed
+#base_path: ${projects_folder}/csi-bm-invoice-java-service/
 base_package: com.csi
 
 # Output directory for any generated files

@@ -40,6 +40,17 @@ public class ExtractParameterizedTestRefactorer {
                     "Need at least 3 similar tests for parameterization, found: " + testInstances.size());
         }
 
+        // Validate consistency (all must have same number of parameters)
+        int paramCount = testInstances.get(0).literals.size();
+        for (TestInstance instance : testInstances) {
+            if (instance.literals.size() != paramCount) {
+                // If inconsistent, we can't safely parameterize.
+                // In a real scenario, we might try to find common subsequence, but for now abort.
+                // Since this is a void method, we can't return null, but we can throw to skip.
+                throw new IllegalStateException("Inconsistent literal counts across test instances. Cannot parameterize.");
+            }
+        }
+
         // Determine parameter types and names
         List<ParameterInfo> parameters = analyzeParameters(testInstances);
 
@@ -185,7 +196,28 @@ public class ExtractParameterizedTestRefactorer {
 
         // Copy and parameterize the method body
         if (originalMethod.getBody().isPresent()) {
-            method.setBody(originalMethod.getBody().get().clone());
+            com.github.javaparser.ast.stmt.BlockStmt newBody = originalMethod.getBody().get().clone();
+            
+            // Replace literals with parameter names
+            List<LiteralExpr> bodyLiterals = newBody.findAll(LiteralExpr.class);
+            
+            // We expect the number of literals in the body to match the extracted parameters
+            // (since we extracted from the same body structure)
+            // However, we must be careful with order.
+             if (bodyLiterals.size() == parameters.size()) {
+                for (int i = 0; i < bodyLiterals.size(); i++) {
+                    LiteralExpr literal = bodyLiterals.get(i);
+                    ParameterInfo param = parameters.get(i);
+                    
+                    // Replace literal with NameExpr
+                    literal.replace(new NameExpr(param.name));
+                }
+            } else {
+                 // Fallback or warning? If counts don't match, we might have missed something or findAll behaves differently.
+                 // For now, proceed. The verification step will catch if it's broken.
+            }
+            
+            method.setBody(newBody);
         }
 
         return method;
@@ -199,7 +231,7 @@ public class ExtractParameterizedTestRefactorer {
 
         for (TestInstance instance : instances) {
             String row = instance.literals.stream()
-                    .map(l -> l.value.replace("\"", ""))
+                    .map(l -> cleanLiteralValue(l.value, l.type))
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
             rows.add("\"" + row + "\"");
@@ -263,6 +295,23 @@ public class ExtractParameterizedTestRefactorer {
     /**
      * Result of a refactoring operation.
      */
+    private String cleanLiteralValue(String rawValue, String type) {
+        if ("String".equals(type)) {
+            // Remove surrounding quotes
+            if (rawValue.startsWith("\"") && rawValue.endsWith("\"")) {
+                return rawValue.substring(1, rawValue.length() - 1);
+            }
+            return rawValue.replace("\"", "");
+        } else if ("long".equals(type)) {
+            return rawValue.toUpperCase().replace("L", "");
+        } else if ("float".equals(type)) {
+            return rawValue.toUpperCase().replace("F", "");
+        } else if ("double".equals(type)) {
+             return rawValue.toUpperCase().replace("D", "");
+        }
+        return rawValue;
+    }
+
     public record RefactoringResult(Path sourceFile, String refactoredCode) {
     }
 }
