@@ -5,6 +5,7 @@ import com.raditha.dedup.model.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Validates safety of refactor operations before applying them.
@@ -75,27 +76,64 @@ public class SafetyValidator {
      * 
      * FIXED Gap 8: Now uses EscapeAnalyzer to detect variable capture.
      * 
-     * Returns true if the sequence modifies variables from outer scope,
+     * Returns true if the sequence modifies LOCAL variables from outer scope,
      * which would break when extracted to a separate method.
+     * 
+     * Class fields are allowed to be modified (common in test setup code).
      */
     private boolean hasVariableScopeIssues(DuplicateCluster cluster) {
         EscapeAnalyzer analyzer = new EscapeAnalyzer();
 
-        if (analyzer.analyze(cluster.primary())) {
+        // Get class field names from the primary sequence
+        Set<String> classFields = getClassFieldNames(cluster.primary());
+
+        // Check primary sequence
+        Set<String> escapingVars = analyzer.analyze(cluster.primary());
+        escapingVars.removeAll(classFields); // Allow class field modifications
+        if (!escapingVars.isEmpty()) {
             return true;
         }
 
         // Check all duplicate sequences
         for (SimilarityPair pair : cluster.duplicates()) {
-            if (analyzer.analyze(pair.seq1())) {
+            Set<String> escapingVars1 = analyzer.analyze(pair.seq1());
+            escapingVars1.removeAll(classFields);
+            if (!escapingVars1.isEmpty()) {
                 return true;
             }
-            if (analyzer.analyze(pair.seq2())) {
+            
+            Set<String> escapingVars2 = analyzer.analyze(pair.seq2());
+            escapingVars2.removeAll(classFields);
+            if (!escapingVars2.isEmpty()) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Get all field names from the containing class of a sequence.
+     */
+    private Set<String> getClassFieldNames(StatementSequence sequence) {
+        var method = sequence.containingMethod();
+        if (method == null) {
+            return java.util.Collections.emptySet();
+        }
+        
+        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .orElse(null);
+        if (clazz == null) {
+            return java.util.Collections.emptySet();
+        }
+        
+        Set<String> fieldNames = new java.util.HashSet<>();
+        clazz.getFields().forEach(field -> 
+            field.getVariables().forEach(vd ->
+                fieldNames.add(vd.getNameAsString())
+            )
+        );
+        return fieldNames;
     }
 
     /**
