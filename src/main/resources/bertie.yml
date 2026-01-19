@@ -27,4 +27,4 @@ skip_getters_setters: true
 
 # Log level
 log_level: DEBUG
-#target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceOrderServiceImplTest
+#target_class: com.csi.bm.invoice.service.impl.ChildInvoiceServiceImplTest

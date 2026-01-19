@@ -1295,7 +1295,11 @@ public class ExtractMethodRefactorer {
 
             // 2) Value-based fallback: replace matching expressions that lack location
             // metadata
-            if (!param.getExampleValues().isEmpty()) {
+            // FIXED: Only use fallback if we genuinely don't have location info.
+            // If we have location info but didn't find it (step 1 failed), it probably means
+            // the node isn't in this statement (which is fine).
+            // We should NOT fallback to value replacement in that case, as it risks replacing invariants.
+            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
                 String exampleValue = param.getExampleValues().get(0);
                 for (Expression expr : stmt.findAll(Expression.class)) {
                     if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {

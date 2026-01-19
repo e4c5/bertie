@@ -151,7 +151,12 @@ public class RefactoringRecommendationGenerator {
             // Logic: If we have multiple sequences in the same file with similar structure
             // but different literals (handled by clustering), recommend parameterization.
             // We need 3+ instances for it to be worthwhile.
-            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster)) {
+            // FIXED: Only recommend if the sequence was NOT truncated.
+            // If it was truncated, it means there are structural differences near the end,
+            // so we should fallback to Helper Method extraction for safely extracting the common prefix.
+            boolean isTruncated = primarySeq.statements().size() < cluster.primary().statements().size();
+            
+            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster) && !isTruncated) {
                 return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
             }
         }
