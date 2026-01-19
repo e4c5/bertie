@@ -4,6 +4,8 @@ import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
@@ -66,14 +68,14 @@ public class ExtractMethodRefactorer {
         
         // Add new helper if no reuse target was found
         if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-            ClassOrInterfaceDeclaration containingClass = primary.containingMethod()
-                    .findAncestor(ClassOrInterfaceDeclaration.class)
-                    .orElseThrow(() -> new IllegalStateException("No containing class found"));
-            
-            MethodDeclaration equivalent = findEquivalentHelper(containingClass, helperMethod, 
+            TypeDeclaration<?> containingType = primary.containingMethod()
+                    .findAncestor(TypeDeclaration.class)
+                    .orElseThrow(() -> new IllegalStateException("No containing type found"));
+
+            MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
                     cluster.getContainingMethods());
             if (equivalent == null) {
-                containingClass.addMember(helperMethod);
+                containingType.addMember(helperMethod);
             } else {
                 methodNameToUse = equivalent.getNameAsString();
             }
@@ -339,11 +341,21 @@ public class ExtractMethodRefactorer {
         if (count >= fullSequence.statements().size()) {
             return fullSequence;
         }
+        com.raditha.dedup.model.Range fullRange = fullSequence.range();
+        if (count <= 0) {
+            return new StatementSequence(
+                    java.util.Collections.emptyList(),
+                    new com.raditha.dedup.model.Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(),
+                            fullRange.startColumn()),
+                    fullSequence.startOffset(),
+                    fullSequence.containingMethod(),
+                    fullSequence.compilationUnit(),
+                    fullSequence.sourceFilePath());
+        }
         java.util.List<com.github.javaparser.ast.stmt.Statement> prefixStmts = fullSequence.statements().subList(0,
                 count);
 
         // Calculate new range based on prefix statements
-        com.raditha.dedup.model.Range fullRange = fullSequence.range();
         int endLine = prefixStmts.get(count - 1).getEnd().map(p -> p.line).orElse(fullRange.endLine());
         int endColumn = prefixStmts.get(count - 1).getEnd().map(p -> p.column).orElse(fullRange.endColumn());
 
@@ -1344,7 +1356,7 @@ public class ExtractMethodRefactorer {
 
     // Helper-reuse: find an existing equivalent helper in the same class to avoid
     // duplicate methods
-    private MethodDeclaration findEquivalentHelper(ClassOrInterfaceDeclaration containingClass,
+    private MethodDeclaration findEquivalentHelper(TypeDeclaration<?> containingType,
             MethodDeclaration newHelper, Set<MethodDeclaration> excludedMethods) {
         boolean newIsStatic = newHelper.getModifiers().stream()
                 .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
@@ -1355,7 +1367,7 @@ public class ExtractMethodRefactorer {
         }
         String newBodyNorm = normalizeMethodBody(newHelper);
 
-        for (MethodDeclaration candidate : containingClass.getMethods()) {
+        for (MethodDeclaration candidate : containingType.getMethods()) {
             // CRITICAL FIX: Never reuse ANY method that is part of the cluster being refactored!
             if (excludedMethods.contains(candidate))
                 continue;

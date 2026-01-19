@@ -6,9 +6,9 @@ variables:
   m2_folder: ${HOME}/.m2/repository
 
 # Point to Bertie's test-bed MAIN source (not tests!)
+#base_path: ${projects_folder}/bertie/test-bed
 base_path: ${projects_folder}/bertie/test-bed
-#base_path: ${projects_folder}/csi-bm-invoice-java-service/
-base_package: com.csi
+base_package: com.raditha.bertie.testbed
 
 # Output directory for any generated files
 output_path: /tmp/bertie-test-output
@@ -17,14 +17,12 @@ output_path: /tmp/bertie-test-output
 min_lines: 3
 threshold: 75
 include_tests: true
-# target_class: com.raditha.bertie.testbed.verif.ParameterizedTestVerif
 
 # Analyze all classes in base_path (leave empty to analyze all)
-enable_lsh: false
+enable_lsh: true
 
 # Skip getters/setters
 skip_getters_setters: true
 
 # Log level
 log_level: DEBUG
-#target_class: com.csi.bm.invoice.service.impl.ChildInvoiceServiceImplTest
