@@ -3,8 +3,6 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -28,7 +26,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.Set;
 
@@ -37,6 +34,7 @@ import java.util.Set;
  * This is the most common and safest refactoring strategy.
  */
 public class ExtractMethodRefactorer {
+    private static final Logger logger = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
     public static final String Boolean = "Boolean";
 
     private record HelperMethodResult(MethodDeclaration method, List<ParameterSpec> usedParameters,
@@ -68,7 +66,35 @@ public class ExtractMethodRefactorer {
         
         // Add new helper if no reuse target was found
         if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-            TypeDeclaration<?> containingType = primary.containingMethod()
+            MethodDeclaration containingMethod = primary.containingMethod();
+            if (containingMethod == null) {
+                throw new IllegalStateException("No containing method found for primary sequence");
+            }
+            
+            // FIXED: If the containingMethod is detached from the AST (e.g., after previous 
+            // refactorings modified the file), re-resolve it from the live CompilationUnit
+            if (containingMethod.getParentNode().isEmpty()) {
+                String methodName = containingMethod.getNameAsString();
+                logger.debug("Refreshing detached containingMethod: {}", methodName);
+                
+                // Look up the method in the current CompilationUnit
+                CompilationUnit cu = primary.compilationUnit();
+                if (cu != null) {
+                    containingMethod = cu.findAll(MethodDeclaration.class).stream()
+                            .filter(m -> m.getNameAsString().equals(methodName))
+                            .findFirst()
+                            .orElse(null);
+                }
+                
+                if (containingMethod == null || containingMethod.getParentNode().isEmpty()) {
+                    // Method was already refactored by a previous cluster (e.g., merged into parameterized test)
+                    // This is expected behavior, not an error - skip gracefully
+                    return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                            "Skipped: method '" + methodName + "' was already refactored by a previous cluster");
+                }
+            }
+            
+            TypeDeclaration<?> containingType = containingMethod
                     .findAncestor(TypeDeclaration.class)
                     .orElseThrow(() -> new IllegalStateException("No containing type found"));
 
@@ -137,7 +163,7 @@ public class ExtractMethodRefactorer {
             int limit = recommendation.getValidStatementCount();
             StatementSequence seqToRefactor = (limit != -1 && limit < seq.size()) ? createTruncatedSequence(seq, limit) : seq;
 
-            MethodCallExpr call = prepareReplacement(seqToRefactor, recommendation.getVariationAnalysis(),
+            MethodCallExpr call = prepareReplacement(seqToRefactor,
                     methodNameToUse, primary, precomputedPaths, effectiveParams);
             if (call == null) {
                 return new RefactoringResult(Map.of(), recommendation.getStrategy(),
@@ -270,8 +296,8 @@ public class ExtractMethodRefactorer {
         // Sort parameters to match ArgumentBuilder order
         List<ParameterSpec> sortedParams = new ArrayList<>(recommendation.getSuggestedParameters());
         sortedParams.sort((p1, p2) -> {
-            Integer idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1) ? Integer.MAX_VALUE : p1.getVariationIndex();
-            Integer idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1) ? Integer.MAX_VALUE : p2.getVariationIndex();
+            int idx1 = (p1.getVariationIndex() == null || p1.getVariationIndex() == -1) ? Integer.MAX_VALUE : p1.getVariationIndex();
+            int idx2 = (p2.getVariationIndex() == null || p2.getVariationIndex() == -1) ? Integer.MAX_VALUE : p2.getVariationIndex();
             return Integer.compare(idx1, idx2);
         });
 
@@ -293,7 +319,6 @@ public class ExtractMethodRefactorer {
                     .anyMatch(n -> n.getIdentifier().equals(targetName));
             if (isUsed) {
                 usedParams.add(param);
-            } else {
             }
         }
         return usedParams;
@@ -537,27 +562,6 @@ public class ExtractMethodRefactorer {
     }
 
     /**
-     * Find any declared variable in the method body as a fallback return value.
-     * Returns the LAST variable declaration found (most likely to be the return
-     * value).
-     */
-    private String findAnyDeclaredVariable(BlockStmt body) {
-        String lastVar = null;
-        for (Statement stmt : body.getStatements()) {
-            if (stmt.isExpressionStmt()) {
-                var expr = stmt.asExpressionStmt().getExpression();
-                if (expr.isVariableDeclarationExpr()) {
-                    var varDecl = expr.asVariableDeclarationExpr();
-                    if (!varDecl.getVariables().isEmpty()) {
-                        lastVar = varDecl.getVariables().get(0).getNameAsString();
-                    }
-                }
-            }
-        }
-        return lastVar;
-    }
-
-    /**
      * Find the variable to return using data flow analysis.
      */
     private String findReturnVariable(StatementSequence sequence, String returnType) {
@@ -643,7 +647,7 @@ public class ExtractMethodRefactorer {
      * Returns null if argument resolution fails.
      */
     private MethodCallExpr prepareReplacement(StatementSequence sequence,
-            VariationAnalysis variations, String methodNameToUse, StatementSequence primarySequence,
+            String methodNameToUse, StatementSequence primarySequence,
             Map<ParameterSpec, ASTNodePath> precomputedPaths, List<ParameterSpec> effectiveParams) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
@@ -651,7 +655,7 @@ public class ExtractMethodRefactorer {
         }
 
         // 1) Build arguments using precomputed paths (avoiding AST traversal issues)
-        NodeList<Expression> arguments = buildArgumentsForCall(variations, sequence, primarySequence,
+        NodeList<Expression> arguments = buildArgumentsForCall(sequence, primarySequence,
                 precomputedPaths, effectiveParams);
         if (arguments.size() != effectiveParams.size()) {
             return null; // Could not resolve args safely (mismatch indicates failure)
@@ -681,7 +685,7 @@ public class ExtractMethodRefactorer {
         }
 
         // Locate the actual block containing the sequence (might be nested)
-        BlockStmt block = sequence.statements().get(0).findAncestor(BlockStmt.class)
+        BlockStmt block = sequence.statements().getFirst().findAncestor(BlockStmt.class)
                 .orElse(containingMethod.getBody().get());
 
         // 3) Remember any original return inside the duplicate sequence
@@ -798,26 +802,15 @@ public class ExtractMethodRefactorer {
         return null;
     }
 
-    private NodeList<Expression> buildArgumentsForCall(VariationAnalysis variations,
-            StatementSequence sequence,
+    private NodeList<Expression> buildArgumentsForCall(StatementSequence sequence,
             StatementSequence primarySequence,
             Map<ParameterSpec, ASTNodePath> precomputedPaths,
             List<ParameterSpec> effectiveParams) {
         // Delegate to a focused builder that preserves existing behavior and guardrails
-        return new ArgumentBuilder().buildArgs(variations, sequence, primarySequence, precomputedPaths,
+        return new ArgumentBuilder().buildArgs(sequence, primarySequence, precomputedPaths,
                 effectiveParams);
     }
 
-    /**
-     * Focused component to construct method call arguments while preserving the
-     * exact resolution order and safety guardrails previously embedded in
-     * {@link #buildArgumentsForCall}.
-     *
-     * This inner class intentionally reuses existing helpers from the outer
-     * refactorer (variation resolution, context-aware string extraction,
-     * AST-based value extraction, and expression conversion) to minimize code
-     * duplication and behavior drift.
-     */
     /**
      * Check if the sequence covers the entire body of the containing method.
      */
@@ -841,18 +834,15 @@ public class ExtractMethodRefactorer {
     }
 
     private class ArgumentBuilder {
-        NodeList<Expression> buildArgs(VariationAnalysis variations,
-                StatementSequence sequence,
+        NodeList<Expression> buildArgs(StatementSequence sequence,
                 StatementSequence primarySequence,
                 Map<ParameterSpec, ASTNodePath> precomputedPaths,
                 List<ParameterSpec> effectiveParams) {
             NodeList<Expression> arguments = new NodeList<>();
 
             // Use the effective parameters which are already sorted and filtered
-            List<ParameterSpec> sortedParams = effectiveParams;
-
             int argIndex = 0;
-            for (ParameterSpec param : sortedParams) {
+            for (ParameterSpec param : effectiveParams) {
                 Expression expr = resolveValue(sequence, param, primarySequence, precomputedPaths);
                 if (expr == null) {
                     return new NodeList<>(); // cannot resolve safely
@@ -960,7 +950,7 @@ public class ExtractMethodRefactorer {
 
         private boolean isNumericType(com.github.javaparser.ast.type.Type type) {
             if (type.isPrimitiveType()) return true;
-             if (type.isClassOrInterfaceType()) {
+            if (type.isClassOrInterfaceType()) {
                 String name = type.asClassOrInterfaceType().getNameAsString();
                 return sa.com.cloudsolutions.antikythera.evaluator.Reflect.INTEGER.equals(name) ||
                         sa.com.cloudsolutions.antikythera.evaluator.Reflect.LONG.equals(name) ||
@@ -1216,7 +1206,7 @@ public class ExtractMethodRefactorer {
         // Filter children to ignore comments for stable structural navigation
         List<com.github.javaparser.ast.Node> children = parent.getChildNodes().stream()
                 .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
-                .collect(java.util.stream.Collectors.toList());
+                .toList();
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i) == child)
                 return i;
@@ -1233,7 +1223,7 @@ public class ExtractMethodRefactorer {
         for (int idx : path.childPath) {
             List<com.github.javaparser.ast.Node> children = current.getChildNodes().stream()
                     .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
-                    .collect(java.util.stream.Collectors.toList());
+                    .toList();
             if (idx < 0 || idx >= children.size()) {
                 return null;
             }
@@ -1312,7 +1302,7 @@ public class ExtractMethodRefactorer {
             // the node isn't in this statement (which is fine).
             // We should NOT fallback to value replacement in that case, as it risks replacing invariants.
             if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().get(0);
+                String exampleValue = param.getExampleValues().getFirst();
                 for (Expression expr : stmt.findAll(Expression.class)) {
                     if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
                         expr.replace(new NameExpr(paramName));
