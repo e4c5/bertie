@@ -24,6 +24,8 @@ public class RefactoringOrchestrator {
 
     private final WorkflowFactory workflowFactory;
 
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RefactoringOrchestrator.class);
+
     public RefactoringOrchestrator(DuplicationAnalyzer analyzer, RefactoringEngine engine) {
         this.workflowFactory = new WorkflowFactory(analyzer, engine);
     }
@@ -37,15 +39,17 @@ public class RefactoringOrchestrator {
         RefactoringSession totalSession = new RefactoringSession();
 
         // 1. Group clusters by class
-        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = groupClustersByClass(report, cu);
+        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = new HashMap<>();
+        List<DuplicateCluster> orphanedClusters = new ArrayList<>();
         
-        // 2. Identify all classes in the CU (even those without duplicates yet, though mostly we care about those with duplicates)
-        // Actually, we only need to iterate over classes that HAVE duplicates to refactor.
-        // Wait, if we only check identifying duplicates, we might miss the case where a class has no duplicates 
-        // initially but we want to run a workflow? No, workflows are triggered by duplicates.
+        groupClusters(report, clustersByClass, orphanedClusters);
         
-        // However, we should robustly handle the case where we can't find the class for a cluster.
-        
+        // Handle orphaned clusters
+        for (DuplicateCluster orphan : orphanedClusters) {
+            logger.warn("Skipping cluster with no determinable class context: {}", orphan);
+            totalSession.addSkipped(orphan, "Could not determine containing class");
+        }
+
         for (Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> entry : clustersByClass.entrySet()) {
             ClassOrInterfaceDeclaration clazz = entry.getKey();
             List<DuplicateCluster> clusters = entry.getValue();
@@ -57,57 +61,44 @@ public class RefactoringOrchestrator {
         }
 
         // New Step 3: Cleanup unreferenced private methods (zombies)
-        // This handles cases where a helper was created but usage was removed/refactored away,
-        // or if a rollback failed to delete the method.
         com.raditha.dedup.refactoring.UnusedMethodCleaner cleaner = new com.raditha.dedup.refactoring.UnusedMethodCleaner();
         boolean cleaned = cleaner.clean(cu);
         
         if (cleaned) {
-            // We need to signal that the CU was modified even if no refactorings were explicitly successful in the last step
-            // However, the session tracks refactoring results. Modifying the CU in place here relies on BertieCLI saving it.
-            // BertieCLI saves based on modifiedFiles in the result.
-            // We should add a dummy success to ensure the file is marked for saving.
-            // Or rely on the fact that if we had *any* successful refactoring earlier, it will be saved.
-            // If NO refactoring succeeded but we cleaned up a method? 
-            // Case: Pass 1 succeeded (saving file). Pass 2 failed but left a zombie. We clean it. 
-            // The file IS modified. We must ensure it's saved.
-            
-            // For now, we assume at least one refactoring succeeded or we relied on existing file.
-            // To be safe, we can add a specialized result if needed, but since orchestrate returns a session
-            // that aggregates results, we might not need to manually add to it if the caller saves the CU regardless?
-            // Checking BertieCLI: it saves using `saveRefactoringResult`.
-            
-            // Let's add an explicit "Cleanup" success to the session
-            // We need a dummy cluster/recommendation?
-            // Actually, we can just log it for now. The file is likely already in the "modified" set if previous steps touched it.
-            // But if ONLY cleanup changed it (unlikely in this flow), we might miss it.
-            // Given the context (Zombie from Pass 2), Pass 2 (Extraction) likely "touched" the file (even if it didn't save it yet).
+            logger.info("Cleanup detected unused methods. Saving changes to file.");
+            // Determine file path
+            if (cu.getStorage().isPresent()) {
+                java.nio.file.Path path = cu.getStorage().get().getPath();
+                java.nio.file.Files.writeString(path, cu.toString());
+            } else {
+                 logger.warn("RefactoringOrchestrator: Cannot save cleanup changes - no file path in CompilationUnit");
+            }
         }
 
         return totalSession;
     }
 
-    private Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> groupClustersByClass(
-            DuplicationReport report, CompilationUnit cu) {
+    private void groupClusters(DuplicationReport report, 
+            Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass,
+            List<DuplicateCluster> orphanedClusters) {
         
-        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> map = new HashMap<>();
-
         for (DuplicateCluster cluster : report.clusters()) {
             // Find the containing class for the primary sequence
             StatementSequence primary = cluster.primary();
-            if (primary == null || primary.containingMethod() == null) continue;
+            if (primary == null || primary.containingMethod() == null) {
+                orphanedClusters.add(cluster);
+                continue;
+            }
             
             Optional<ClassOrInterfaceDeclaration> classOpt = primary.containingMethod()
                     .findAncestor(ClassOrInterfaceDeclaration.class);
             
             if (classOpt.isPresent()) {
-                map.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
+                clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
             } else {
-                // If checking orphan methods or non-class structures, we might skip or handle differently
-                System.out.println("Warning: Could not determine class for cluster " + cluster);
+                orphanedClusters.add(cluster);
             }
         }
-        return map;
     }
 
     private void mergeSessions(RefactoringSession target, RefactoringSession source) {
