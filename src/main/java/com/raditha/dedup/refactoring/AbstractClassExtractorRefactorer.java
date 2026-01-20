@@ -5,6 +5,7 @@ import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
@@ -70,36 +71,12 @@ public abstract class AbstractClassExtractorRefactorer {
     /**
      * Check if an import is needed by a method (heuristic based on type references).
      */
+    /**
+     * Check if an import is needed by a method.
+     * Updated to return true conservatively to ensure all types are available in the new class.
+     */
     protected boolean isImportNeeded(ImportDeclaration imp, MethodDeclaration method) {
-        if (imp.isAsterisk()) {
-            return false;
-        }
-
-        String importName = imp.getNameAsString();
-        String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
-
-        // Check explicit types
-        for (ClassOrInterfaceType type : method.findAll(ClassOrInterfaceType.class)) {
-            if (type.getNameAsString().equals(simpleName)) {
-                return true;
-            }
-        }
-
-        // Check annotations
-        for (AnnotationExpr annotation : method.findAll(AnnotationExpr.class)) {
-            if (annotation.getNameAsString().equals(simpleName)) {
-                return true;
-            }
-        }
-
-        // Check Name expressions
-        for (NameExpr name : method.findAll(NameExpr.class)) {
-            if (name.getNameAsString().equals(simpleName)) {
-                return true;
-            }
-        }
-
-        return false;
+        return true; // Always copy all imports to be safe
     }
 
     /**

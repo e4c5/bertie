@@ -5,6 +5,7 @@ import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
@@ -42,6 +43,14 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
         
         String packageName = getPackageName(primaryCu);
         String parentClassName = determineParentClassName(cluster);
+
+        // Safety Check: Cannot extract method if it uses inner classes/interfaces defined in the primary CU
+        // because the new parent class won't have access to them (visibility/scope issues).
+        validateNoInnerClassUsage(primaryCu, methodToExtract);
+
+        // Safety Check: Cannot extract method if it uses instance fields of the class
+        // (unless we extract fields too, which we don't yet).
+        validateNoFieldUsage(primaryCu, methodToExtract);
         
         // Check if classes already share a common parent
         Optional<ClassOrInterfaceDeclaration> existingParent = findExistingCommonParent(cluster);
@@ -80,8 +89,24 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
 
             // Add extends clause if parent was newly created OR if we are a peer extending another peer
             // Do NOT add extends clause if we ARE the parent
+            // Add extends clause if parent was newly created OR if we are a peer extending another peer
+            // Do NOT add extends clause if we ARE the parent
             if (existingParent.isEmpty() && !isCurrentCuParent) {
                 addExtendsClause(currentCu, parentClassName);
+
+                // Add import if parent class is in a different package
+                String currentPackage = getPackageName(currentCu);
+                if (!currentPackage.equals(packageName)) {
+                    if (packageName.isEmpty()) {
+                        // Parent in default package, child in named package -> Cannot import!
+                        // This is a Java limitation. But usually we scan src/main/java and have packages.
+                        // If this happens, we should probably abort or warn?
+                        // For now, assume packages exist.
+                        System.err.println("Warning: Parent class in default package cannot be imported by " + currentPackage);
+                    } else {
+                        currentCu.addImport(packageName + "." + parentClassName);
+                    }
+                }
             }
             
             // Remove the duplicate method (now inherited from parent)
@@ -151,6 +176,7 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
         
         // Create abstract class
         ClassOrInterfaceDeclaration parentClass = parentCu.addClass(className)
+                .setPublic(true) // Ensure public visibility for cross-package access
                 .setAbstract(true)
                 .setJavadocComment("Common parent class for shared functionality.");
         
@@ -272,5 +298,78 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
         }
         
         return "";
+    }
+
+    /**
+     * Check if method uses any inner classes defined in the CU.
+     * Throws IllegalStateException to abort refactoring if found.
+     */
+    private void validateNoInnerClassUsage(CompilationUnit cu, MethodDeclaration method) {
+        List<String> innerClassNames = new ArrayList<>();
+        
+        // Find all nested types
+        cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class).stream()
+            .filter(t -> t.isNestedType())
+            .forEach(t -> innerClassNames.add(t.getNameAsString()));
+
+        if (innerClassNames.isEmpty()) {
+            return;
+        }
+
+        // Check for usage in method (Types, Constructors)
+        // Check ClassOrInterfaceType
+        for (ClassOrInterfaceType type : method.findAll(ClassOrInterfaceType.class)) {
+            if (innerClassNames.contains(type.getNameAsString())) {
+                 throw new IllegalStateException("Skipped: Method uses inner class '" + type.getNameAsString() + "' which cannot be extracted to parent class.");
+            }
+        }
+    }
+
+    /**
+     * Check if method uses any instance fields of the class.
+     * Throws IllegalStateException to abort refactoring if found.
+     */
+    private void validateNoFieldUsage(CompilationUnit cu, MethodDeclaration method) {
+        // Collect field names
+        Set<String> fieldNames = new HashSet<>();
+        findPrimaryClass(cu).ifPresent(c -> 
+            c.getFields().forEach(f -> 
+                f.getVariables().forEach(v -> fieldNames.add(v.getNameAsString()))
+            )
+        );
+
+        if (fieldNames.isEmpty()) return;
+
+        // Check for usage
+        method.findAll(NameExpr.class).forEach(name -> {
+            String identifier = name.getNameAsString();
+            if (fieldNames.contains(identifier)) {
+                // Check if shadowed by local variable or parameter
+                if (!isShadowed(name, method)) {
+                    throw new IllegalStateException("Skipped: Method uses field '" + identifier + "' which is not extracted.");
+                }
+            }
+        });
+    }
+
+    /**
+     * Check if a name expression is shadowed by a local variable or parameter.
+     */
+    private boolean isShadowed(NameExpr name, MethodDeclaration method) {
+        String identifier = name.getNameAsString();
+        
+        // Check parameters
+        boolean isParam = method.getParameters().stream()
+                .anyMatch(p -> p.getNameAsString().equals(identifier));
+        if (isParam) return true;
+
+        // Check local variables (simplistic check: declared before usage?)
+        // AST traversal to find ancestor blocks and declarations
+        // This is complex. For now, assume if variable with same name declared in method, it shadows.
+        // False positives (usage before decl) are safer (will skip refactoring) than false negatives.
+        boolean isLocal = method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
+                .anyMatch(v -> v.getNameAsString().equals(identifier));
+        
+        return isLocal;
     }
 }

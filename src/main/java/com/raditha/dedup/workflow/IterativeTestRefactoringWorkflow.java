@@ -48,8 +48,16 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         
         // Filter clusters to only those relevant to this class
         // (Orchestrator passed us class-specific clusters)
-        
-        RefactoringSession pass1Session = engine.processClusters(initialClusters);
+        // CRITICAL: Only process Parameterized Tests in Pass 1. 
+        // Any Helper Methods detected in the initial report should be IGNORED in Pass 1,
+        // because we will re-detect them in Pass 2 on the modified/cleaner code.
+        // Processing Helpers here risks extracting literals into helpers BEFORE parameterization runs,
+        // which breaks parameter substitution (as seen in the Aquarium test case).
+        List<DuplicateCluster> pass1Clusters = initialClusters.stream()
+                .filter(c -> c.recommendation().getStrategy() == RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)
+                .toList();
+
+        RefactoringSession pass1Session = engine.processClusters(pass1Clusters);
         mergeSessions(totalSession, pass1Session);
 
         if (pass1Session.hasFailures()) {

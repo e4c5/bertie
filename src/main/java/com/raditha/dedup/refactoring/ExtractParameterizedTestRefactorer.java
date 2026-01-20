@@ -229,23 +229,8 @@ public class ExtractParameterizedTestRefactorer {
             List<LiteralExpr> bodyLiterals = newBody.findAll(LiteralExpr.class);
             List<LiteralValue> targetLiterals = instances.get(0).literals;
 
-            int matchIndex = findLiteralSequenceIndex(bodyLiterals, targetLiterals);
-            
-            if (matchIndex != -1) {
-                for (int i = 0; i < targetLiterals.size(); i++) {
-                    LiteralExpr literal = bodyLiterals.get(matchIndex + i);
-                    ParameterInfo param = parameters.get(i);
-                    literal.replace(new NameExpr(param.name));
-                }
-            } else if (bodyLiterals.size() == parameters.size()) {
-                // Fallback: exact size match (legacy behavior)
-                 for (int i = 0; i < bodyLiterals.size(); i++) {
-                    bodyLiterals.get(i).replace(new NameExpr(parameters.get(i).name));
-                }
-            } else {
-                 // Could not find safe match. Parameters might be unused, but valid body is preserved.
-                 // This usually indicates a misalignment between the cluster sequence and the method body.
-            }
+            // Use robust subsequence matching to replacement literals even if there are gaps
+            replaceMatchingLiterals(bodyLiterals, targetLiterals, parameters);
             
             method.setBody(newBody);
         }
@@ -254,33 +239,43 @@ public class ExtractParameterizedTestRefactorer {
     }
 
     /**
-     * Find the starting index of targetLiterals sequence within bodyLiterals.
+     * Replace literals in the body that match the target sequence, allowing for gaps.
+     * This handles cases where the duplication sequence is a subset of the method body.
      */
-    private int findLiteralSequenceIndex(List<LiteralExpr> bodyLiterals, List<LiteralValue> targetLiterals) {
-        if (targetLiterals.isEmpty()) return -1;
-        
-        for (int i = 0; i <= bodyLiterals.size() - targetLiterals.size(); i++) {
-            boolean match = true;
-            for (int j = 0; j < targetLiterals.size(); j++) {
-                LiteralExpr bodyLit = bodyLiterals.get(i + j);
-                LiteralValue targetLit = targetLiterals.get(j);
-                
-                // Compare value and type
-                // Note: bodyLit.toString() includes quotes for strings, targetLit.value might/might not
-                // We use our helper method to determine type and clean value
-                String bodyValue = bodyLit.toString();
-                String bodyType = determineLiteralType(bodyLit);
-                
-                if (!bodyType.equals(targetLit.type) || !bodyValue.equals(targetLit.value)) {
-                    match = false;
-                    break;
-                }
+    private void replaceMatchingLiterals(List<LiteralExpr> bodyLiterals, List<LiteralValue> targetLiterals, List<ParameterInfo> parameters) {
+        int targetIdx = 0;
+        int bodyIdx = 0;
+
+        while (targetIdx < targetLiterals.size() && bodyIdx < bodyLiterals.size()) {
+            LiteralExpr bodyLit = bodyLiterals.get(bodyIdx);
+            LiteralValue targetLit = targetLiterals.get(targetIdx);
+
+            // Check match
+            boolean match = false;
+            String bodyValue = bodyLit.toString();
+            String bodyType = determineLiteralType(bodyLit);
+
+            if (bodyType.equals(targetLit.type) && bodyValue.equals(targetLit.value)) {
+                match = true;
             }
+
             if (match) {
-                return i;
+                // Replace
+                ParameterInfo param = parameters.get(targetIdx);
+                bodyLit.replace(new NameExpr(param.name));
+                
+                // Advance both
+                targetIdx++;
+                bodyIdx++;
+            } else {
+                // Advance body only (skip non-matching literal)
+                bodyIdx++;
             }
         }
-        return -1;
+        
+        if (targetIdx < targetLiterals.size()) {
+             // Debug or log: Could not replace all parameters.
+        }
     }
 
     /**
