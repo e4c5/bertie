@@ -15,6 +15,7 @@ import com.raditha.dedup.model.SimilarityPair;
 
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Refactorer that converts duplicate test methods with varying data into
@@ -35,28 +36,29 @@ public class ExtractParameterizedTestRefactorer {
         // Extract parameters from all duplicate instances
         List<TestInstance> testInstances = extractTestInstances(cluster);
 
+        // Filter instances to ensure consistency (robustness against partial matches)
+        // Group instances by parameter count to find the dominant pattern
+        Map<Integer, List<TestInstance>> byParamCount = testInstances.stream()
+                .collect(Collectors.groupingBy(i -> i.literals.size()));
+
+        // Select the largest group (most common parameter count)
+        testInstances = byParamCount.values().stream()
+                .max(Comparator.comparingInt(List::size))
+                .orElse(List.of());
+
         if (testInstances.size() < 3) {
             throw new IllegalArgumentException(
                     "Need at least 3 similar tests for parameterization, found: " + testInstances.size());
-        }
-
-        // Validate consistency (all must have same number of parameters)
-        int paramCount = testInstances.get(0).literals.size();
-        for (TestInstance instance : testInstances) {
-            if (instance.literals.size() != paramCount) {
-                // If inconsistent, we can't safely parameterize.
-                // In a real scenario, we might try to find common subsequence, but for now abort.
-                // Since this is a void method, we can't return null, but we can throw to skip.
-                throw new IllegalStateException("Inconsistent literal counts across test instances. Cannot parameterize.");
-            }
         }
 
         // Determine parameter types and names
         List<ParameterInfo> parameters = analyzeParameters(testInstances);
 
         // Create the parameterized test method
+        // Use the first consistent instance as the template to ensure body matches parameters
+        MethodDeclaration checkMethod = testInstances.get(0).method;
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
-                cluster.primary().containingMethod(),
+                checkMethod,
                 recommendation.getSuggestedMethodName(),
                 parameters,
                 testInstances);
@@ -75,23 +77,30 @@ public class ExtractParameterizedTestRefactorer {
 
     /**
      * Extract test instances from cluster.
+     * 
+     * <p><b>Important:</b> This method uses {@link DuplicateCluster#allSequences()} 
+     * which returns a stream of unique {@link StatementSequence} objects (deduplicated by range/file).
+     * 
+     * <p>Using {@code allSequences()} is critical for two reasons:
+     * <ol>
+     *   <li><b>Deduplication:</b> It filters out duplicate occurrences of the same code block found in pairs,
+     *       preventing duplicate entries in the {@code @CsvSource}.</li>
+     *   <li><b>Correctness:</b> It provides the exact {@code StatementSequence} matched by the clusterer,
+     *       which contains the specific list of statements ({@code seq.statements()}). 
+     *       Attempting to re-parse the whole method body (e.g., via {@code seq.containingMethod().getBody()})
+     *       is incorrect because it may include extra statements not part of the match, leading to 
+     *       "Inconsistent literal counts" errors during parameterization.</li>
+     * </ol>
+     * 
+     * @param cluster The duplicate cluster containing similar test methods
+     * @return List of unique test instances, one per unique sequence
      */
     private List<TestInstance> extractTestInstances(DuplicateCluster cluster) {
-        List<TestInstance> instances = new ArrayList<>();
-
-        // Add primary
-        instances.add(new TestInstance(
-                cluster.primary().containingMethod(),
-                extractLiterals(cluster.primary().statements())));
-
-        // Add duplicates
-        for (SimilarityPair pair : cluster.duplicates()) {
-            instances.add(new TestInstance(
-                    pair.seq2().containingMethod(),
-                    extractLiterals(pair.seq2().statements())));
-        }
-
-        return instances;
+        return cluster.allSequences().stream()
+            .map(seq -> new TestInstance(
+                seq.containingMethod(),
+                extractLiterals(seq.statements())))
+            .toList();
     }
 
     /**
@@ -238,7 +247,7 @@ public class ExtractParameterizedTestRefactorer {
         }
 
         String csvData = "{\n        " +
-                String.join(",\n        ", rows) +
+                rows.stream().distinct().collect(Collectors.joining(",\n        ")) +
                 "\n    }";
 
         // Create annotation manually
