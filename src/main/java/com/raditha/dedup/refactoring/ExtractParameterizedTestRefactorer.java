@@ -207,29 +207,64 @@ public class ExtractParameterizedTestRefactorer {
         if (originalMethod.getBody().isPresent()) {
             com.github.javaparser.ast.stmt.BlockStmt newBody = originalMethod.getBody().get().clone();
             
-            // Replace literals with parameter names
+            // Logic to replace literals with parameter names
+            // We search for the sequence of literals that matches the *template instance's* values
+            // This handles partial matches where the method body contains more literals than the parameters
             List<LiteralExpr> bodyLiterals = newBody.findAll(LiteralExpr.class);
+            List<LiteralValue> targetLiterals = instances.get(0).literals;
+
+            int matchIndex = findLiteralSequenceIndex(bodyLiterals, targetLiterals);
             
-            // We expect the number of literals in the body to match the extracted parameters
-            // (since we extracted from the same body structure)
-            // However, we must be careful with order.
-             if (bodyLiterals.size() == parameters.size()) {
-                for (int i = 0; i < bodyLiterals.size(); i++) {
-                    LiteralExpr literal = bodyLiterals.get(i);
+            if (matchIndex != -1) {
+                for (int i = 0; i < targetLiterals.size(); i++) {
+                    LiteralExpr literal = bodyLiterals.get(matchIndex + i);
                     ParameterInfo param = parameters.get(i);
-                    
-                    // Replace literal with NameExpr
                     literal.replace(new NameExpr(param.name));
                 }
+            } else if (bodyLiterals.size() == parameters.size()) {
+                // Fallback: exact size match (legacy behavior)
+                 for (int i = 0; i < bodyLiterals.size(); i++) {
+                    bodyLiterals.get(i).replace(new NameExpr(parameters.get(i).name));
+                }
             } else {
-                 // Fallback or warning? If counts don't match, we might have missed something or findAll behaves differently.
-                 // For now, proceed. The verification step will catch if it's broken.
+                 // Could not find safe match. Parameters might be unused, but valid body is preserved.
+                 // This usually indicates a misalignment between the cluster sequence and the method body.
             }
             
             method.setBody(newBody);
         }
 
         return method;
+    }
+
+    /**
+     * Find the starting index of targetLiterals sequence within bodyLiterals.
+     */
+    private int findLiteralSequenceIndex(List<LiteralExpr> bodyLiterals, List<LiteralValue> targetLiterals) {
+        if (targetLiterals.isEmpty()) return -1;
+        
+        for (int i = 0; i <= bodyLiterals.size() - targetLiterals.size(); i++) {
+            boolean match = true;
+            for (int j = 0; j < targetLiterals.size(); j++) {
+                LiteralExpr bodyLit = bodyLiterals.get(i + j);
+                LiteralValue targetLit = targetLiterals.get(j);
+                
+                // Compare value and type
+                // Note: bodyLit.toString() includes quotes for strings, targetLit.value might/might not
+                // We use our helper method to determine type and clean value
+                String bodyValue = bodyLit.toString();
+                String bodyType = determineLiteralType(bodyLit);
+                
+                if (!bodyType.equals(targetLit.type) || !bodyValue.equals(targetLit.value)) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
