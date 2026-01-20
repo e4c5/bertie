@@ -50,7 +50,14 @@ public class RefactoringEngine {
         // Sort clusters by importance: larger statement count first (to handle inclusion), then LOC reduction
         List<DuplicateCluster> sortedClusters = report.clusters().stream()
                 .sorted((c1, c2) -> {
-                    // First by Statement Count (descending) - CRITICAL for handling overlapping duplicates
+                    // First by Strategy Priority (Parameterized Test > Helper Method)
+                    // This prevents creating unused helper methods when a parameterized test would consume the duplicates
+                    int p1 = getStrategyPriority(c1.recommendation());
+                    int p2 = getStrategyPriority(c2.recommendation());
+                    int priorityCompare = Integer.compare(p2, p1);
+                    if (priorityCompare != 0) return priorityCompare;
+
+                    // Then by Statement Count (descending) - CRITICAL for handling overlapping duplicates
                     // Check primary sequence size
                     int size1 = c1.primary() != null ? c1.primary().statements().size() : 0;
                     int size2 = c2.primary() != null ? c2.primary().statements().size() : 0;
@@ -358,6 +365,17 @@ public class RefactoringEngine {
     }
 
     public record RefactoringSkip(DuplicateCluster cluster, String reason) {
+    }
+
+    private int getStrategyPriority(RefactoringRecommendation recommendation) {
+        if (recommendation == null) return 0;
+        return switch (recommendation.getStrategy()) {
+            case EXTRACT_TO_PARAMETERIZED_TEST -> 100;
+            case EXTRACT_PARENT_CLASS -> 90;
+            case EXTRACT_TO_UTILITY_CLASS -> 80;
+            case EXTRACT_HELPER_METHOD -> 50;
+            default -> 0;
+        };
     }
 
     public record RefactoringFailure(DuplicateCluster cluster, String error) {

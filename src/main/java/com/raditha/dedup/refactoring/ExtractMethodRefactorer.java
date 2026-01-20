@@ -177,10 +177,25 @@ public class ExtractMethodRefactorer {
         Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
         modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
 
+        int successfulReplacements = 0;
+
         for (Map.Entry<StatementSequence, MethodCallExpr> entry : preparedReplacements.entrySet()) {
             StatementSequence seq = entry.getKey();
-            applyReplacement(seq, recommendation, entry.getValue(), forcedReturnVar, helperMethod.getType());
-            modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
+            boolean applied = applyReplacement(seq, recommendation, entry.getValue(), forcedReturnVar, helperMethod.getType());
+            if (applied) {
+                successfulReplacements++;
+                modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
+            }
+        }
+
+        // ROLLBACK IF NO REPLACEMENTS
+        if (successfulReplacements == 0) {
+            // If the helper method was newly created (not reused), remove it
+            if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+                helperMethod.remove();
+            }
+            return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                    "Skipped: Could not substitute calls for extracted method " + methodNameToUse);
         }
 
         return buildRefactoringResult(modifiedCUs, recommendation, methodNameToUse);
@@ -678,11 +693,11 @@ public class ExtractMethodRefactorer {
      * Phase 2: Apply the replacement to the AST.
      * This modifies the code structure.
      */
-    private void applyReplacement(StatementSequence sequence, RefactoringRecommendation recommendation,
+    private boolean applyReplacement(StatementSequence sequence, RefactoringRecommendation recommendation,
             MethodCallExpr methodCall, String forcedReturnVar, com.github.javaparser.ast.type.Type returnType) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
-            return;
+            return false;
         }
 
         // Locate the actual block containing the sequence (might be nested)
@@ -696,7 +711,7 @@ public class ExtractMethodRefactorer {
         // 4) Locate sequence in the block and replace
         int startIdx = findStatementIndex(block, sequence);
         if (startIdx < 0)
-            return;
+            return false;
 
         removeOldStatements(block, startIdx, limit);
 
@@ -704,11 +719,12 @@ public class ExtractMethodRefactorer {
         if (returnType != null && returnType.isVoidType()) {
             insertVoidReplacement(block, startIdx, methodCall, originalReturnValues);
             redeclareLiteralVariables(sequence, block, startIdx + 1, null);
-            return;
+            return true;
         }
 
         applyValueReplacement(sequence, recommendation, methodCall, forcedReturnVar, returnType, 
                 containingMethod, block, startIdx, originalReturnValues);
+        return true;
     }
 
     private void removeOldStatements(BlockStmt block, int startIdx, int removeCount) {
