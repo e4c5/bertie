@@ -10,6 +10,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import com.raditha.dedup.cli.VerifyMode;
+import com.raditha.dedup.config.DuplicationDetectorSettings;
+import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
+
+import javax.tools.*;
+import java.io.StringWriter;
+import java.util.Arrays;
+import java.util.Collections;
 
 /**
  * Verifies refactored code compiles and tests pass.
@@ -20,13 +29,13 @@ public class RefactoringVerifier {
     private final Path projectRoot;
     private final Map<Path, String> backups = new HashMap<>();
     private final List<Path> createdFiles = new ArrayList<>();
-    private final VerificationLevel verificationLevel;
+    private final VerifyMode verificationLevel;
 
     public RefactoringVerifier(Path projectRoot) {
-        this(projectRoot, VerificationLevel.COMPILE);
+        this(projectRoot, VerifyMode.COMPILE);
     }
 
-    public RefactoringVerifier(Path projectRoot, VerificationLevel level) {
+    public RefactoringVerifier(Path projectRoot, VerifyMode level) {
         this.projectRoot = projectRoot;
         this.verificationLevel = level;
     }
@@ -49,12 +58,17 @@ public class RefactoringVerifier {
     public VerificationResult verify() throws IOException, InterruptedException {
         List<String> errors = new ArrayList<>();
 
-        if (verificationLevel == VerificationLevel.NONE) {
+        if (verificationLevel == VerifyMode.NONE) {
             return new VerificationResult(true, List.of(), "Verification skipped");
         }
 
-        // Step 1: Try to compile
-        CompilationResult compileResult = runMavenCompile();
+        CompilationResult compileResult;
+        if (verificationLevel == VerifyMode.FAST_COMPILE) {
+             compileResult = runFastCompile();
+        } else {
+             compileResult = runMavenCompile();
+        }
+
         if (!compileResult.success()) {
             errors.add("Compilation failed:");
             errors.addAll(compileResult.errors());
@@ -62,7 +76,7 @@ public class RefactoringVerifier {
         }
 
         // Step 2: Run tests if level is TEST
-        if (verificationLevel == VerificationLevel.TEST) {
+        if (verificationLevel == VerifyMode.TEST) {
             TestResult testResult = runMavenTest();
             if (!testResult.success()) {
                 errors.add("Tests failed:");
@@ -75,10 +89,163 @@ public class RefactoringVerifier {
     }
 
     /**
+     * Run fast in-process compilation using JavaCompiler API.
+     */
+    private CompilationResult runFastCompile() {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+             return new CompilationResult(false, List.of("No Java compiler provided. Please ensure you are running with a JDK, not a JRE."), "");
+        }
+
+        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+        StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null);
+
+        // Files to compile: Only modified files + newly created files
+        List<Path> filesToCompile = new ArrayList<>(backups.keySet());
+        filesToCompile.addAll(createdFiles);
+        
+        if (filesToCompile.isEmpty()) {
+            closeFileManager(fileManager);
+            return new CompilationResult(true, List.of(), "No files modified");
+        }
+
+        // Create temporary directory for compilation output
+        Path tempOutput = createTempDirectory(fileManager);
+        if (tempOutput == null) {
+            return new CompilationResult(false, List.of("Failed to create temp directory"), "");
+        }
+
+        try {
+            Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromPaths(filesToCompile);
+            List<String> options = buildCompilerOptions(tempOutput);
+
+            JavaCompiler.CompilationTask task = compiler.getTask(
+                null, // default writer (system.err) if not null, but we capture diagnostics
+                fileManager,
+                diagnostics,
+                options,
+                null, // no classes to process annotation
+                compilationUnits
+            );
+
+            boolean success = task.call();
+            List<String> errors = extractCompilationErrors(diagnostics);
+            
+            return new CompilationResult(success, errors, success ? "Fast compilation succeeded" : "Fast compilation failed");
+            
+        } finally {
+            closeFileManager(fileManager);
+            if (tempOutput != null) {
+                deleteDirectoryRecursively(tempOutput);
+            }
+        }
+    }
+
+    /**
+     * Close the file manager, ignoring any exceptions.
+     */
+    private void closeFileManager(StandardJavaFileManager fileManager) {
+        try {
+            fileManager.close();
+        } catch (IOException e) {
+            // ignore
+        }
+    }
+
+    /**
+     * Create a temporary directory for compilation output.
+     * Returns null if creation fails (fileManager will be closed).
+     */
+    @SuppressWarnings("java:S5443") // Files.createTempDirectory() is secure: creates with unique names and restrictive permissions
+    private Path createTempDirectory(StandardJavaFileManager fileManager) {
+        try {
+            return Files.createTempDirectory("bertie-compile-" + System.nanoTime());
+        } catch (IOException e) {
+            closeFileManager(fileManager);
+            return null;
+        }
+    }
+
+    /**
+     * Build compiler options including classpath and Java version.
+     */
+    private List<String> buildCompilerOptions(Path tempOutput) {
+        List<String> options = new ArrayList<>();
+        options.add("-classpath");
+        options.add(buildClasspath());
+        options.add("-d");
+        options.add(tempOutput.toString());
+        
+        // Java version
+        String javaVersion = DuplicationDetectorSettings.getJavaVersion();
+        if (javaVersion != null) {
+             options.add("-source");
+             options.add(javaVersion);
+             options.add("-target");
+             options.add(javaVersion);
+        }
+        
+        return options;
+    }
+
+    /**
+     * Build the classpath string for compilation.
+     */
+    private String buildClasspath() {
+        StringBuilder cp = new StringBuilder();
+        // 1. External dependencies
+        for (String jar : MavenHelper.getJarPaths()) {
+            cp.append(jar).append(java.io.File.pathSeparator);
+        }
+        // 2. Project classes (so we can resolve other classes in the project)
+        cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
+        cp.append(projectRoot.resolve("target/test-classes"));
+        return cp.toString();
+    }
+
+    /**
+     * Extract compilation errors from diagnostics.
+     */
+    private List<String> extractCompilationErrors(DiagnosticCollector<JavaFileObject> diagnostics) {
+        List<String> errors = new ArrayList<>();
+        for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+            if (diagnostic.getKind() == Diagnostic.Kind.ERROR) {
+                JavaFileObject source = diagnostic.getSource();
+                String sourcePath = (source != null) ? source.toUri().getPath() : "<unknown>";
+                errors.add(String.format("%s:%d: %s",
+                    sourcePath,
+                    diagnostic.getLineNumber(),
+                    diagnostic.getMessage(null)));
+            }
+        }
+        return errors;
+    }
+
+    private void deleteDirectoryRecursively(Path path) {
+        try (java.util.stream.Stream<Path> walk = Files.walk(path)) {
+            walk.sorted(java.util.Comparator.reverseOrder())
+                .map(Path::toFile)
+                .forEach(java.io.File::delete);
+        } catch (IOException e) {
+            System.err.println("Failed to cleanup temp directory: " + path + " - " + e.getMessage());
+        }
+    }
+
+    /**
      * Run maven compile.
      */
     private CompilationResult runMavenCompile() throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder("mvn", "test-compile", "-q");
+        List<String> command = new ArrayList<>();
+        command.add("mvn");
+        command.add("test-compile");
+        command.add("-q");
+        
+        String javaVersion = DuplicationDetectorSettings.getJavaVersion();
+        if (javaVersion != null) {
+            command.add("-Dmaven.compiler.release=" + javaVersion);
+        }
+
+        ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(projectRoot.toFile());
         pb.redirectErrorStream(true);
 
@@ -174,11 +341,7 @@ public class RefactoringVerifier {
     /**
      * Verification levels.
      */
-    public enum VerificationLevel {
-        NONE, // No verification
-        COMPILE, // Compile only
-        TEST // Compile + run tests
-    }
+    // VerifyMode import replaces VerificationLevel enum
 
     /**
      * Result of verification.

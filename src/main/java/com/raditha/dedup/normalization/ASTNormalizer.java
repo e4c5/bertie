@@ -2,6 +2,7 @@ package com.raditha.dedup.normalization;
 
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
+import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
@@ -49,7 +50,7 @@ public class ASTNormalizer {
         
         // Remove comments for cleaner comparison
         clone.removeComment();
-        clone.getAllContainedComments().forEach(comment -> comment.remove());
+        clone.getAllContainedComments().forEach(Comment::remove);
 
         // One pass visitor: literals-only
         clone.accept(new NormalizingVisitor(false), null);

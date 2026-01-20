@@ -26,15 +26,6 @@ import java.util.Set;
 public class SequenceTruncator {
 
     private static final String OBJECT = "Object";
-    private final DataFlowAnalyzer dataFlowAnalyzer;
-
-    public SequenceTruncator() {
-        this.dataFlowAnalyzer = new DataFlowAnalyzer();
-    }
-
-    public SequenceTruncator(DataFlowAnalyzer dataFlowAnalyzer) {
-        this.dataFlowAnalyzer = dataFlowAnalyzer;
-    }
 
     /**
      * Calculate the valid statement count for extraction.

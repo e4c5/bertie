@@ -7,25 +7,58 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Rapidly tokenizes statements for LSH without AST cloning or pretty-printing.
  * Emulates the fuzzy normalization logic of ASTNormalizer but emits strings directly.
+ * 
+ * OPTIMIZATION: Uses statement-level caching to avoid redundant tokenization
+ * of the same statement nodes in overlapping windows.
  */
 public class FuzzyTokenizer {
 
     /**
+     * Cache for individual statement tokens.
+     * Uses IdentityHashMap for reference equality (same AST node).
+     */
+    private final Map<Statement, List<String>> statementCache = new IdentityHashMap<>();
+
+    /**
+     * Generate fuzzy tokens for a single statement.
+     * Results are cached to avoid redundant AST traversal.
+     * Returns an unmodifiable view to prevent cache corruption.
+     */
+    public List<String> tokenizeStatement(Statement statement) {
+        List<String> tokens = statementCache.computeIfAbsent(statement, stmt -> {
+            List<String> newTokens = new ArrayList<>();
+            TokenizingVisitor visitor = new TokenizingVisitor(newTokens);
+            stmt.accept(visitor, null);
+            return newTokens;
+        });
+        return java.util.Collections.unmodifiableList(tokens);
+    }
+
+    /**
      * Generate fuzzy tokens for a list of statements.
-     * Identifiers and literals are normalized to placeholders.
+     * Uses cached tokens for individual statements to avoid redundant work.
      */
     public List<String> tokenize(List<Statement> statements) {
         List<String> tokens = new ArrayList<>();
-        TokenizingVisitor visitor = new TokenizingVisitor(tokens);
         for (Statement stmt : statements) {
-            stmt.accept(visitor, null);
+            tokens.addAll(tokenizeStatement(stmt));
         }
         return tokens;
+    }
+
+    /**
+     * Clear the statement cache.
+     * Should be called between projects to prevent memory leaks.
+     */
+    public void clearCache() {
+        statementCache.clear();
     }
 
     private static class TokenizingVisitor extends VoidVisitorAdapter<Void> {

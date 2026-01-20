@@ -3,7 +3,7 @@ package com.raditha.dedup;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
+import com.raditha.dedup.config.DuplicationDetectorSettings;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,11 +32,14 @@ class CrossFileDuplicationTest {
         // Reset and parse all files including test-bed
         AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
+        
+        // Initialize configuration
+        DuplicationDetectorSettings.loadConfig(5, 75, null);
     }
 
     @BeforeEach
     void setUp() {
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.moderate());
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test

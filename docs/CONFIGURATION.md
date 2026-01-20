@@ -1,18 +1,25 @@
 # Configuration Reference
 
-Complete guide to configuring the Duplication Detector.
+Complete guide to configuring the Duplication Detector (Bertie).
 
 ---
 
 ## Configuration File
 
-Location: `src/main/resources/bertie.yml`
+Location: `src/main/resources/generator.yml` (default) or custom file via CLI.
+
+**Note**: The repository contains two YAML files:
+- `generator.yml`: The default runtime configuration file (used for analyzing other projects)
+- `bertie.yml`: Bertie's own self-test configuration (used for testing Bertie itself)
+
+When running Bertie to analyze your own projects, use `generator.yml` or specify a custom config file with `--config-file <path>`.
 
 ### Basic Structure
 
 ```yaml
 variables:
   projects_folder: ${HOME}/projects
+  m2_folder: ${HOME}/.m2/repository
 
 base_path: /absolute/path/to/your/project
 
@@ -20,6 +27,9 @@ duplication_detector:
   target_class: "com.example.YourClass"
   min_lines: 5
   threshold: 0.75
+  enable_lsh: true
+  max_window_growth: 5
+  maximal_only: true
 ```
 
 ---
@@ -33,16 +43,8 @@ Absolute path to the project root containing `src/main/java`.
 base_path: /home/user/my-project
 ```
 
-Or use variables:
-```yaml
-variables:
-  projects_folder: ${HOME}/projects
-
-base_path: ${projects_folder}/my-app
-```
-
-### `target_class` (required)
-Fully qualified name of the class to analyze.
+### `target_class` (optional)
+Fully qualified name of the class to analyze. If omitted, all classes in `base_path` are analyzed.
 
 ```yaml
 duplication_detector:
@@ -54,248 +56,146 @@ Minimum number of lines to consider as a duplicate.
 
 - **Default**: 5
 - **Range**: 3-20
-- **Recommendation**: Start with 5, lower to 3 for more duplicates
-
-```yaml
-duplication_detector:
-  min_lines: 5
-```
+- **CLI**: `--min-lines <n>`
 
 ### `threshold` (optional)
-Similarity threshold as a decimal (0.0 to 1.0).
+Similarity threshold for duplicate detection.
 
-- **Default**: 0.75 (75% similar)
-- **Range**: 0.60-0.95
-- **Presets**:
-  - `0.90`: Strict (only very similar code)
-  - `0.75`: Balanced (recommended)
-  - `0.60`: Lenient (catches more duplicates)
-
-```yaml
-duplication_detector:
-  threshold: 0.75
-```
+- **Default**: 0.75 (75%)
+- **Format**: 
+  - In YAML config: Can use decimal (0.0 to 1.0) or percentage (0-100)
+  - From CLI: Percentage only (0-100 as integer), e.g., `--threshold 75`
+- **Example YAML**: `threshold: 0.75` or `threshold: 75`
+- **Example CLI**: `--threshold 75` (not `--threshold 0.75`)
 
 ---
 
-## Presets
+## Advanced Detection Settings
 
-Use predefined configuration presets via CLI:
+### `enable_lsh`
+**Locality Sensitive Hashing (LSH)** is a performance optimization for candidate generation.
 
-```bash
-# Strict mode (90% threshold, 5 lines)
---strict
+- **Default**: `true`
+- **Explanation**: 
+  When enabled, Bertie uses LSH to quickly find similar code blocks (candidates) instead of performing a brute-force O(N²) comparison of all possible statement sequences. This is essential for large codebases where the number of possible pairs grows exponentially.
+  - **Pros**: Significant speedup for large projects; reduces memory pressure.
+  - **Cons**: Small chance of missing some duplicates (false negatives) depending on the number of hash functions and bands.
+- **Set to `false`** if you suspect missed duplicates and have a small codebase where performance is less critical.
 
-# Lenient mode (60% threshold, 3 lines)
---lenient
-```
+### `max_window_growth`
+Limits how many statements a sliding window can grow during candidate expansion.
+
+- **Default**: `5`
+- **Explanation**:
+  After finding a seed duplicate (e.g., 5 identical lines), Bertie tries to expand the window forward to include more matching statements. This setting prevents the expander from trying too many combinations when the code is highly repetitive but not identical.
+  - **Lower values (2-3)**: Faster analysis, but might miss very long, multi-page duplicates if they contain many small variations.
+  - **Higher values (7-10)**: Better at finding long duplicates with intermittent variations (like large boilerplate methods), but can significantly increase processing time for repetitive patterns.
+
+### `maximal_only`
+Filters whether to report all overlapping duplicates or only the longest ones.
+
+- **Default**: `true`
+- **Explanation**:
+  A "maximal" sequence is a duplicate that cannot be extended in either direction without dropping below the similarity threshold.
+  - **`true` (Recommended)**: Only reports the longest overlapping sequences. If lines 10-20 match lines 50-60, it won't also report 11-19 matching 51-59 as separate duplicates. This provides a much cleaner report.
+  - **`false`**: Reports every sub-sequence that meets the threshold. This can be useful for identifying smaller reusable patterns within larger duplicated blocks, but it usually generates a massive amount of "noise" in the report.
 
 ---
 
-## CLI Overrides
-
-Override YAML settings from command line:
-
-```bash
-mvn exec:java -Dexec.mainClass="com.raditha.dedup.cli.BertieCLI" \
-  -Dexec.args="analyze --threshold 80 --min-lines 3"
-```
-
-**Priority**: CLI args > generator.yml > defaults
-
----
-
-## Advanced Configuration
-
-### AI-Powered Method Naming
-
-Configure the AI service for intelligent method name generation:
-
-```yaml
-ai_service:
-  provider: "gemini"
-  model: "gemini-2.0-flash-exp"
-  api_endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-  api_key: "${GEMINI_API_KEY}"
-  timeout_seconds: 30
-  max_retries: 2
-```
-
-**Environment Variable**:
-```bash
-export GEMINI_API_KEY="your-api-key-here"
-```
-
-### Similarity Weights (Advanced)
+## Similarity Weights
 
 Fine-tune how similarity is calculated:
 
 ```yaml
 duplication_detector:
   similarity_weights:
-    lcs_weight: 0.4
-    levenshtein_weight: 0.3
-    structural_weight: 0.3
+    lcs: 0.4
+    levenshtein: 0.3
+    structural: 0.3
 ```
 
-- **LCS** (Longest Common Subsequence): Token-level similarity
-- **Levenshtein**: Edit distance
-- **Structural**: AST structure matching
-
-**Recommendation**: Use defaults unless you have specific needs
+- **`lcs`** (Longest Common Subsequence): Measures how much of the token stream matches in order.
+- **`levenshtein`**: Standard edit distance between token streams.
+- **`structural`**: Compares the AST node types (ignores variable names/literals).
 
 ---
 
-## Refactoring Modes
+## Refactoring Settings
 
-### Interactive Mode (Default)
-Review each refactoring before applying.
+### Refactoring Modes (`--mode <mode>`)
 
-```bash
-refactor --mode interactive
-```
+| Mode | Description |
+| :--- | :--- |
+| `interactive` | **(Default)** Asks for confirmation before each refactoring. |
+| `batch` | Automatically applies all refactorings (high-confidence only). |
+| `dry-run` | Shows what would be changed without modifying any files. |
 
-**Best for**: Manual review, learning the tool
+### Verification Levels (`--verify <level>`)
 
-### Dry-Run Mode
-Preview changes without modifying files.
-
-```bash
-refactor --mode dry-run
-```
-
-**Best for**: Testing, generating reports
-
-### Batch Mode
-Auto-apply high-confidence refactorings (>= 90% similarity).
-
-```bash
-refactor --mode batch
-```
-
-**Best for**: Automation, CI/CD pipelines
+| Level | Description |
+| :--- | :--- |
+| `compile` | **(Default)** Runs `mvn compile` after each batch of changes. |
+| `fast_compile`| Uses the JDK Compiler API to verify the specific modified files (much faster). |
+| `test` | Runs `mvn test` to ensure functional correctness. |
+| `none` | Skips all verification (high risk). |
 
 ---
 
-## Verification Levels
+## CLI-Specific Options
 
-Control post-refactoring verification:
-
-### Compile (Default)
-Verify code compiles after refactoring.
-
-```bash
-refactor --verify compile
-```
-
-### Test
-Run full test suite after refactoring.
-
-```bash
-refactor --verify test
-```
-
-**Warning**: Can be slow for large test suites.
-
-### None
-Skip verification (not recommended).
-
-```bash
-refactor --verify none
-```
+- `--config-file <path>`: Use a custom YAML configuration.
+- `--base-path <path>`: Override the project root.
+- `--output <path>`: Directory for reports and exported metrics.
+- `--resume`: Resumes a previously interrupted refactoring session using `.bertie/last_session.json`.
+- `--json`: Output detection results to stdout as JSON.
+- `--export <format>`: Export metrics as `csv`, `json`, or `both`.
+- `--java-version <v>`: Target Java version for `fast_compile` (e.g., 17, 21).
+- `--java-home <path>`: Path to a specific JDK for compilation.
 
 ---
 
-## Output Formats
+## Presets
 
-### Text (Default)
-Human-readable console output.
-
-```bash
-analyze
-```
-
-### JSON
-Machine-readable output for integration.
-
-```bash
-analyze --json
-```
-
-**Output**:
-```json
-{
-  "duplicates": [...],
-  "clusters": [...],
-  "metrics": {...}
-}
-```
+- `--strict`: Preset for `threshold: 0.90, min_lines: 5`.
+- `--lenient`: Preset for `threshold: 0.60, min_lines: 3`.
 
 ---
 
-## Examples
+## Exclude Patterns
 
-### Strict Analysis
-Find only high-confidence duplicates:
+Exclude specific files or directories from analysis:
 
 ```yaml
 duplication_detector:
-  threshold: 0.90
-  min_lines: 7
+  exclude_patterns:
+    - "**/test/**"
+    - "**/*Test.java"
+    - "**/target/**"
 ```
 
-### Lenient Analysis
-Catch more potential duplicates:
+**Built-in defaults** (applied automatically unless you configure custom exclude_patterns):  
+`**/test/**`, `**/*Test.java`, `**/target/**`, `**/build/**`, `**/.git/**`
 
-```yaml
-duplication_detector:
-  threshold: 0.65
-  min_lines: 3
-```
-
-### Production Pipeline
-Safe batch refactoring:
-
-```yaml
-duplication_detector:
-  threshold: 0.85
-  min_lines: 5
-```
-
-```bash
-refactor --mode batch --verify test
-```
+If you specify custom `exclude_patterns` in your configuration, the defaults are replaced entirely. To keep the defaults and add more patterns, include them explicitly in your custom list.
 
 ---
 
-## Best Practices
+## AI Service (Optional)
 
-1. **Start Conservative**: Use default threshold (0.75) initially
-2. **Review First**: Always run `--mode dry-run` before actual refactoring
-3. **Version Control**: Commit before refactoring for easy rollback
-4. **Incremental**: Refactor one class at a time
-5. **Test**: Use `--verify test` for critical code
+Used for intelligent method name generation.
+
+```yaml
+ai_service:
+  provider: "gemini"
+  model: "gemini-2.0-flash-exp"
+  api_key: "${GEMINI_API_KEY}"
+```
 
 ---
 
 ## Troubleshooting
 
-### Configuration not loading
-- Check YAML syntax (indentation matters!)
-- Ensure file is at `src/main/resources/generator.yml`
-
-### Variables not resolving
-- Use `${VAR_NAME}` syntax
-- Check environment variables are set
-
-### AI naming not working
-- Verify `GEMINI_API_KEY` is set
-- Check internet connection
-- Falls back to semantic naming if AI fails
-
----
-
-## See Also
-
-- [QUICK_START.md](QUICK_START.md) - Quick start guide
-- [USER_GUIDE.md](USER_GUIDE.md) - Detailed usage guide
+1. **Memory Issues**: Enable `enable_lsh` and set `maximal_only: true`.
+2. **Slow Analysis**: Increase `min_lines` to reduce the number of initial candidates.
+3. **No Duplicates Found**: Try the `--lenient` preset or lower the `threshold` to `0.65`.
+4. **Compilation Errors**: Use `--verify fast_compile` for safe automated refactoring.

@@ -6,7 +6,7 @@ import java.util.*;
 
 /**
  * Clusters duplicate detection results by grouping related duplicates together.
- * Groups similarity pairs by their primary sequence (earliest occurrence) and
+ * Groups similarity pairs by their primary sequence (the earliest occurrence) and
  * calculates potential LOC reduction for each cluster.
  */
 public class DuplicateClusterer {
@@ -83,13 +83,6 @@ public class DuplicateClusterer {
                 .min(Comparator.comparingInt(s -> s.range().startLine()))
                 .orElseThrow();
             
-            System.out.println("DEBUG: Cluster #" + clusterId + " sequences:");
-            for (StatementSequence seq : component) {
-                 String methodName = seq.containingMethod() != null ? seq.containingMethod().getNameAsString() : "UnknownMethod";
-                 System.out.println("  - " + (seq == primary ? "[PRIMARY] " : "") + 
-                     methodName + " lines " + seq.range());
-            }
-
             // Group pairs relevant to this cluster
             List<SimilarityPair> componentPairs = new ArrayList<>();
             for (SimilarityPair p : filtered) {

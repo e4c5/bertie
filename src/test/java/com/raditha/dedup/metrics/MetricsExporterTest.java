@@ -4,7 +4,6 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,7 +29,7 @@ class MetricsExporterTest {
     @BeforeEach
     void setUp() {
         exporter = new MetricsExporter();
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient());
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test

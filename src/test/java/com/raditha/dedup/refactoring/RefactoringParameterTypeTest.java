@@ -1,9 +1,9 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.cli.VerifyMode;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +43,15 @@ class RefactoringParameterTypeTest {
 
     @BeforeEach
     void setUp() {
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient(), Collections.emptyMap());
+         // Force lenient configuration via CLI overrides to ensure duplicates are found
+        java.util.Map<String, Object> cliConfig = new java.util.HashMap<>();
+        cliConfig.put("maximal_only", false);
+        cliConfig.put("min_lines", 3);
+        cliConfig.put("threshold", 0.60);
+        cliConfig.put("max_window_growth", 7);
+        Settings.setProperty("duplication_detector_cli", cliConfig);
+        
+        analyzer = new DuplicationAnalyzer(Collections.emptyMap());
     }
 
     @Test
@@ -102,7 +110,7 @@ public class ServiceWithTryCatchBlocks {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.INTERACTIVE,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
         

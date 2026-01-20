@@ -1,7 +1,6 @@
 package com.raditha.dedup.analyzer;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Order;
@@ -37,7 +36,7 @@ class DuplicationAnalyzerTest {
 
     @BeforeEach
     void setUp() {
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.moderate());
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test
@@ -72,18 +71,9 @@ class DuplicationAnalyzerTest {
     @Test
     void testPartialDuplicateInLargeMethod() {
         // Use maximalOnly=false to detect partial duplicates within larger methods
-        DuplicationConfig config = new DuplicationConfig(
-                5, // minLines
-                0.75, // threshold
-                com.raditha.dedup.config.SimilarityWeights.balanced(),
-                false, // includeTests
-                java.util.List.of(), // excludePatterns
-                5, // maxWindowGrowth
-                false, // maximalOnly - need to extract sub-sequences to find partial match
-                true, // enableBoundaryRefinement
-                true // enableLSH
-        );
-        DuplicationAnalyzer partialAnalyzer = new DuplicationAnalyzer(config);
+        com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(5, 75, null);
+        Settings.setProperty("maximal_only", false);
+        DuplicationAnalyzer partialAnalyzer = new DuplicationAnalyzer();
 
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.partial.MixedResponsibilityService");
         assertNotNull(cu, "MixedResponsibilityService class not found in test-bed");

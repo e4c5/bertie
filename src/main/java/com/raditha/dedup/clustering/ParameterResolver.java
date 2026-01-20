@@ -38,11 +38,6 @@ public class ParameterResolver {
     private final ReturnTypeResolver typeResolver;
     private final Map<String, CompilationUnit> allCUs;
 
-    public ParameterResolver() {
-        this(new ASTParameterExtractor(), new DataFlowAnalyzer(), 
-             new ReturnTypeResolver(), Collections.emptyMap());
-    }
-
     public ParameterResolver(Map<String, CompilationUnit> allCUs) {
         this(new ASTParameterExtractor(), new DataFlowAnalyzer(), 
              new ReturnTypeResolver(allCUs), allCUs);
@@ -61,15 +56,16 @@ public class ParameterResolver {
             DuplicateCluster cluster,
             int validStatementCount) {
 
+        DataFlowAnalyzer.SequenceAnalysis primaryAnalysis = dataFlowAnalyzer.analyzeSequenceVariables(cluster.primary());
         ExtractionPlan extractionPlan = extractor.extractParameters(analysis);
         List<ParameterSpec> parameters = new ArrayList<>(extractionPlan.parameters());
 
         addArgumentsAsParameters(extractionPlan, parameters);
 
-        List<ParameterSpec> capturedParams = identifyCapturedParameters(cluster.primary(), parameters);
+        List<ParameterSpec> capturedParams = identifyCapturedParameters(cluster.primary(), parameters, primaryAnalysis);
         parameters.addAll(capturedParams);
 
-        parameters = filterInternalParameters(parameters, cluster);
+        parameters = filterInternalParameters(parameters, cluster, primaryAnalysis);
 
         parameters = refineParameterTypes(parameters, cluster);
 
@@ -97,9 +93,9 @@ public class ParameterResolver {
     }
 
     private List<ParameterSpec> identifyCapturedParameters(StatementSequence sequence,
-            List<ParameterSpec> existingParams) {
-        Set<String> usedVars = dataFlowAnalyzer.findVariablesUsedInSequence(sequence);
-        Set<String> definedVars = dataFlowAnalyzer.findDefinedVariables(sequence);
+            List<ParameterSpec> existingParams, DataFlowAnalyzer.SequenceAnalysis analysis) {
+        Set<String> usedVars = analysis.usedVars();
+        Set<String> definedVars = analysis.definedVars();
 
         Set<String> capturedVars = new HashSet<>(usedVars);
         capturedVars.removeAll(definedVars);
@@ -175,10 +171,11 @@ public class ParameterResolver {
         return classFields;
     }
 
-    private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, DuplicateCluster cluster) {
-        Set<String> defined = new HashSet<>(dataFlowAnalyzer.findDefinedVariables(cluster.primary()));
+    private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, DuplicateCluster cluster, 
+            DataFlowAnalyzer.SequenceAnalysis primaryAnalysis) {
+        Set<String> defined = new HashSet<>(primaryAnalysis.definedVars());
         for (SimilarityPair pair : cluster.duplicates()) {
-            defined.addAll(dataFlowAnalyzer.findDefinedVariables(pair.seq2()));
+            defined.addAll(dataFlowAnalyzer.analyzeSequenceVariables(pair.seq2()).definedVars());
         }
 
         CompilationUnit cu = null;
@@ -249,11 +246,24 @@ public class ParameterResolver {
     }
 
     private boolean isVoidExpression(String val, DuplicateCluster cluster) {
-        for (Statement s : cluster.primary().statements()) {
-            for (Expression e : s.findAll(Expression.class)) {
-                if (e.toString().equals(val) && isExpressionVoid(e, cluster)) {
-                   return true;
+        class VoidExpressionVisitor extends com.github.javaparser.ast.visitor.GenericVisitorAdapter<Boolean, String> {
+            @Override
+            public Boolean visit(com.github.javaparser.ast.expr.MethodCallExpr e, String targetVal) {
+                if (e.toString().equals(targetVal) && isExpressionVoid(e, cluster)) {
+                    return true;
                 }
+                return super.visit(e, targetVal);
+            }
+            
+            // We only care about MethodCallExpr for void types in this context usually, 
+            // but let's be safe and check all expressions if val could be something else.
+            // Actually, any expression can be visited.
+        }
+        
+        VoidExpressionVisitor visitor = new VoidExpressionVisitor();
+        for (Statement s : cluster.primary().statements()) {
+            if (Boolean.TRUE.equals(s.accept(visitor, val))) {
+                return true;
             }
         }
         return false;

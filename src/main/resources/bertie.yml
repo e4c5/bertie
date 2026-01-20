@@ -5,8 +5,8 @@ variables:
   projects_folder: ${HOME}/csi/Antikythera
 
 # Point to Bertie's test-bed MAIN source (not tests!)
-base_path: ${projects_folder}/bertie/test-bed
-base_package: com.raditha.bertie.testbed
+base_path: ${projects_folder}/csi-bm-invoice-java-service
+base_package: com.csi
 
 # Output directory for any generated files
 output_path: /tmp/bertie-test-output
@@ -25,4 +25,4 @@ skip_getters_setters: true
 
 # Log level
 log_level: DEBUG
-#target_class: com.raditha.bertie.testbed.staticcontext.ServiceWithMixedStaticContext
+target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceOrderServiceImplTest

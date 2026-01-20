@@ -69,7 +69,8 @@ public class ReturnTypeResolver {
             } else {
                 // Fallback: Re-analyze for return variables in the truncated sequence
                 StatementSequence prefix = truncator.createPrefixSequence(cluster.primary(), validStatementCount);
-                String liveOut = dataFlowAnalyzer.findReturnVariable(prefix, null);
+                DataFlowAnalyzer.SequenceAnalysis analysis = dataFlowAnalyzer.analyzeSequenceVariables(prefix);
+                String liveOut = dataFlowAnalyzer.findReturnVariable(prefix, null, analysis);
                 if (liveOut != null) {
                     primaryReturnVariable = liveOut;
                     String typeStr = findTypeInContext(cluster.primary(), liveOut);
@@ -80,8 +81,9 @@ public class ReturnTypeResolver {
             }
         } else {
             // Default return logic
-            returnType = determineReturnType(cluster);
-            primaryReturnVariable = findReturnVariable(cluster.primary());
+            InternalReturnType result = determineReturnTypeWithVariable(cluster);
+            returnType = result.type();
+            primaryReturnVariable = result.variable();
         }
 
         // Additional check: if returnType is set but returnVariable is still null
@@ -96,11 +98,17 @@ public class ReturnTypeResolver {
      * Determine the return type by analyzing all sequences in the cluster.
      */
     public String determineReturnType(DuplicateCluster cluster) {
-        Set<String> returnTypes = new HashSet<>();
-        String primaryType = analyzeReturnTypeForSequence(cluster.primary());
+        return determineReturnTypeWithVariable(cluster).type();
+    }
 
-        if (primaryType != null) {
-            returnTypes.add(primaryType);
+    private record InternalReturnType(String type, String variable) {}
+
+    private InternalReturnType determineReturnTypeWithVariable(DuplicateCluster cluster) {
+        Set<String> returnTypes = new HashSet<>();
+        InternalReturnType primaryResult = analyzeReturnTypeForSequenceExtended(cluster.primary());
+
+        if (primaryResult.type() != null) {
+            returnTypes.add(primaryResult.type());
         }
 
         // Check all duplicates
@@ -113,10 +121,15 @@ public class ReturnTypeResolver {
         }
 
         if (returnTypes.isEmpty()) {
-            return "void";
+            return new InternalReturnType("void", null);
         }
 
         // Priority: Domain objects first
+        String unifiedType = unifyTypes(returnTypes, cluster);
+        return new InternalReturnType(unifiedType, primaryResult.variable());
+    }
+
+    private String unifyTypes(Set<String> returnTypes, DuplicateCluster cluster) {
         Optional<String> domainType = returnTypes.stream()
                 .filter(t -> !t.equals("int") && !t.equals("long") && !t.equals(DOUBLE) &&
                         !t.equals(BOOLEAN) && !t.equals("void") && !t.equals(STRING))
@@ -153,18 +166,29 @@ public class ReturnTypeResolver {
     }
 
     private String analyzeReturnTypeForSequence(StatementSequence sequence) {
+        return analyzeReturnTypeForSequenceExtended(sequence).type();
+    }
+
+    private InternalReturnType analyzeReturnTypeForSequenceExtended(StatementSequence sequence) {
+        DataFlowAnalyzer.SequenceAnalysis analysis = dataFlowAnalyzer.analyzeSequenceVariables(sequence);
         // Priority 1: Check for live-out variables
-        String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void");
+        String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, "void", analysis);
 
         if (returnVarName != null) {
+            // OPTIMIZATION: Check the type map in the analysis first
+            com.github.javaparser.ast.type.Type type = analysis.typeMap().get(returnVarName);
+            if (type != null) {
+                return new InternalReturnType(resolveType(type, sequence.statements().get(0), sequence), returnVarName);
+            }
+
             String varType = findTypeInContext(sequence, returnVarName);
             if (varType != null && !"void".equals(varType)) {
-                return varType;
+                return new InternalReturnType(varType, returnVarName);
             }
         }
 
         // Priority 2: Check for logical return statements
-        return analyzeReturnStatementType(sequence);
+        return new InternalReturnType(analyzeReturnStatementType(sequence), null);
     }
 
     private String analyzeReturnStatementType(StatementSequence sequence) {
@@ -199,26 +223,9 @@ public class ReturnTypeResolver {
     public String findTypeInContext(StatementSequence sequence, String varName) {
         // 1. Scan statements for variable declarations
         for (Statement stmt : sequence.statements()) {
-            for (VariableDeclarationExpr vde : stmt.findAll(VariableDeclarationExpr.class)) {
-                for (var v : vde.getVariables()) {
-                    if (v.getNameAsString().equals(varName)) {
-                        return resolveType(v.getType(), v, sequence);
-                    }
-                }
-            }
-
-            // Check Lambda parameters
-            for (com.github.javaparser.ast.expr.LambdaExpr lambda : stmt
-                    .findAll(com.github.javaparser.ast.expr.LambdaExpr.class)) {
-                for (com.github.javaparser.ast.body.Parameter param : lambda.getParameters()) {
-                    if (param.getNameAsString().equals(varName)) {
-                        if (!param.getType().isUnknownType() && !param.getType().isVarType()) {
-                            String resolved = resolveType(param.getType(), lambda, sequence);
-                            if (resolved != null) return resolved;
-                        }
-                        return OBJECT;
-                    }
-                }
+            Optional<String> type = findVarTypeInStatement(stmt, varName, sequence);
+            if (type.isPresent()) {
+                return type.get();
             }
         }
 
@@ -244,19 +251,15 @@ public class ReturnTypeResolver {
 
         // 3. Scan method body for variables declared outside the block
         if (sequence.containingMethod() != null && sequence.containingMethod().getBody().isPresent()) {
-            for (VariableDeclarationExpr vde : sequence.containingMethod().getBody().get()
-                    .findAll(VariableDeclarationExpr.class)) {
-                for (var v : vde.getVariables()) {
-                    if (v.getNameAsString().equals(varName)) {
-                        return resolveType(v.getType(), v, sequence);
-                    }
-                }
+            Optional<String> type = findVarTypeInStatement(sequence.containingMethod().getBody().get(), varName, sequence);
+            if (type.isPresent()) {
+                return type.get();
             }
         }
 
         // 4. Check if it's an expression (e.g., method call)
         if (varName.contains("(") || varName.contains(".")) {
-
+            try {
                 Expression expr = com.github.javaparser.StaticJavaParser.parseExpression(varName);
                 if (expr.isMethodCallExpr()) {
                     var call = expr.asMethodCallExpr();
@@ -277,9 +280,38 @@ public class ReturnTypeResolver {
                         }
                     }
                 }
+            } catch (Exception e) {
+                // Ignore parse errors for non-expressions
+            }
         }
 
         return null;
+    }
+
+    private Optional<String> findVarTypeInStatement(Node node, String varName, StatementSequence sequence) {
+        class VarTypeVisitor extends com.github.javaparser.ast.visitor.GenericVisitorAdapter<String, String> {
+            @Override
+            public String visit(VariableDeclarator n, String name) {
+                if (n.getNameAsString().equals(name)) {
+                    return resolveType(n.getType(), n, sequence);
+                }
+                return super.visit(n, name);
+            }
+
+            @Override
+            public String visit(com.github.javaparser.ast.expr.LambdaExpr n, String name) {
+                for (com.github.javaparser.ast.body.Parameter param : n.getParameters()) {
+                    if (param.getNameAsString().equals(name)) {
+                        if (!param.getType().isUnknownType() && !param.getType().isVarType()) {
+                            return resolveType(param.getType(), n, sequence);
+                        }
+                        return OBJECT;
+                    }
+                }
+                return super.visit(n, name);
+            }
+        }
+        return Optional.ofNullable(node.accept(new VarTypeVisitor(), varName));
     }
 
     private String inferTypeFromMethodCall(MethodCallExpr methodCall, StatementSequence sequence) {

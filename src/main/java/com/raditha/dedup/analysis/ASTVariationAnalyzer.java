@@ -103,12 +103,19 @@ public class ASTVariationAnalyzer {
      * Find variable declarations in a statement.
      */
     private void findDeclarations(Statement stmt, Set<String> declaredVars) {
-        stmt.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
-                .forEach(vd -> declaredVars.add(vd.getNameAsString()));
+        stmt.accept(new com.github.javaparser.ast.visitor.VoidVisitorAdapter<Set<String>>() {
+            @Override
+            public void visit(com.github.javaparser.ast.body.VariableDeclarator n, Set<String> arg) {
+                super.visit(n, arg);
+                arg.add(n.getNameAsString());
+            }
 
-        // Also find lambda parameters!
-        stmt.findAll(com.github.javaparser.ast.expr.LambdaExpr.class)
-                .forEach(lambda -> lambda.getParameters().forEach(param -> declaredVars.add(param.getNameAsString())));
+            @Override
+            public void visit(com.github.javaparser.ast.expr.LambdaExpr n, Set<String> arg) {
+                super.visit(n, arg);
+                n.getParameters().forEach(p -> arg.add(p.getNameAsString()));
+            }
+        }, declaredVars);
     }
 
     /**

@@ -1,9 +1,9 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.cli.VerifyMode;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,7 +43,7 @@ class ExtractMethodRefactorerTest {
     void setUp() {
         // Use lenient config to ensure small code blocks are detected
         // Pass empty map to avoid global scanning and duplicate class errors
-        analyzer = new DuplicationAnalyzer(DuplicationConfig.lenient(), Collections.emptyMap());
+        analyzer = new DuplicationAnalyzer( Collections.emptyMap());
     }
 
     @Test
@@ -75,7 +75,7 @@ class ExtractMethodRefactorerTest {
         engine = new RefactoringEngine(
                 tempDir,
                 RefactoringEngine.RefactoringMode.INTERACTIVE,
-                RefactoringVerifier.VerificationLevel.NONE);
+                VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 

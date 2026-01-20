@@ -33,7 +33,7 @@ class VerifyModeTest {
             () -> VerifyMode.fromString(invalidValue)
         );
         assertTrue(exception.getMessage().contains("Invalid verify mode"));
-        assertTrue(exception.getMessage().contains("Must be: none, compile, or test"));
+        assertTrue(exception.getMessage().contains("Must be: none, compile, test, or fast_compile"));
     }
 
     @Test

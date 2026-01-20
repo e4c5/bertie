@@ -7,7 +7,6 @@ import picocli.CommandLine;
 import picocli.CommandLine.ITypeConverter;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import com.raditha.dedup.config.DuplicationConfig;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.metrics.MetricsExporter;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -82,6 +81,12 @@ public class BertieCLI implements Callable<Integer> {
     @Option(names = "--verify", description = "Verification level: ${COMPLETION-CANDIDATES}", paramLabel = "<level>", converter = VerifyModeConverter.class)
     private VerifyMode verifyMode = VerifyMode.COMPILE;
 
+    @Option(names = "--java-version", description = "Target Java version (e.g., 17, 21)")
+    private String javaVersion;
+
+    @Option(names = "--java-home", description = "Path to specific JDK home")
+    private String javaHome;
+
     /**
      * Picocli call method - executes the main logic.
      * 
@@ -104,6 +109,27 @@ public class BertieCLI implements Callable<Integer> {
         if (outputPath != null) {
             Settings.setProperty(Settings.OUTPUT_PATH, outputPath);
         }
+
+        // Load configuration once at startup
+        String preset = null;
+        if (strict) {
+            preset = "strict";
+        } else if (lenient) {
+            preset = "lenient";
+        }
+        if (preset != null) {
+            System.out.println("Using preset: " + preset);
+        }
+        
+        // Pass java settings to DuplicationDetectorSettings (they are handled as regular properties)
+        if (javaVersion != null) {
+            Settings.setProperty("java_version", javaVersion);
+        }
+        if (javaHome != null) {
+            Settings.setProperty("java_home", javaHome);
+        }
+
+        DuplicationDetectorSettings.loadConfig(minLines, threshold, preset);
 
         // Update verifyMode from Settings if present (and not overridden by CLI -
         // simplified check)
@@ -224,24 +250,12 @@ public class BertieCLI implements Callable<Integer> {
     }
 
     private List<DuplicationReport> performAnalysis() {
-        // Load configuration
-        String preset = null;
-        if (strict) {
-            preset = "strict";
-        } else if (lenient) {
-            preset = "lenient";
-        }
-
-        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                minLines,
-                threshold,
-                preset);
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
         System.out.println("DEBUG: allCUs detected " + allCUs.size() + " files.");
         // allCUs.keySet().forEach(k -> System.out.println(" - " + k));
 
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(dupConfig, allCUs);
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(allCUs);
 
         // Filter map based on target class
         String targetClass = DuplicationDetectorSettings.getTargetClass();
@@ -258,24 +272,11 @@ public class BertieCLI implements Callable<Integer> {
     private void runAnalysis() throws IOException {
         List<DuplicationReport> reports = performAnalysis();
 
-        // Load config again for display purposes
-        String preset = null;
-        if (strict) {
-            preset = "strict";
-        } else if (lenient) {
-            preset = "lenient";
-        }
-
-        DuplicationConfig dupConfig = DuplicationDetectorSettings.loadConfig(
-                minLines,
-                threshold,
-                preset);
-
         // Print the detailed report
         if (jsonOutput) {
             printJsonReport(reports);
         } else {
-            printTextReport(reports, dupConfig);
+            printTextReport(reports);
         }
 
         // Export metrics if requested
@@ -327,13 +328,6 @@ public class BertieCLI implements Callable<Integer> {
         System.out.println("=== PHASE 2: Automated Refactoring ===");
         System.out.println();
 
-        // Determine verification level
-        RefactoringVerifier.VerificationLevel verifyLevel = switch (verifyMode) {
-            case NONE -> RefactoringVerifier.VerificationLevel.NONE;
-            case TEST -> RefactoringVerifier.VerificationLevel.TEST;
-            case COMPILE -> RefactoringVerifier.VerificationLevel.COMPILE;
-        };
-
         // Create refactoring engine
         Path projectRoot = Paths.get(Settings.getBasePath());
         RefactoringEngine.RefactoringMode mode = switch (refactorMode) {
@@ -342,7 +336,7 @@ public class BertieCLI implements Callable<Integer> {
             case INTERACTIVE -> RefactoringEngine.RefactoringMode.INTERACTIVE;
         };
 
-        RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyLevel);
+        RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyMode);
 
         // Process each report
         int totalSuccess = 0;
@@ -376,7 +370,7 @@ public class BertieCLI implements Callable<Integer> {
     }
 
 
-    private static void printTextReport(List<DuplicationReport> reports, DuplicationConfig config) {
+    private static void printTextReport(List<DuplicationReport> reports) {
         int totalDuplicates = reports.stream()
                 .mapToInt(DuplicationReport::getDuplicateCount)
                 .sum();
@@ -393,7 +387,7 @@ public class BertieCLI implements Callable<Integer> {
         System.out.printf("Total duplicates found: %d%n", totalDuplicates);
         System.out.printf("Duplicate clusters: %d%n", totalClusters);
         System.out.printf("Configuration: min-lines=%d, threshold=%.0f%%%n",
-                config.minLines(), config.threshold() * 100);
+                DuplicationDetectorSettings.getMinLines(), DuplicationDetectorSettings.getThreshold() * 100);
         System.out.println();
 
         if (totalDuplicates == 0) {

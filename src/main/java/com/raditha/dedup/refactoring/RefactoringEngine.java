@@ -25,11 +25,11 @@ public class RefactoringEngine {
     private final List<String> dryRunDiffs = new ArrayList<>();
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode) {
-        this(projectRoot, mode, RefactoringVerifier.VerificationLevel.COMPILE);
+        this(projectRoot, mode, com.raditha.dedup.cli.VerifyMode.COMPILE);
     }
 
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
-            RefactoringVerifier.VerificationLevel verificationLevel) {
+            com.raditha.dedup.cli.VerifyMode verificationLevel) {
         this.mode = mode;
         this.validator = new SafetyValidator();
         this.verifier = new RefactoringVerifier(projectRoot, verificationLevel);

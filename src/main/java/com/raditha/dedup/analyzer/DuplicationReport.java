@@ -1,6 +1,6 @@
 package com.raditha.dedup.analyzer;
 
-import com.raditha.dedup.config.DuplicationConfig;
+import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.SimilarityPair;
 
@@ -17,8 +17,7 @@ public record DuplicationReport(
         List<SimilarityPair> duplicates,
         List<DuplicateCluster> clusters,
         int totalSequences,
-        int candidatesAnalyzed,
-        DuplicationConfig config) {
+        int candidatesAnalyzed) {
 
     /**
      * Get count of duplicate pairs found.
@@ -53,7 +52,7 @@ public record DuplicationReport(
                 clusters.size(),
                 totalSequences,
                 candidatesAnalyzed,
-                config.threshold() * 100);
+                DuplicationDetectorSettings.getThreshold() * 100);
     }
 
     /**
@@ -66,8 +65,8 @@ public record DuplicationReport(
         sb.append("=".repeat(80)).append("%n%n");
 
         sb.append("File: ").append(sourceFile).append("%n");
-        sb.append("Min Lines: ").append(config.minLines()).append("%n");
-        sb.append("Threshold: ").append(String.format("%.0f%%", config.threshold() * 100)).append("%n");
+        sb.append("Min Lines: ").append(DuplicationDetectorSettings.getMinLines()).append("%n");
+        sb.append("Threshold: ").append(String.format("%.0f%%", DuplicationDetectorSettings.getThreshold() * 100)).append("%n");
         sb.append("%n");
 
         sb.append(getSummary()).append("%n%n");

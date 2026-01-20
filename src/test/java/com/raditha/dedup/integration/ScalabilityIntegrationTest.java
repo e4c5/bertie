@@ -4,7 +4,6 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
-import com.raditha.dedup.config.DuplicationConfig;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -29,12 +28,21 @@ class ScalabilityIntegrationTest {
         CompilationUnit cu = res.getResult().orElseThrow();
         Path dummyPath = Paths.get("LargeFile.java");
 
-        // 2. Measure Brute Force
-        DuplicationConfig configBF = new DuplicationConfig(5, 0.75,
-                com.raditha.dedup.config.SimilarityWeights.balanced(),
-                false, java.util.List.of(), 5, true, true, false); // enableLSH = false
-
-        DuplicationAnalyzer analyzerBF = new DuplicationAnalyzer(configBF, Collections.emptyMap());
+        // 2. Measure Brute Force (LSH disabled)
+        com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(5, 75, null);
+        // Explicitly disable LSH for brute-force measurement
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> cliConfig = (java.util.Map<String, Object>) 
+            sa.com.cloudsolutions.antikythera.configuration.Settings.getProperty("duplication_detector_cli");
+        if (cliConfig == null) {
+            cliConfig = new java.util.HashMap<>();
+        } else {
+            cliConfig = new java.util.HashMap<>(cliConfig);
+        }
+        cliConfig.put("enable_lsh", false);
+        sa.com.cloudsolutions.antikythera.configuration.Settings.setProperty("duplication_detector_cli", cliConfig);
+        
+        DuplicationAnalyzer analyzerBF = new DuplicationAnalyzer(Collections.emptyMap());
 
         // Warmup run to eliminate JVM startup effects
         analyzerBF.analyzeFile(cu, dummyPath);
@@ -43,12 +51,14 @@ class ScalabilityIntegrationTest {
         analyzerBF.analyzeFile(cu, dummyPath);
         long durationBF = System.currentTimeMillis() - startBF;
 
-        // 3. Measure LSH
-        DuplicationConfig configLSH = new DuplicationConfig(5, 0.75,
-                com.raditha.dedup.config.SimilarityWeights.balanced(),
-                false, java.util.List.of(), 5, true, true, true); // enableLSH = true
-
-        DuplicationAnalyzer analyzerLSH = new DuplicationAnalyzer(configLSH, Collections.emptyMap());
+        // 3. Measure LSH (LSH enabled)
+        com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(5, 75, null);
+        // Explicitly enable LSH
+        cliConfig = new java.util.HashMap<>(cliConfig);
+        cliConfig.put("enable_lsh", true);
+        sa.com.cloudsolutions.antikythera.configuration.Settings.setProperty("duplication_detector_cli", cliConfig);
+        
+        DuplicationAnalyzer analyzerLSH = new DuplicationAnalyzer(Collections.emptyMap());
 
         // Warmup run to eliminate JVM startup effects
         analyzerLSH.analyzeFile(cu, dummyPath);
