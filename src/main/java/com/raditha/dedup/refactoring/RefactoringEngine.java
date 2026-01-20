@@ -76,8 +76,18 @@ public class RefactoringEngine {
                 })
                 .toList();
 
-        for (int i = 0; i < sortedClusters.size(); i++) {
-            DuplicateCluster cluster = sortedClusters.get(i);
+        return processClusters(sortedClusters);
+    }
+
+    /**
+     * Process a list of duplicate clusters.
+     * Accessible by Workflows.
+     */
+    public RefactoringSession processClusters(List<DuplicateCluster> clusters) throws IOException, InterruptedException {
+        RefactoringSession session = new RefactoringSession();
+
+        for (int i = 0; i < clusters.size(); i++) {
+            DuplicateCluster cluster = clusters.get(i);
             RefactoringRecommendation recommendation = cluster.recommendation();
 
             if (recommendation == null) {
@@ -183,11 +193,8 @@ public class RefactoringEngine {
             printDryRunReport();
         }
 
-        System.out.println("%n=== Session Summary ===");
-        System.out.println("Successful: " + session.successful.size());
-        System.out.println("Skipped: " + session.skipped.size());
-        System.out.println("Failed: " + session.failed.size());
-
+        // Only print session summary if we processed standard refactoring via CLI
+        // Workflows might aggregate sessions differently
         return session;
     }
 

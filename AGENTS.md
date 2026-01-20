@@ -37,13 +37,19 @@ graph TD
     AST --> Analyzer
     Analyzer --> Params[ASTParameterExtractor]
     Params --> Plan[ExtractionPlan]
-    Plan --> Engine[RefactoringEngine]
+    Plan --> Orchestrator[RefactoringOrchestrator]
+    Orchestrator --> Workflow[RefactoringWorkflow]
+    Workflow --> Engine[RefactoringEngine]
     Engine --> Output[Refactored Code]
 ```
 
 ### Key Components
+-   **RefactoringOrchestrator**: High-level coordinator that groups duplicates by class and selects the appropriate workflow.
+-   **RefactoringWorkflow**: Strategy interface.
+    -   `StandardRefactoringWorkflow`: Single-pass for regular classes.
+    -   `IterativeTestRefactoringWorkflow`: 2-pass (Parameterize -> Deduplicate) for Test classes.
+-   **RefactoringEngine**: The core execution unit that applies specific refactoring operations (Extract Method, etc.).
 -   **Dual AST**: `NormalizedNode` (Fuzzy/Anonymized) for detection, `StatementSequence` (Original) for refactoring.
--   **Type Resolution**: Relies on Antikythera's `Resolver` and `TypeWrapper`.
 -   **Safety**: All refactorings follow: `Validate -> Backup -> Extract -> Apply -> Verify`.
 
 ## 🛠️ Antikythera Power Tools

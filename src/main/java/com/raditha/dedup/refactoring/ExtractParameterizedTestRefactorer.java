@@ -41,10 +41,25 @@ public class ExtractParameterizedTestRefactorer {
         Map<Integer, List<TestInstance>> byParamCount = testInstances.stream()
                 .collect(Collectors.groupingBy(i -> i.literals.size()));
 
+
+
         // Select the largest group (most common parameter count)
         testInstances = byParamCount.values().stream()
                 .max(Comparator.comparingInt(List::size))
                 .orElse(List.of());
+        
+        // Safety Check: Do not attempt to parameterize a method that is already a ParameterizedTest.
+        // This prevents Pass 2 from destructively merging distinct parameterized tests created in Pass 1.
+        boolean anyAlreadyParameterized = testInstances.stream()
+                .anyMatch(inst -> inst.method.getAnnotationByName("ParameterizedTest").isPresent());
+        
+        if (anyAlreadyParameterized) {
+             throw new IllegalStateException("Cannot recursively parameterize existing @ParameterizedTest methods.");
+        }
+
+        if (testInstances.isEmpty()) {
+             // No instances selected. Aborting.
+        }
 
         if (testInstances.size() < 3) {
             throw new IllegalArgumentException(
@@ -57,6 +72,7 @@ public class ExtractParameterizedTestRefactorer {
         // Create the parameterized test method
         // Use the first consistent instance as the template to ensure body matches parameters
         MethodDeclaration checkMethod = testInstances.get(0).method;
+
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
                 checkMethod,
                 recommendation.getSuggestedMethodName(),

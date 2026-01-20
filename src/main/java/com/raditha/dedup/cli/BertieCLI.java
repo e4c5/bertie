@@ -336,7 +336,18 @@ public class BertieCLI implements Callable<Integer> {
             case INTERACTIVE -> RefactoringEngine.RefactoringMode.INTERACTIVE;
         };
 
-        RefactoringEngine engine = new RefactoringEngine(projectRoot, mode, verifyMode);
+        // Initialize engine
+        RefactoringEngine engine = new RefactoringEngine(
+                projectRoot, // Fixed variable name
+                mode,
+                verifyMode);
+
+        // Initialize Orchestrator (requires analyzer with full project context)
+        // We re-initialize analyzer here to ensure we have access to all CUs for re-analysis
+        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(allCUs);
+        com.raditha.dedup.workflow.RefactoringOrchestrator orchestrator = 
+                new com.raditha.dedup.workflow.RefactoringOrchestrator(analyzer, engine);
 
         // Process each report
         int totalSuccess = 0;
@@ -349,7 +360,28 @@ public class BertieCLI implements Callable<Integer> {
             }
 
             System.out.println("Processing file: " + report.sourceFile().getFileName());
-            RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
+            
+            // Find valid CU for this report
+             String relativePath = report.sourceFile().toString();
+             
+             // Find valid CU for this report
+             // Keys in allCUs are class names, so we must check the Storage path of the CU itself
+             Path reportPath = report.sourceFile().toAbsolutePath().normalize();
+             
+             CompilationUnit cu = allCUs.values().stream()
+                .filter(unit -> unit.getStorage().map(s -> s.getPath().toAbsolutePath().normalize())
+                        .map(path -> path.equals(reportPath))
+                        .orElse(false))
+                .findFirst()
+                .orElse(null);
+                
+            if (cu == null) {
+                System.out.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
+                continue;
+            }
+
+            // Use Orchestrator instead of direct engine call
+            RefactoringEngine.RefactoringSession session = orchestrator.orchestrate(report, cu);
 
             totalSuccess += session.getSuccessful().size();
             totalSkipped += session.getSkipped().size();
