@@ -11,6 +11,7 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.ReferenceType;
+import com.github.javaparser.ast.comments.LineComment;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 
 import com.raditha.dedup.model.*;
@@ -1262,13 +1263,13 @@ public class ExtractMethodRefactorer {
 
 
     private Expression findNodeByCoordinates(StatementSequence sequence, Integer line, Integer column) {
-        if (line == null || column == null)
+        if (line == null || column == null) {
             return null;
-
+        }
         for (Statement stmt : sequence.statements()) {
             for (Expression expr : stmt.findAll(Expression.class)) {
                 if (expr.getRange().isPresent()) {
-                    var begin = expr.getRange().get().begin;
+                    com.github.javaparser.Position begin = expr.getRange().get().begin;
                     if (begin.line == line && begin.column == column) {
                         return expr;
                     }
@@ -1276,6 +1277,47 @@ public class ExtractMethodRefactorer {
             }
         }
         return null;
+    }
+
+    /**
+     * Checks if a variable name is already declared in the scope of the given context.
+     * Checks fields, parameters, and local variables in the containing method.
+     */
+    private boolean isVariableAlreadyDeclared(com.github.javaparser.ast.Node context, String varName) {
+        if (varName == null) return false;
+        try {
+            // 1. Check Fields
+            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz = 
+                context.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+            if (clazz != null) {
+                for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
+                    for (com.github.javaparser.ast.body.VariableDeclarator v : field.getVariables()) {
+                        if (v.getNameAsString().equals(varName)) return true;
+                    }
+                }
+            }
+
+            // 2. Check Parameters
+            com.github.javaparser.ast.body.MethodDeclaration method = 
+                context.findAncestor(com.github.javaparser.ast.body.MethodDeclaration.class).orElse(null);
+            if (method != null) {
+                for (com.github.javaparser.ast.body.Parameter param : method.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) return true;
+                }
+                
+                // 3. Check Method Body
+                if (method.getBody().isPresent()) {
+                    for (com.github.javaparser.ast.body.VariableDeclarator v : 
+                         method.getBody().get().findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                        if (v.getNameAsString().equals(varName)) return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error in isVariableAlreadyDeclared: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return false;
     }
 
     /**

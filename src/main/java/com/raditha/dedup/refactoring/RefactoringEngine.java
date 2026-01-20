@@ -91,6 +91,8 @@ public class RefactoringEngine {
             if (!validation.isValid()) {
                 // For dry-run mode, show warnings but don't skip
                 if (mode != RefactoringMode.DRY_RUN) {
+                    System.out.println("  ⊘ Skipped due to safety validation errors:");
+                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
                     session.addSkipped(cluster, String.join("; ", validation.getErrors()));
                     continue;
                 }
@@ -131,6 +133,13 @@ public class RefactoringEngine {
                     verifier.createBackup(file);
                 }
 
+                if (result.description() != null && result.description().startsWith("Skipped")) {
+                    System.out.println("  ⊘ " + result.description());
+                    session.addSkipped(cluster, result.description());
+                    verifier.clearBackups();
+                    continue;
+                }
+
                 // Write refactored code to all files
                 result.apply();
                 System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
@@ -149,12 +158,15 @@ public class RefactoringEngine {
                     verifier.rollback();
                     session.addFailed(cluster, String.join("; ", verify.errors()));
                 }
-            } catch (Exception e) {
-                System.out.println("  ❌ Refactoring failed: " + e.getMessage());
+            } catch (Throwable t) {
+                System.out.println("  ❌ Refactoring failed: " + t.getMessage());
+                if (t.getMessage() == null) {
+                    t.printStackTrace();
+                }
                 // Ensure checking if rollback is needed in case files offered partial writes
                 // (unlikely based on implementation but safe)
                 verifier.rollback();
-                session.addFailed(cluster, "Exception: " + e.getMessage());
+                session.addFailed(cluster, "Exception: " + t.getClass().getSimpleName() + ": " + t.getMessage());
             }
 
         }
@@ -177,6 +189,7 @@ public class RefactoringEngine {
      */
     private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) throws IOException {
+        System.out.println("  DEBUG: applyRefactoring started for " + recommendation.getStrategy());
 
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
