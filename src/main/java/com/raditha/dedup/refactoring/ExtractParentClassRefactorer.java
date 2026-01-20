@@ -119,6 +119,15 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
                          methodToRemove.setModifiers(Modifier.Keyword.PROTECTED);
                      }
                 } else {
+                    // Safety Check: EXTRACT_PARENT_CLASS does not yet support parameterization.
+                    // If the method body differs from the parent method (e.g. different literals),
+                    // replacing it with a call to parent will lose behavior (Regression: Alice -> Start User).
+                    if (!areMethodsEquivalent(methodToExtract, methodToRemove)) {
+                         throw new IllegalStateException("Skipped: Method body in " + 
+                                 currentCu.getPrimaryTypeName().orElse("unknown") + 
+                                 " differs from parent (literals/logic mismatch). Parameterization strategy required.");
+                    }
+
                     // Check for invalidation/delegation
                     String parentMethodName = methodToExtract.getNameAsString();
                     String childMethodName = methodToRemove.getNameAsString();
@@ -371,5 +380,23 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
                 .anyMatch(v -> v.getNameAsString().equals(identifier));
         
         return isLocal;
+    }
+
+    /**
+     * Checks if two methods are semantically equivalent for the purpose of replacement.
+     * Since we don't parameterize in EXTRACT_PARENT_CLASS, they must be identical
+     * (ignoring whitespace and comments) to be safe.
+     */
+    private boolean areMethodsEquivalent(MethodDeclaration m1, MethodDeclaration m2) {
+        if (!m1.getBody().isPresent() || !m2.getBody().isPresent()) {
+            return false;
+        }
+        
+        // Normalize strings by removing all whitespace
+        // This is a robust way to ignore formatting differences while catching literal differences
+        String body1 = m1.getBody().get().toString().replaceAll("\\s+", "");
+        String body2 = m2.getBody().get().toString().replaceAll("\\s+", "");
+        
+        return body1.equals(body2);
     }
 }
