@@ -91,11 +91,14 @@ public class RefactoringEngine {
             RefactoringRecommendation recommendation = cluster.recommendation();
 
             if (recommendation == null) {
+                System.out.printf("  DEBUG: Cluster #%d skipped: No recommendation generated%n", i + 1);
                 session.addSkipped(cluster, "No recommendation generated");
                 continue;
             }
 
             if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
+                System.out.printf("  DEBUG: Cluster #%d skipped: Manual review required (%s)%n", 
+                    i + 1, recommendation.getSuggestedMethodName());
                 session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
                 continue;
             }

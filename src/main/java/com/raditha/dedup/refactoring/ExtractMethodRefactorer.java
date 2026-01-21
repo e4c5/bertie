@@ -167,6 +167,10 @@ public class ExtractMethodRefactorer {
             MethodCallExpr call = prepareReplacement(seqToRefactor,
                     methodNameToUse, primary, precomputedPaths, effectiveParams);
             if (call == null) {
+                if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+                    System.out.println("  DEBUG: Removing orphaned helper method '" + methodNameToUse + "' due to call preparation failure.");
+                    helperMethod.remove();
+                }
                 return new RefactoringResult(Map.of(), recommendation.getStrategy(),
                         "Refactoring aborted due to argument resolution failure");
             }
@@ -192,6 +196,7 @@ public class ExtractMethodRefactorer {
         if (successfulReplacements == 0) {
             // If the helper method was newly created (not reused), remove it
             if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+                System.out.println("  DEBUG: Removing unused helper method '" + methodNameToUse + "' (0 replacements).");
                 helperMethod.remove();
             }
             return new RefactoringResult(Map.of(), recommendation.getStrategy(),
@@ -264,7 +269,31 @@ public class ExtractMethodRefactorer {
         com.github.javaparser.ast.type.Type forcedReturnType = null;
 
         if (liveOutVars.size() > 1) {
-            return null; // Controlled abort
+            // RELAXED CHECK: Allow multiple live-outs if we can identify a valid single return
+            // and the others are redeclarable literals.
+            Set<String> literalVars = dfa.findLiteralInitializedVariables(sequence);
+
+            // Variables that MUST be returned (live-out and NOT a simple literal)
+            Set<String> mustReturnVars = new HashSet<>(liveOutVars);
+            mustReturnVars.removeAll(literalVars);
+
+            if (mustReturnVars.size() > 1) {
+                return null; // Still ambiguous/impossible to refactor (multiple complex returns)
+            } else if (mustReturnVars.size() == 1) {
+                // Good case: 1 complex variable to return, others are literals
+                forcedReturnVar = mustReturnVars.iterator().next();
+                forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
+            } else {
+                // All are literals. Pick one deterministically (e.g. first alphabetically) to return, 
+                // or if possible returns void? Unlikely for live-outs.
+                // Let's pick the first one from liveOutVars as return.
+                // Or better: pick one that is actually used outside? (liveOutVars are by definition used outside)
+                // We pick one, and others will be re-declared.
+                forcedReturnVar = liveOutVars.stream().sorted().findFirst().orElse(null);
+                if (forcedReturnVar != null) {
+                    forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
+                }
+            }
         } else if (liveOutVars.size() == 1) {
             forcedReturnVar = liveOutVars.iterator().next();
             forcedReturnType = resolveVariableType(sequence, forcedReturnVar);
@@ -295,7 +324,7 @@ public class ExtractMethodRefactorer {
         String effectiveTargetVar = (forcedReturnVar != null) ? forcedReturnVar
                 : determineTargetReturnVar(sequence, method.getType().asString());
         
-        BlockStmt body = buildHelperMethodBody(sequence, recommendation, effectiveTargetVar, paramNameOverrides);
+        BlockStmt body = buildHelperMethodBody(sequence, recommendation, effectiveTargetVar, paramNameOverrides, method.getType());
         method.setBody(body);
 
         return new HelperMethodResult(method, effectiveParams, effectiveTargetVar);
@@ -319,7 +348,7 @@ public class ExtractMethodRefactorer {
 
         // Determine target return variable for a temporary body to check parameter usage
         String tempTargetVar = determineTargetReturnVar(sequence, recommendation.getSuggestedReturnType().asString());
-        BlockStmt tempBody = buildHelperMethodBody(sequence, recommendation, tempTargetVar, paramNameOverrides);
+        BlockStmt tempBody = buildHelperMethodBody(sequence, recommendation, tempTargetVar, paramNameOverrides, recommendation.getSuggestedReturnType());
 
         List<ParameterSpec> usedParams = new ArrayList<>();
         for (ParameterSpec param : sortedParams) {
@@ -351,6 +380,15 @@ public class ExtractMethodRefactorer {
                 seqToAnalyze = createTruncatedSequence(seq, limit);
             }
             Set<String> seqLiveOut = dfa.findLiveOutVariables(seqToAnalyze);
+            
+            // Also include literal-initialized variables that are used after the sequence.
+            // findLiveOutVariables excludes them by default, but we need them if we want
+            // to allow returning a literal as the chosen return variable.
+            Set<String> literalVars = dfa.findLiteralInitializedVariables(seqToAnalyze);
+            Set<String> usedAfter = dfa.findVariablesUsedAfter(seqToAnalyze);
+            literalVars.retainAll(usedAfter);
+            seqLiveOut.addAll(literalVars);
+            
             liveOutVars.addAll(seqLiveOut);
         }
         return liveOutVars;
@@ -417,7 +455,7 @@ public class ExtractMethodRefactorer {
         method.setType(returnType != null ? returnType : new com.github.javaparser.ast.type.VoidType());
     }
 
-    private Set<String> collectDeclaredVariableNames(StatementSequence sequence,
+    public static Set<String> collectDeclaredVariableNames(StatementSequence sequence,
             RefactoringRecommendation recommendation) {
         Set<String> declaredVars = new HashSet<>();
         int limit = getEffectiveLimit(sequence, recommendation);
@@ -430,7 +468,7 @@ public class ExtractMethodRefactorer {
         return declaredVars;
     }
 
-    private Map<ParameterSpec, String> computeParamNameOverrides(Set<String> declaredVars, List<ParameterSpec> params) {
+    public static Map<ParameterSpec, String> computeParamNameOverrides(Set<String> declaredVars, List<ParameterSpec> params) {
         Map<ParameterSpec, String> overrides = new java.util.HashMap<>();
         Set<String> usedNames = new HashSet<>(declaredVars);
 
@@ -479,7 +517,8 @@ public class ExtractMethodRefactorer {
     private BlockStmt buildHelperMethodBody(StatementSequence sequence,
             RefactoringRecommendation recommendation,
             String targetReturnVar,
-            Map<ParameterSpec, String> paramNameOverrides) {
+            Map<ParameterSpec, String> paramNameOverrides,
+            com.github.javaparser.ast.type.Type methodReturnType) {
         BlockStmt body = new BlockStmt();
 
         boolean hasExternalVars = hasExternalVariablesInReturn(sequence);
@@ -491,7 +530,7 @@ public class ExtractMethodRefactorer {
 
         // CRITICAL FIX: If targetReturnVar is null, the method is void (forced by literal exclusion)
         // Don't add any return statement
-        if (targetReturnVar != null && needsFinalReturn(body, recommendation)) {
+        if (targetReturnVar != null && needsFinalReturn(body, methodReturnType)) {
             body.addStatement(new ReturnStmt(new NameExpr(targetReturnVar)));
         }
 
@@ -568,9 +607,9 @@ public class ExtractMethodRefactorer {
      * Decide whether we must add a final `return <targetVar>;` at the end of the
      * body.
      */
-    private boolean needsFinalReturn(BlockStmt body, RefactoringRecommendation recommendation) {
+    private boolean needsFinalReturn(BlockStmt body, com.github.javaparser.ast.type.Type methodReturnType) {
         // If return type is void, no return needed
-        if ("void".equals(recommendation.getSuggestedReturnType().asString())) {
+        if (methodReturnType.isVoidType()) {
             return false;
         }
         // If body is empty or doesn't end with return, we need one
@@ -1351,7 +1390,7 @@ public class ExtractMethodRefactorer {
      * This ensures that the extracted method uses parameters instead of hardcoded
      * values.
      */
-    private Statement substituteParameters(Statement stmt,
+    public static Statement substituteParameters(Statement stmt,
             RefactoringRecommendation recommendation, Map<ParameterSpec, String> nameOverrides) {
         // Orchestrate substitution per parameter
         for (ParameterSpec param : recommendation.getSuggestedParameters()) {
@@ -1384,7 +1423,7 @@ public class ExtractMethodRefactorer {
     /**
      * Resolve the final parameter name, applying any collision-driven overrides.
      */
-    private String resolveParamName(ParameterSpec param, Map<ParameterSpec, String> nameOverrides) {
+    private static String resolveParamName(ParameterSpec param, Map<ParameterSpec, String> nameOverrides) {
         return nameOverrides.getOrDefault(param, param.getName());
     }
 
@@ -1393,7 +1432,7 @@ public class ExtractMethodRefactorer {
      * location
      * recorded on the parameter. Returns true if a replacement was made.
      */
-    private boolean tryLocationBasedReplace(Statement stmt, ParameterSpec param, String paramName) {
+    private static boolean tryLocationBasedReplace(Statement stmt, ParameterSpec param, String paramName) {
         Integer line = param.getStartLine();
         Integer col = param.getStartColumn();
         if (line == null || col == null) {
@@ -1500,7 +1539,7 @@ public class ExtractMethodRefactorer {
      * Determine the number of statements to process.
      * Respects truncation limit if valid.
      */
-    private int getEffectiveLimit(StatementSequence sequence, RefactoringRecommendation recommendation) {
+    public static int getEffectiveLimit(StatementSequence sequence, RefactoringRecommendation recommendation) {
         int limit = sequence.statements().size();
         if (recommendation.getValidStatementCount() > 0 && recommendation.getValidStatementCount() < limit) {
             limit = recommendation.getValidStatementCount();

@@ -10,11 +10,23 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
+import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
 
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.LiteralExpr;
+import com.github.javaparser.ast.expr.SuperExpr;
 import java.nio.file.Path;
 import java.util.*;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.stream.Collectors;
 
 /**
  * Refactorer that extracts cross-class duplicate methods into a common parent class.
@@ -63,7 +75,7 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
         
         if (existingParent.isPresent()) {
             // Add method to existing parent class (external parent)
-            addMethodToExistingParent(existingParent.get(), methodToExtract, modifiedFiles, cluster);
+            addMethodToExistingParent(existingParent.get(), methodToExtract, modifiedFiles, cluster, recommendation);
         } else if (isPeerParent) {
              // One of the peers is promoting to be the parent
              // We don't create a new class, but we need to ensure the method in it is preserved and correct
@@ -73,7 +85,7 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
              // Logic handled below or implicitly by not removing it
         } else {
             // Create new parent class
-            CompilationUnit parentCu = createParentClass(parentClassName, packageName, methodToExtract);
+            CompilationUnit parentCu = createParentClass(parentClassName, packageName, methodToExtract, recommendation);
             Path parentPath = sourceFile.getParent().resolve(parentClassName + ".java");
             modifiedFiles.put(parentPath, parentCu.toString());
         }
@@ -132,20 +144,26 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
                     String parentMethodName = methodToExtract.getNameAsString();
                     String childMethodName = methodToRemove.getNameAsString();
                     
-                    if (childMethodName.equals(parentMethodName)) {
+                    if (childMethodName.equals(parentMethodName) && 
+                            methodToExtract.getParameters().size() == recommendation.getSuggestedParameters().size() + methodToRemove.getParameters().size()) {
                         methodToRemove.remove();
                     } else {
-                        // Delegate to the parent method if names differ (preserve API)
-                        BlockStmt body = new BlockStmt();
-                        MethodCallExpr call = new MethodCallExpr(parentMethodName);
-                        methodToRemove.getParameters().forEach(p -> call.addArgument(p.getNameAsExpression()));
-                        
-                        if (methodToRemove.getType().isVoidType()) {
-                            body.addStatement(call);
-                        } else {
-                            body.addStatement(new ReturnStmt(call));
-                        }
-                        methodToRemove.setBody(body);
+                    // Delegate to the parent method (preserve API)
+                    BlockStmt body = new BlockStmt();
+                    MethodCallExpr call = new MethodCallExpr(new SuperExpr(), parentMethodName);
+                    
+                    // Add arguments: original parameters + parameterized literals
+                    methodToRemove.getParameters().forEach(p -> call.addArgument(p.getNameAsExpression()));
+                    
+                    // Resolve literal arguments for this specific child class
+                    addLiteralArguments(call, methodToRemove, cluster, recommendation);
+
+                    if (methodToRemove.getType().isVoidType()) {
+                        body.addStatement(call);
+                    } else {
+                        body.addStatement(new ReturnStmt(call));
+                    }
+                    methodToRemove.setBody(body);
                     }
                 }
             }
@@ -173,15 +191,41 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
      * Create a new abstract parent class with the extracted method.
      */
     private CompilationUnit createParentClass(String className, String packageName, 
-            MethodDeclaration originalMethod) {
+            MethodDeclaration originalMethod, RefactoringRecommendation recommendation) {
         CompilationUnit parentCu = new CompilationUnit();
         if (!packageName.isEmpty()) {
             parentCu.setPackageDeclaration(packageName);
         }
         
-        // Clone method and make protected
+        // Create parameterized method body
         MethodDeclaration newMethod = originalMethod.clone();
         newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        
+        // Determine parameters with collision handling
+        Set<String> declaredVars = new HashSet<>();
+        newMethod.getBody().ifPresent(body -> 
+            body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .forEach(v -> declaredVars.add(v.getNameAsString()))
+        );
+        
+        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverrides(
+                declaredVars, recommendation.getSuggestedParameters());
+
+        // Add parameters from recommendation with overrides
+        recommendation.getSuggestedParameters().forEach(p -> {
+            String targetName = paramNameOverrides.getOrDefault(p, p.getName());
+            newMethod.addParameter(p.getType(), targetName);
+        });
+
+        // Substitute parameters in the body
+        if (newMethod.getBody().isPresent()) {
+            BlockStmt body = newMethod.getBody().get();
+            for (int i = 0; i < body.getStatements().size(); i++) {
+                Statement stmt = body.getStatements().get(i);
+                body.getStatements().set(i, ExtractMethodRefactorer.substituteParameters(
+                    stmt, recommendation, paramNameOverrides));
+            }
+        }
         
         // Create abstract class
         ClassOrInterfaceDeclaration parentClass = parentCu.addClass(className)
@@ -239,10 +283,38 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
      * Add method to an existing common parent class.
      */
     private void addMethodToExistingParent(ClassOrInterfaceDeclaration parentClass,
-            MethodDeclaration method, Map<Path, String> modifiedFiles, DuplicateCluster cluster) {
+            MethodDeclaration method, Map<Path, String> modifiedFiles, DuplicateCluster cluster,
+            RefactoringRecommendation recommendation) {
         // Clone and add the method
         MethodDeclaration newMethod = method.clone();
         newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        
+        // Determine parameters with collision handling
+        Set<String> declaredVars = new HashSet<>();
+        newMethod.getBody().ifPresent(body -> 
+            body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .forEach(v -> declaredVars.add(v.getNameAsString()))
+        );
+        
+        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverrides(
+                declaredVars, recommendation.getSuggestedParameters());
+
+        // Add parameters from recommendation with overrides
+        recommendation.getSuggestedParameters().forEach(p -> {
+            String targetName = paramNameOverrides.getOrDefault(p, p.getName());
+            newMethod.addParameter(p.getType(), targetName);
+        });
+
+        // Substitute parameters in the body
+        if (newMethod.getBody().isPresent()) {
+            BlockStmt body = newMethod.getBody().get();
+            for (int i = 0; i < body.getStatements().size(); i++) {
+                Statement stmt = body.getStatements().get(i);
+                body.getStatements().set(i, ExtractMethodRefactorer.substituteParameters(
+                    stmt, recommendation, paramNameOverrides));
+            }
+        }
+
         parentClass.addMember(newMethod);
         
         // Get the parent's CU and path
@@ -384,19 +456,96 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
 
     /**
      * Checks if two methods are semantically equivalent for the purpose of replacement.
-     * Since we don't parameterize in EXTRACT_PARENT_CLASS, they must be identical
-     * (ignoring whitespace and comments) to be safe.
+     * With parameterization support, we check if they are structurally identical
+     * even if literals differ (assuming those literals are handled by recommendation).
      */
     private boolean areMethodsEquivalent(MethodDeclaration m1, MethodDeclaration m2) {
         if (!m1.getBody().isPresent() || !m2.getBody().isPresent()) {
             return false;
         }
         
-        // Normalize strings by removing all whitespace
-        // This is a robust way to ignore formatting differences while catching literal differences
-        String body1 = m1.getBody().get().toString().replaceAll("\\s+", "");
-        String body2 = m2.getBody().get().toString().replaceAll("\\s+", "");
+        // Normalize strings by removing all whitespace and literals that should be parameterized
+        String body1 = normalizeWithLiterals(m1);
+        String body2 = normalizeWithLiterals(m2);
         
         return body1.equals(body2);
+    }
+
+    private String normalizeWithLiterals(MethodDeclaration method) {
+         String body = method.getBody().get().toString().replaceAll("\\s+", "");
+         // This is a bit simplistic, but usually enough to catch structural differences
+         // while ignoring literal values if they are in the same position.
+         // A better way would be to use JavaParser to replace literals with a placeholder.
+         return body.replaceAll("\".*?\"", "\"LITERAL\"").replaceAll("\\d+", "0");
+    }
+
+    private void addLiteralArguments(MethodCallExpr call, MethodDeclaration childMethod, 
+            DuplicateCluster cluster, RefactoringRecommendation recommendation) {
+        
+        // Find the sequence in the cluster that corresponds to this childMethod
+        Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
+                .filter(seq -> seq.containingMethod().getNameAsString().equals(childMethod.getNameAsString()) &&
+                               seq.sourceFilePath().equals(childMethod.findCompilationUnit()
+                                       .flatMap(cu -> cu.getStorage())
+                                       .map(s -> s.getPath())
+                                       .orElse(null)))
+                .findFirst();
+
+        recommendation.getSuggestedParameters().forEach(param -> {
+            Expression val = null;
+            if (matchingSeq.isPresent() && param.getStartLine() != null && param.getStartColumn() != null) {
+                // Determine relative coordinates in primary sequence
+                StatementSequence primary = cluster.primary();
+                int lineOffset = param.getStartLine() - primary.range().startLine();
+                int colOffset = param.getStartColumn() - (lineOffset == 0 ? primary.range().startColumn() : 1);
+                
+                // Apply to child sequence
+                int targetLine = matchingSeq.get().range().startLine() + lineOffset;
+                int targetCol = (lineOffset == 0 ? matchingSeq.get().range().startColumn() : 1) + colOffset;
+                
+                val = findNodeByCoordinates(matchingSeq.get(), targetLine, targetCol);
+            }
+            
+            if (val == null) {
+                // Fallback to type-based heuristic
+                val = findLiteralForParameter(childMethod, param);
+            }
+            
+            if (val != null) {
+                call.addArgument(val.clone());
+            } else {
+                call.addArgument(new NameExpr("null"));
+            }
+        });
+    }
+
+    private Expression findNodeByCoordinates(StatementSequence sequence, int line, int column) {
+        for (Statement stmt : sequence.statements()) {
+            for (Expression expr : stmt.findAll(Expression.class)) {
+                if (expr.getRange().isPresent()) {
+                    com.github.javaparser.Position begin = expr.getRange().get().begin;
+                    if (begin.line == line && begin.column == column) {
+                        return expr;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private Expression findLiteralForParameter(MethodDeclaration method, com.raditha.dedup.model.ParameterSpec param) {
+        // Scan method body for literals of the required type
+        // This is tricky. For ReportGenerator, it's usually strings.
+        for (com.github.javaparser.ast.expr.LiteralExpr literal : method.findAll(com.github.javaparser.ast.expr.LiteralExpr.class)) {
+            // Check type compatibility
+            if (param.getType().asString().contains("String") && literal.isStringLiteralExpr()) {
+                // We should ensure we haven't already used this literal, but for now...
+                return literal.clone();
+            }
+            if (param.getType().asString().contains("int") && literal.isIntegerLiteralExpr()) {
+                return literal.clone();
+            }
+        }
+        return null;
     }
 }

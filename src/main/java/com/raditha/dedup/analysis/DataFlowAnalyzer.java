@@ -304,7 +304,8 @@ public class DataFlowAnalyzer {
 
         Set<String> liveOut = new HashSet<>(analysis.definedVars());
         liveOut.retainAll(usedAfter);
-        liveOut.removeAll(analysis.literalVars());
+        // We include literals if they are live-outs and potentially needed for return
+        // liveOut.removeAll(analysis.literalVars()); // REMOVED: Literals CAN be return variables if needed
         liveOut.removeAll(analysis.internalVars());
 
         List<String> candidates = findCandidates(sequence, liveOut, analysis);

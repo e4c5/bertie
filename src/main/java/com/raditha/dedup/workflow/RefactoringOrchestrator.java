@@ -96,9 +96,12 @@ public class RefactoringOrchestrator {
             if (classOpt.isPresent()) {
                 clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
             } else {
+                logger.warn("DEBUG: Cluster orphaned because no ClassOrInterfaceDeclaration ancestor found for method: {}", 
+                    primary.containingMethod().getNameAsString());
                 orphanedClusters.add(cluster);
             }
         }
+        logger.info("DEBUG: Grouping complete. Clusters by class: {}. Orphaned: {}", clustersByClass.size(), orphanedClusters.size());
     }
 
     private void mergeSessions(RefactoringSession target, RefactoringSession source) {

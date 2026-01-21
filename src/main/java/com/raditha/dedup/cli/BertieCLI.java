@@ -262,7 +262,17 @@ public class BertieCLI implements Callable<Integer> {
 
         Map<String, CompilationUnit> targetCUs = new java.util.HashMap<>(allCUs);
         if (targetClass != null && !targetClass.isEmpty()) {
-            targetCUs.entrySet().removeIf(entry -> !entry.getKey().startsWith(targetClass));
+            String[] targets = targetClass.split(",");
+            System.out.println("DEBUG: Samples of allCUs keys:");
+            allCUs.keySet().stream().limit(5).forEach(k -> System.out.println("  - " + k));
+            targetCUs.entrySet().removeIf(entry -> {
+                for (String t : targets) {
+                    if (entry.getKey().startsWith(t.trim())) {
+                        return false; // Keep it
+                    }
+                }
+                return true; // Remove it
+            });
             System.out.println("DEBUG: Retained " + targetCUs.size() + " files for analysis.");
         }
 

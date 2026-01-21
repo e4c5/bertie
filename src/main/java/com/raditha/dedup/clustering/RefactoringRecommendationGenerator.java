@@ -191,8 +191,12 @@ public class RefactoringRecommendationGenerator {
             }
         }
         ReturnVisitor visitor = new ReturnVisitor();
-        for (Statement stmt : seq.statements()) {
-            if (stmt.isReturnStmt()) continue;
+        List<Statement> stmts = seq.statements();
+        for (int i = 0; i < stmts.size(); i++) {
+            Statement stmt = stmts.get(i);
+            // Top-level return at the end of the sequence is OK
+            if (stmt.isReturnStmt() && i == stmts.size() - 1) continue;
+            
             if (Boolean.TRUE.equals(stmt.accept(visitor, null))) {
                 return true;
             }
