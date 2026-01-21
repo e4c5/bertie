@@ -350,15 +350,8 @@ public class ExtractMethodRefactorer {
             if (limit != -1 && limit < seq.size()) {
                 seqToAnalyze = createTruncatedSequence(seq, limit);
             }
-            // Use explicit intersection of Defined and UsedAfter to catch ALL live-outs (including literals)
-            Set<String> defined = dfa.findDefinedVariables(seqToAnalyze);
-            Set<String> usedAfter = dfa.findVariablesUsedAfter(seqToAnalyze);
-            
-            // Calculate intersection in place (copy first to avoid mutation issues)
-            Set<String> intersection = new HashSet<>(defined);
-            intersection.retainAll(usedAfter);
-            
-            liveOutVars.addAll(intersection);
+            Set<String> seqLiveOut = dfa.findLiveOutVariables(seqToAnalyze);
+            liveOutVars.addAll(seqLiveOut);
         }
         return liveOutVars;
     }
