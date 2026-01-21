@@ -8,7 +8,7 @@ variables:
 # Point to Bertie's test-bed MAIN source (not tests!)
 base_path: ${projects_folder}/bertie/test-bed
 #base_path: ${projects_folder}/csi-bm-invoice-java-service/
-base_package: com.csi
+base_package: com.raditha.bertie.testbed
 
 # Output directory for any generated files
 output_path: /tmp/bertie-test-output
