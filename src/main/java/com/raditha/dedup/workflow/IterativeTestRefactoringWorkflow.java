@@ -66,7 +66,15 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         }
 
         if (pass1Session.getSuccessful().isEmpty()) {
-             System.out.println(">>> PASS 1 made no changes. Skipping Pass 2.");
+             System.out.println(">>> PASS 1 made no changes. Proceeding with remaining clusters (Helpers).");
+             List<DuplicateCluster> remainingClusters = initialClusters.stream()
+                .filter(c -> c.recommendation().getStrategy() != RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)
+                .toList();
+
+             if (!remainingClusters.isEmpty()) {
+                 RefactoringSession remainingSession = engine.processClusters(remainingClusters);
+                 mergeSessions(totalSession, remainingSession);
+             }
              return totalSession;
         }
 

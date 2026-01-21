@@ -724,6 +724,7 @@ public class ExtractMethodRefactorer {
 
         applyValueReplacement(sequence, recommendation, methodCall, forcedReturnVar, returnType, 
                 containingMethod, block, startIdx, originalReturnValues);
+
         return true;
     }
 
@@ -755,6 +756,12 @@ public class ExtractMethodRefactorer {
 
         insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
                 shouldReturnDirectly, nextIsReturn, returnType);
+        
+        // Critical Fix: Even if we return a value, other literal-initialized variables 
+        // might be needed by the caller code. We must re-declare them.
+        if (!shouldReturnDirectly) {
+             redeclareLiteralVariables(sequence, block, startIdx + 1, varName);
+        }
     }
 
     /**
@@ -775,6 +782,8 @@ public class ExtractMethodRefactorer {
         Set<String> literalsToRedeclare = new HashSet<>(literalVars);
         literalsToRedeclare.retainAll(usedAfter);
         
+
+
         // CRITICAL: Don't re-declare the variable that's being returned by the helper
         if (returnedVarName != null) {
             literalsToRedeclare.remove(returnedVarName);

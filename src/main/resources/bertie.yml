@@ -17,7 +17,7 @@ output_path: /tmp/bertie-test-output
 min_lines: 3
 threshold: 75
 include_tests: true
-#target_class: com.raditha.bertie.testbed.simple.DistinctOperations
+##target_class: com.raditha.bertie.testbed.testisolation.ServiceWithImmutableConfiguration
 #target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceServiceImplTest
 
 # Analyze all classes in base_path (leave empty to analyze all)
