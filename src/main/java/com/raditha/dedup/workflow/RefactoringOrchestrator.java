@@ -61,6 +61,12 @@ public class RefactoringOrchestrator {
         }
 
         // New Step 3: Cleanup unreferenced private methods (zombies)
+        // CRITICAL FIX: Re-parse the CU from disk to ensure we have the fresh state (after rollback if any)
+        // The in-memory 'cu' might still contain changes that were rolled back on disk.
+        if (cu.getStorage().isPresent()) {
+             cu = com.github.javaparser.StaticJavaParser.parse(cu.getStorage().get().getPath());
+        }
+
         com.raditha.dedup.refactoring.UnusedMethodCleaner cleaner = new com.raditha.dedup.refactoring.UnusedMethodCleaner();
         boolean cleaned = cleaner.clean(cu);
         

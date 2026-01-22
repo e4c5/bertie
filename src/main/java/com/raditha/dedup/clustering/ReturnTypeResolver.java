@@ -371,10 +371,19 @@ public class ReturnTypeResolver {
 
     private String inferTypeFromExpression(Expression expr) {
         if (expr.isStringLiteralExpr()) return STRING;
-        if (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr()) return "int";
+        if (expr.isIntegerLiteralExpr()) return "int";
+        if (expr.isLongLiteralExpr()) return "long";
+        if (expr.isDoubleLiteralExpr()) return "double";
         if (expr.isBooleanLiteralExpr()) return BOOLEAN;
+        if (expr.isCharLiteralExpr()) return "char";
         if (expr.isObjectCreationExpr()) return expr.asObjectCreationExpr().getType().asString();
-        if (expr.isBinaryExpr()) return STRING;
+        // Conservative binary expression checking
+        if (expr.isBinaryExpr()) {
+            // If any operand is string, result is string
+            if (expr.toString().contains("\"")) return STRING;
+            // Otherwise default to int for safety (could be refined)
+            return "int";
+        }
         return OBJECT;
     }
 
