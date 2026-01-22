@@ -14,10 +14,8 @@ base_package: com.raditha.bertie.testbed
 output_path: /tmp/bertie-test-output
 
 # Detection settings - use lenient to find more duplicates
-min_lines: 3
-threshold: 75
 include_tests: true
-target_class: com.raditha.bertie.testbed.report.ReportA,com.raditha.bertie.testbed.report.ReportB,com.raditha.bertie.testbed.parameterizedtest.TestsWithConstantsAndVariables
+#target_class: com.raditha.bertie.testbed.report.ReportA,com.raditha.bertie.testbed.report.ReportB,com.raditha.bertie.testbed.parameterizedtest.TestsWithConstantsAndVariables
 #target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceServiceImplTest
 
 # Analyze all classes in base_path (leave empty to analyze all)
