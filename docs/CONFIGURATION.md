@@ -8,6 +8,12 @@ Complete guide to configuring the Duplication Detector (Bertie).
 
 Location: `src/main/resources/generator.yml` (default) or custom file via CLI.
 
+**Note**: The repository contains two YAML files:
+- `generator.yml`: The default runtime configuration file (used for analyzing other projects)
+- `bertie.yml`: Bertie's own self-test configuration (used for testing Bertie itself)
+
+When running Bertie to analyze your own projects, use `generator.yml` or specify a custom config file with `--config-file <path>`.
+
 ### Basic Structure
 
 ```yaml
@@ -53,10 +59,14 @@ Minimum number of lines to consider as a duplicate.
 - **CLI**: `--min-lines <n>`
 
 ### `threshold` (optional)
-Similarity threshold as a decimal (0.0 to 1.0) or percentage (0-100).
+Similarity threshold for duplicate detection.
 
 - **Default**: 0.75 (75%)
-- **CLI**: `--threshold <n>`
+- **Format**: 
+  - In YAML config: Can use decimal (0.0 to 1.0) or percentage (0-100)
+  - From CLI: Percentage only (0-100 as integer), e.g., `--threshold 75`
+- **Example YAML**: `threshold: 0.75` or `threshold: 75`
+- **Example CLI**: `--threshold 75` (not `--threshold 0.75`)
 
 ---
 
@@ -163,7 +173,10 @@ duplication_detector:
     - "**/target/**"
 ```
 
-Common defaults: `**/test/**`, `**/*Test.java`, `**/target/**`, `**/build/**`, `**/.git/**`.
+**Built-in defaults** (applied automatically unless you configure custom exclude_patterns):  
+`**/test/**`, `**/*Test.java`, `**/target/**`, `**/build/**`, `**/.git/**`
+
+If you specify custom `exclude_patterns` in your configuration, the defaults are replaced entirely. To keep the defaults and add more patterns, include them explicitly in your custom list.
 
 ---
 

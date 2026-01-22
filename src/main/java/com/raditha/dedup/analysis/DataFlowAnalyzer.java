@@ -85,9 +85,24 @@ public class DataFlowAnalyzer {
         liveOut.retainAll(usedAfter);
         liveOut.removeAll(analysis.literalVars());  // Exclude literal-initialized variables
 
-        // FIX: Exclude variables whose scope is strictly internal to the sequence
-        // (e.g. loop variables, catch parameters, variables in nested blocks)
-        liveOut.removeAll(analysis.internalVars());
+        // Determine which variables are defined at the top level of the sequence
+        Set<String> topLevelDefined = new HashSet<>();
+        for (Statement stmt : sequence.statements()) {
+            if (stmt.isExpressionStmt()) {
+                var expr = stmt.asExpressionStmt().getExpression();
+                if (expr.isVariableDeclarationExpr()) {
+                    expr.asVariableDeclarationExpr().getVariables()
+                            .forEach(v -> topLevelDefined.add(v.getNameAsString()));
+                }
+            }
+        }
+
+        // Exclude variables whose scope is strictly internal to the sequence
+        // (e.g. loop variables, catch parameters, variables in nested blocks).
+        // Only remove variables that are not also defined at the top level.
+        Set<String> internalOnly = new HashSet<>(analysis.internalVars());
+        internalOnly.removeAll(topLevelDefined);
+        liveOut.removeAll(internalOnly);
 
         return liveOut;
     }

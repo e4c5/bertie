@@ -108,38 +108,19 @@ public class RefactoringVerifier {
         filesToCompile.addAll(createdFiles);
         
         if (filesToCompile.isEmpty()) {
-             return new CompilationResult(true, List.of(), "No files modified");
+            closeFileManager(fileManager);
+            return new CompilationResult(true, List.of(), "No files modified");
         }
 
         // Create temporary directory for compilation output
-        Path tempOutput = null;
-        tempOutput = Files.createTempDirectory("bertie-compile-" + System.nanoTime());
-
+        Path tempOutput = createTempDirectory(fileManager);
+        if (tempOutput == null) {
+            return new CompilationResult(false, List.of("Failed to create temp directory"), "");
+        }
 
         try {
             Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromPaths(filesToCompile);
-
-            // Build classpath
-            List<String> options = new ArrayList<>();
-            options.add("-classpath");
-            options.add(getClasspath());
-            
-            // Add source path so compiler can find other classes in the project
-            options.add("-sourcepath");
-            options.add(getSourcepath());
-            
-            // Output directory
-            options.add("-d");
-            options.add(tempOutput.toString());
-            
-            // Java version
-            String javaVersion = DuplicationDetectorSettings.getJavaVersion();
-            if (javaVersion != null) {
-                 options.add("-source");
-                 options.add(javaVersion);
-                 options.add("-target");
-                 options.add(javaVersion);
-            }
+            List<String> options = buildCompilerOptions(tempOutput);
 
             JavaCompiler.CompilationTask task = compiler.getTask(
                 null, // default writer (system.err) if not null, but we capture diagnostics
@@ -151,56 +132,97 @@ public class RefactoringVerifier {
             );
 
             boolean success = task.call();
-            
-            List<String> errors = new ArrayList<>();
-            if (!success) {
-                for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
-                    if (diagnostic.getKind() == Diagnostic.Kind.ERROR) {
-                         errors.add(String.format("%s:%d: %s",
-                             diagnostic.getSource().toUri().getPath(),
-                             diagnostic.getLineNumber(),
-                             diagnostic.getMessage(null)));
-                    }
-                }
-            }
+            List<String> errors = extractCompilationErrors(diagnostics);
             
             return new CompilationResult(success, errors, success ? "Fast compilation succeeded" : "Fast compilation failed");
             
         } finally {
-            try {
-                fileManager.close();
-            } catch (IOException e) {
-                // ignore
-            }
-            // Cleanup temp directory
+            closeFileManager(fileManager);
             if (tempOutput != null) {
                 deleteDirectoryRecursively(tempOutput);
             }
         }
     }
 
-    String getClasspath() {
-        if (cachedClasspath == null) {
-            StringBuilder cp = new StringBuilder();
-            // 1. External dependencies
-            for (String jar : MavenHelper.getJarPaths()) {
-                cp.append(jar).append(java.io.File.pathSeparator);
-            }
-            // 2. Project classes (so we can resolve other classes in the project)
-            cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
-            cp.append(projectRoot.resolve("target/test-classes"));
-            cachedClasspath = cp.toString();
+    /**
+     * Close the file manager, ignoring any exceptions.
+     */
+    private void closeFileManager(StandardJavaFileManager fileManager) {
+        try {
+            fileManager.close();
+        } catch (IOException e) {
+            // ignore
         }
+    }
+
+    /**
+     * Create a temporary directory for compilation output.
+     * Returns null if creation fails (fileManager will be closed).
+     */
+    @SuppressWarnings("java:S5443") // Files.createTempDirectory() is secure: creates with unique names and restrictive permissions
+    private Path createTempDirectory(StandardJavaFileManager fileManager) {
+        try {
+            return Files.createTempDirectory("bertie-compile-" + System.nanoTime());
+        } catch (IOException e) {
+            closeFileManager(fileManager);
+            return null;
+        }
+    }
+
+    /**
+     * Build compiler options including classpath and Java version.
+     */
+    private List<String> buildCompilerOptions(Path tempOutput) {
+        List<String> options = new ArrayList<>();
+        options.add("-classpath");
+        options.add(buildClasspath());
+        
+        // Add source path so compiler can find other classes in the project
+        options.add("-sourcepath");
+        options.add(getSourcepath());
+
+        options.add("-d");
+        options.add(tempOutput.toString());
+        
+        // Java version
+        String javaVersion = DuplicationDetectorSettings.getJavaVersion();
+        if (javaVersion != null) {
+             options.add("-source");
+             options.add(javaVersion);
+             options.add("-target");
+             options.add(javaVersion);
+        }
+        
+        return options;
+    }
+
+    /**
+     * Build the classpath string for compilation.
+     */
+    private String buildClasspath() {
+        if (cachedClasspath != null) {
+            return cachedClasspath;
+        }
+        StringBuilder cp = new StringBuilder();
+        // 1. External dependencies
+        for (String jar : MavenHelper.getJarPaths()) {
+            cp.append(jar).append(java.io.File.pathSeparator);
+        }
+        // 2. Project classes (so we can resolve other classes in the project)
+        cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
+        cp.append(projectRoot.resolve("target/test-classes"));
+        cachedClasspath = cp.toString();
         return cachedClasspath;
     }
 
-    String getSourcepath() {
-        if (cachedSourcepath == null) {
-            StringBuilder sp = new StringBuilder();
-            sp.append(projectRoot.resolve("src/main/java")).append(java.io.File.pathSeparator);
-            sp.append(projectRoot.resolve("src/test/java"));
-            cachedSourcepath = sp.toString();
+    private String getSourcepath() {
+        if (cachedSourcepath != null) {
+            return cachedSourcepath;
         }
+        StringBuilder sp = new StringBuilder();
+        sp.append(projectRoot.resolve("src/main/java")).append(java.io.File.pathSeparator);
+        sp.append(projectRoot.resolve("src/test/java"));
+        cachedSourcepath = sp.toString();
         return cachedSourcepath;
     }
 
@@ -213,7 +235,25 @@ public class RefactoringVerifier {
         cachedSourcepath = null;
     }
 
-    void deleteDirectoryRecursively(Path path) {
+    /**
+     * Extract compilation errors from diagnostics.
+     */
+    private List<String> extractCompilationErrors(DiagnosticCollector<JavaFileObject> diagnostics) {
+        List<String> errors = new ArrayList<>();
+        for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+            if (diagnostic.getKind() == Diagnostic.Kind.ERROR) {
+                JavaFileObject source = diagnostic.getSource();
+                String sourcePath = (source != null) ? source.toUri().getPath() : "<unknown>";
+                errors.add(String.format("%s:%d: %s",
+                    sourcePath,
+                    diagnostic.getLineNumber(),
+                    diagnostic.getMessage(null)));
+            }
+        }
+        return errors;
+    }
+
+    private void deleteDirectoryRecursively(Path path) {
         try (java.util.stream.Stream<Path> walk = Files.walk(path)) {
             walk.sorted(java.util.Comparator.reverseOrder())
                 .map(Path::toFile)
