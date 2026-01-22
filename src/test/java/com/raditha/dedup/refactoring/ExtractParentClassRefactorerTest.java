@@ -253,8 +253,11 @@ class ExtractParentClassRefactorerTest {
                 .orElseThrow();
         
         assertFalse(repoACode.contains("public String findData()"), "findData should be removed");
+        
+        System.err.println("RepoB Code:\n" + repoBCode);
+        
         assertTrue(repoBCode.contains("public String getData()"), "getData should be preserved (delegated)");
-        assertTrue(repoBCode.contains("return findData()"), "Should delegate to parent method (findData)");
+        assertTrue(repoBCode.contains("return super.findData()"), "Should delegate to parent method (findData)");
     }
 
     private DuplicateCluster createMultiFileMockCluster(

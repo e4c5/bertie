@@ -21,13 +21,12 @@
         <javaparser.version>3.27.1</javaparser.version>
         <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
         <picocli.version>4.7.6</picocli.version>
-        <antikythera.version>0.1.2.9</antikythera.version>
+        <antikythera.version>0.1.3.0</antikythera.version>
     </properties>
 
     <dependencies>
-        <!-- Antikythera Core - Using local build for development -->
         <dependency>
-            <groupId>sa.com.cloudsolutions</groupId>
+            <groupId>com.github.Cloud-Solutions-International</groupId>
             <artifactId>antikythera</artifactId>
          <version>${antikythera.version}</version>
         </dependency>

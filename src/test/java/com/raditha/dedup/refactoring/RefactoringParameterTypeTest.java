@@ -109,7 +109,7 @@ public class ServiceWithTryCatchBlocks {
 
         engine = new RefactoringEngine(
                 tempDir,
-                RefactoringEngine.RefactoringMode.INTERACTIVE,
+                RefactoringEngine.RefactoringMode.BATCH,
                 VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);

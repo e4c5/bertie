@@ -175,7 +175,7 @@ public class RefactoringVerifier {
     private List<String> buildCompilerOptions(Path tempOutput) {
         List<String> options = new ArrayList<>();
         options.add("-classpath");
-        options.add(buildClasspath());
+        options.add(getClasspath());
         
         // Add source path so compiler can find other classes in the project
         options.add("-sourcepath");
@@ -199,7 +199,7 @@ public class RefactoringVerifier {
     /**
      * Build the classpath string for compilation.
      */
-    private String buildClasspath() {
+    String getClasspath() {
         if (cachedClasspath != null) {
             return cachedClasspath;
         }
@@ -215,7 +215,7 @@ public class RefactoringVerifier {
         return cachedClasspath;
     }
 
-    private String getSourcepath() {
+    String getSourcepath() {
         if (cachedSourcepath != null) {
             return cachedSourcepath;
         }
@@ -253,7 +253,7 @@ public class RefactoringVerifier {
         return errors;
     }
 
-    private void deleteDirectoryRecursively(Path path) {
+    void deleteDirectoryRecursively(Path path) {
         try (java.util.stream.Stream<Path> walk = Files.walk(path)) {
             walk.sorted(java.util.Comparator.reverseOrder())
                 .map(Path::toFile)
