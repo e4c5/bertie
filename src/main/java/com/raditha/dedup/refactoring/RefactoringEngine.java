@@ -4,6 +4,8 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -17,7 +19,7 @@ import java.util.Map;
  */
 @SuppressWarnings("java:S106")
 public class RefactoringEngine {
-
+    private static final Logger logger = LoggerFactory.getLogger(RefactoringEngine ..class);
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
@@ -179,10 +181,7 @@ public class RefactoringEngine {
                     session.addFailed(cluster, String.join("; ", verify.errors()));
                 }
             } catch (Throwable t) {
-                System.out.println("  ❌ Refactoring failed: " + t.getMessage());
-                if (t.getMessage() == null) {
-                    t.printStackTrace();
-                }
+                logger.error("  ❌ Refactoring failed: {}", t.getMessage());
                 // Ensure checking if rollback is needed in case files offered partial writes
                 // (unlikely based on implementation but safe)
                 verifier.rollback();

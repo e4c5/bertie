@@ -11,7 +11,6 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.ReferenceType;
-import com.github.javaparser.ast.comments.LineComment;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 
 import com.raditha.dedup.model.*;
@@ -1378,8 +1377,7 @@ public class ExtractMethodRefactorer {
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error in isVariableAlreadyDeclared: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Error in isVariableAlreadyDeclared: {}", e.getMessage());
         }
         return false;
     }

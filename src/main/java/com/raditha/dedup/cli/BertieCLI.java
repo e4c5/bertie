@@ -365,37 +365,31 @@ public class BertieCLI implements Callable<Integer> {
         int totalFailed = 0;
 
         for (DuplicationReport report : reports) {
-            if (report.clusters().isEmpty()) {
-                continue;
-            }
-
-            System.out.println("Processing file: " + report.sourceFile().getFileName());
-            
-            // Find valid CU for this report
-             String relativePath = report.sourceFile().toString();
-             
-             // Find valid CU for this report
-             // Keys in allCUs are class names, so we must check the Storage path of the CU itself
-             Path reportPath = report.sourceFile().toAbsolutePath().normalize();
-             
-             CompilationUnit cu = allCUs.values().stream()
-                .filter(unit -> unit.getStorage().map(s -> s.getPath().toAbsolutePath().normalize())
-                        .map(path -> path.equals(reportPath))
-                        .orElse(false))
-                .findFirst()
-                .orElse(null);
+            if (!report.clusters().isEmpty()) {
+                System.out.println("Processing file: " + report.sourceFile().getFileName());
                 
-            if (cu == null) {
-                System.out.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
-                continue;
+                // Find valid CU for this report
+                // Keys in allCUs are class names, so we must check the Storage path of the CU itself
+                Path reportPath = report.sourceFile().toAbsolutePath().normalize();
+                 
+                CompilationUnit cu = allCUs.values().stream()
+                    .filter(unit -> unit.getStorage().map(s -> s.getPath().toAbsolutePath().normalize())
+                            .map(path -> path.equals(reportPath))
+                            .orElse(false))
+                    .findFirst()
+                    .orElse(null);
+                    
+                if (cu != null) {
+                    // Use Orchestrator instead of direct engine call
+                    RefactoringEngine.RefactoringSession session = orchestrator.orchestrate(report, cu);
+    
+                    totalSuccess += session.getSuccessful().size();
+                    totalSkipped += session.getSkipped().size();
+                    totalFailed += session.getFailed().size();
+                } else {
+                    System.out.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
+                }
             }
-
-            // Use Orchestrator instead of direct engine call
-            RefactoringEngine.RefactoringSession session = orchestrator.orchestrate(report, cu);
-
-            totalSuccess += session.getSuccessful().size();
-            totalSkipped += session.getSkipped().size();
-            totalFailed += session.getFailed().size();
         }
 
         // Final summary

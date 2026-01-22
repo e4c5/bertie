@@ -139,24 +139,21 @@ public class ParameterResolver {
 
         List<ParameterSpec> capturedParams = new ArrayList<>();
         for (String varName : capturedVars) {
-            if (shouldSkipCapturedVariable(varName, existingParamNames, cu)) {
-                 continue;
-            }
-            if (processFieldCapture(varName, classFields, containingMethodIsStatic, capturedParams)) {
-                 continue;
-            }
-
-            String type = typeResolver.findTypeInContext(sequence, varName);
-            if (!"void".equals(type)) {
-                capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : OBJECT),
-                        List.of(varName), null, null, null));
+            if (!shouldSkipCapturedVariable(varName, existingParamNames) && 
+                !processFieldCapture(varName, classFields, containingMethodIsStatic, capturedParams)) {
+                
+                String type = typeResolver.findTypeInContext(sequence, varName);
+                if (!"void".equals(type)) {
+                    capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : OBJECT),
+                            List.of(varName), null, null, null));
+                }
             }
         }
 
         return capturedParams;
     }
 
-    private boolean shouldSkipCapturedVariable(String varName, Set<String> existingParamNames, CompilationUnit cu) {
+    private boolean shouldSkipCapturedVariable(String varName, Set<String> existingParamNames) {
         if (varName == null || varName.isEmpty()) {
              return true;
         }
@@ -170,13 +167,7 @@ public class ParameterResolver {
              return true;
         }
 
-        if ("System".equals(varName) || "Math".equals(varName) || "Integer".equals(varName)) {
-            return true;
-        }
-
-        // Optimistic check: if it starts with lower case, assume it's a variable unless it's a known keyword-like type
-        // This prevents aggressive "Type Finding" for variables that happen to match some obscure type or if resolution is flaky.
-        return false;
+        return Set.of("System", "Math", "Integer").contains(varName);
     }
 
     private boolean processFieldCapture(String varName, Map<String, FieldInfo> classFields, 

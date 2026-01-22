@@ -373,7 +373,7 @@ public class ReturnTypeResolver {
         if (expr.isStringLiteralExpr()) return STRING;
         if (expr.isIntegerLiteralExpr()) return "int";
         if (expr.isLongLiteralExpr()) return "long";
-        if (expr.isDoubleLiteralExpr()) return "double";
+        if (expr.isDoubleLiteralExpr()) return DOUBLE;
         if (expr.isBooleanLiteralExpr()) return BOOLEAN;
         if (expr.isCharLiteralExpr()) return "char";
         if (expr.isObjectCreationExpr()) return expr.asObjectCreationExpr().getType().asString();
