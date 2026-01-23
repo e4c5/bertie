@@ -11,16 +11,13 @@ import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ExtractionPlan;
 import com.raditha.dedup.model.ParameterSpec;
-import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.VariableReference;
 import com.raditha.dedup.model.VariationAnalysis;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.stream.Collectors;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -139,7 +136,7 @@ public class ParameterResolver {
 
         List<ParameterSpec> capturedParams = new ArrayList<>();
         for (String varName : capturedVars) {
-            if (!shouldSkipCapturedVariable(varName, existingParamNames) && 
+            if (!shouldSkipCapturedVariable(varName, existingParamNames, cu) && 
                 !processFieldCapture(varName, classFields, containingMethodIsStatic, capturedParams)) {
                 
                 String type = typeResolver.findTypeInContext(sequence, varName);
@@ -153,7 +150,7 @@ public class ParameterResolver {
         return capturedParams;
     }
 
-    private boolean shouldSkipCapturedVariable(String varName, Set<String> existingParamNames) {
+    private boolean shouldSkipCapturedVariable(String varName, Set<String> existingParamNames, CompilationUnit cu) {
         if (varName == null || varName.isEmpty()) {
              return true;
         }
@@ -163,11 +160,17 @@ public class ParameterResolver {
         if (existingParamNames.contains(varName)) {
              return true;
         }
+        
+        // If it starts with an uppercase letter, it might be a type.
+        // Check if it's a resolvable type in the compilation unit.
         if (Character.isUpperCase(varName.charAt(0))) {
-             return true;
+            if (Set.of("System", "Math", "Integer", "String", "Double", "Long", "Boolean", OBJECT).contains(varName)) {
+                return true;
+            }
+            return  (cu != null && AbstractCompiler.findType(cu, varName) != null);
         }
 
-        return Set.of("System", "Math", "Integer").contains(varName);
+        return false;
     }
 
     private boolean processFieldCapture(String varName, Map<String, FieldInfo> classFields, 
