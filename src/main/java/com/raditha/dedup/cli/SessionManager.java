@@ -3,16 +3,12 @@ package com.raditha.dedup.cli;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.raditha.dedup.analyzer.DuplicationReport;
-import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
-import com.github.javaparser.ast.CompilationUnit;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
 /**
  * Manages saving and loading of refactoring sessions.
  * Resumes an interrupted session by loading metadata and re-hydrating AST nodes.
@@ -81,29 +77,21 @@ public class SessionManager {
     /**
      * Load reports from a file and re-hydrate them with current AST nodes.
      */
-    public static List<DuplicationReport> loadSession(Path filePath) {
+    public static List<DuplicationReport> loadSession(Path filePath) throws IOException {
         if (!Files.exists(filePath)) {
             return null;
         }
 
-        try {
-            System.out.println("Resuming session from " + filePath + "...");
-            SessionDTO dto = mapper.readValue(filePath.toFile(), SessionDTO.class);
-            
-            // Re-parse project to get fresh ASTs
-            // sa.com.cloudsolutions.antikythera.parser.AbstractCompiler.preProcess();
-            // Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-            
-            System.out.println("DEBUG: Re-hydrated metadata for " + dto.clusters().size() + " clusters.");
-            
-            // In a full implementation, we would map DTOs back to DuplicationReports
-            // by finding sequences in allCUs that match the DTO ranges.
-            // For now, we return an empty list to indicate "nothing to refactor now"
-            // but the loading mechanism is verified.
-            return new ArrayList<>(); 
-        } catch (Exception e) {
-            System.err.println("Warning: Failed to load session: " + e.getMessage());
-            return null;
-        }
+        System.out.println("Resuming session from " + filePath + "...");
+        SessionDTO dto = mapper.readValue(filePath.toFile(), SessionDTO.class);
+
+        System.out.println("DEBUG: Re-hydrated metadata for " + dto.clusters().size() + " clusters.");
+
+        // In a full implementation, we would map DTOs back to DuplicationReports
+        // by finding sequences in allCUs that match the DTO ranges.
+        // For now, we return an empty list to indicate "nothing to refactor now"
+        // but the loading mechanism is verified.
+        return new ArrayList<>();
+
     }
 }

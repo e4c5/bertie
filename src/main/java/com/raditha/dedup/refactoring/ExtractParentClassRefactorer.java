@@ -14,19 +14,12 @@ import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
 
-import com.github.javaparser.ast.stmt.BlockStmt;
-import com.github.javaparser.ast.stmt.ExpressionStmt;
-import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
-import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.LiteralExpr;
 import com.github.javaparser.ast.expr.SuperExpr;
+import sa.com.cloudsolutions.antikythera.evaluator.Reflect;
 import java.nio.file.Path;
 import java.util.*;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.stream.Collectors;
 
 /**
  * Refactorer that extracts cross-class duplicate methods into a common parent class.
@@ -509,7 +502,7 @@ public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactor
             if (val != null) {
                 call.addArgument(val.clone());
             } else {
-                call.addArgument(new NameExpr("null"));
+                call.addArgument(Reflect.createLiteralExpression(Reflect.getDefault(param.getType().asString())));
             }
         });
     }
