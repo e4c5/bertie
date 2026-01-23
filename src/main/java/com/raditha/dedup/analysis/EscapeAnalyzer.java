@@ -1,6 +1,8 @@
 package com.raditha.dedup.analysis;
 
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.AssignExpr;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.Statement;
@@ -40,24 +42,36 @@ public class EscapeAnalyzer {
         Set<String> modifiedVariables = new HashSet<>();
 
         for (Statement stmt : sequence.statements()) {
-            stmt.walk(node -> {
-                if (node instanceof VariableDeclarationExpr vde) {
-                    vde.getVariables().forEach(v -> definedLocally.add(v.getNameAsString()));
-                } else if (node instanceof AssignExpr ae) {
-                    if (ae.getTarget().isNameExpr()) {
-                        modifiedVariables.add(ae.getTarget().asNameExpr().getNameAsString());
-                    } else if (ae.getTarget().isFieldAccessExpr()) {
-                        // Track field modifications (e.g., obj.field = value)
-                        modifiedVariables.add(ae.getTarget().asFieldAccessExpr().getNameAsString());
-                    }
-                } else if (node instanceof UnaryExpr ue && ue.getExpression().isNameExpr()) {
-                    modifiedVariables.add(ue.getExpression().asNameExpr().getNameAsString());
-                }
-            });
+            stmt.walk(node ->
+                analyzeVariables(node, definedLocally, modifiedVariables)
+            );
         }
 
         // Escaping writes: variables modified that come from outer scope
         modifiedVariables.removeAll(definedLocally);
         return modifiedVariables;
+    }
+
+    private static void analyzeVariables(Node node, Set<String> definedLocally, Set<String> modifiedVariables) {
+        if (node instanceof VariableDeclarationExpr vde) {
+            vde.getVariables().forEach(v -> definedLocally.add(v.getNameAsString()));
+        } else if (node instanceof AssignExpr ae) {
+            analyzeAssignment(ae.getTarget(), modifiedVariables);
+        } else if (node instanceof UnaryExpr ue) {
+            analyzeAssignment(ue.getExpression(), modifiedVariables);
+        }
+    }
+
+    private static void analyzeAssignment(Expression ae, Set<String> modifiedVariables) {
+        if (ae.isNameExpr()) {
+            modifiedVariables.add(ae.asNameExpr().getNameAsString());
+        } else if (ae.isFieldAccessExpr()) {
+            var fae = ae.asFieldAccessExpr();
+            if (fae.getScope().isThisExpr()) {
+                modifiedVariables.add(fae.getNameAsString());
+            } else {
+                modifiedVariables.add(fae.toString());
+            }
+        }
     }
 }

@@ -19,7 +19,7 @@ import java.util.Map;
  */
 @SuppressWarnings("java:S106")
 public class RefactoringEngine {
-    private static final Logger logger = LoggerFactory.getLogger(RefactoringEngine ..class);
+    private static final Logger logger = LoggerFactory.getLogger(RefactoringEngine.class);
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
