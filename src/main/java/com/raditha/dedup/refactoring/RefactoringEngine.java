@@ -41,8 +41,7 @@ public class RefactoringEngine {
     /**
      * Refactor all duplicates in a report.
      */
-    public RefactoringSession refactorAll(DuplicationReport report) throws IOException, InterruptedException {
-        RefactoringSession session = new RefactoringSession();
+    public RefactoringSession refactorAll(DuplicationReport report) throws IOException {
 
         System.out.println("=== Refactoring Session Started ===");
         System.out.println("Mode: " + mode);
@@ -85,7 +84,7 @@ public class RefactoringEngine {
      * Process a list of duplicate clusters.
      * Accessible by Workflows.
      */
-    public RefactoringSession processClusters(List<DuplicateCluster> clusters) throws IOException, InterruptedException {
+    public RefactoringSession processClusters(List<DuplicateCluster> clusters) throws IOException {
         RefactoringSession session = new RefactoringSession();
 
         for (int i = 0; i < clusters.size(); i++) {
@@ -110,14 +109,11 @@ public class RefactoringEngine {
 
             // Safety validation
             SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
-            if (!validation.isValid()) {
-                // For dry-run mode, show warnings but don't skip
-                if (mode != RefactoringMode.DRY_RUN) {
-                    System.out.println("  ⊘ Skipped due to safety validation errors:");
-                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
-                    session.addSkipped(cluster, String.join("; ", validation.getErrors()));
-                    continue;
-                }
+            if (!validation.isValid() && mode != RefactoringMode.DRY_RUN) {
+                System.out.println("  ⊘ Skipped due to safety validation errors:");
+                validation.getErrors().forEach(e -> System.out.println("     - " + e));
+                session.addSkipped(cluster, String.join("; ", validation.getErrors()));
+                continue;
             }
 
             if (validation.hasWarnings()) {
@@ -126,11 +122,9 @@ public class RefactoringEngine {
             }
 
             // Interactive mode: show diff and ask for confirmation
-            if (mode == RefactoringMode.INTERACTIVE) {
-                if (!showDiffAndConfirm(cluster, recommendation)) {
-                    session.addSkipped(cluster, "User rejected");
-                    continue;
-                }
+            if (mode == RefactoringMode.INTERACTIVE  && !showDiffAndConfirm(cluster, recommendation)) {
+                session.addSkipped(cluster, "User rejected");
+                continue;
             }
 
             // Batch mode: only process high-confidence refactorings
@@ -204,9 +198,7 @@ public class RefactoringEngine {
      * Apply the refactoring for a given cluster.
      */
     private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
-            DuplicateCluster cluster, RefactoringRecommendation recommendation) throws IOException {
-        System.out.println("  DEBUG: applyRefactoring started for " + recommendation.getStrategy());
-
+            DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
                 ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
@@ -224,8 +216,7 @@ public class RefactoringEngine {
             }
             case EXTRACT_TO_UTILITY_CLASS -> {
                 ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
-                ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
-                yield result;
+                yield refactorer.refactor(cluster, recommendation);
             }
             case EXTRACT_PARENT_CLASS -> {
                 ExtractParentClassRefactorer refactorer = new ExtractParentClassRefactorer();
@@ -333,47 +324,55 @@ public class RefactoringEngine {
      * Refactoring session tracking.
      */
     public static class RefactoringSession {
-        private final List<RefactoringSuccess> successful = new ArrayList<>();
-        private final List<RefactoringSkip> skipped = new ArrayList<>();
-        private final List<RefactoringFailure> failed = new ArrayList<>();
+        private final List<RefactoringResult> results = new ArrayList<>();
 
         public void addSuccess(DuplicateCluster cluster, String details) {
-            successful.add(new RefactoringSuccess(cluster, details));
+            results.add(new RefactoringResult(cluster, RefactoringStatus.SUCCESS, details));
         }
 
         public void addSkipped(DuplicateCluster cluster, String reason) {
-            skipped.add(new RefactoringSkip(cluster, reason));
+            results.add(new RefactoringResult(cluster, RefactoringStatus.SKIPPED, reason));
         }
 
         public void addFailed(DuplicateCluster cluster, String error) {
-            failed.add(new RefactoringFailure(cluster, error));
+            results.add(new RefactoringResult(cluster, RefactoringStatus.FAILED, error));
         }
 
-        public List<RefactoringSuccess> getSuccessful() {
-            return successful;
+        public List<RefactoringResult> getSuccessful() {
+            return results.stream()
+                    .filter(r -> r.status() == RefactoringStatus.SUCCESS)
+                    .toList();
         }
 
-        public List<RefactoringSkip> getSkipped() {
-            return skipped;
+        public List<RefactoringResult> getSkipped() {
+            return results.stream()
+                    .filter(r -> r.status() == RefactoringStatus.SKIPPED)
+                    .toList();
         }
 
-        public List<RefactoringFailure> getFailed() {
-            return failed;
+        public List<RefactoringResult> getFailed() {
+            return results.stream()
+                    .filter(r -> r.status() == RefactoringStatus.FAILED)
+                    .toList();
         }
 
         public boolean hasFailures() {
-            return !failed.isEmpty();
+            return results.stream().anyMatch(r -> r.status() == RefactoringStatus.FAILED);
         }
 
         public int getTotalProcessed() {
-            return successful.size() + skipped.size() + failed.size();
+            return results.size();
         }
     }
 
-    public record RefactoringSuccess(DuplicateCluster cluster, String details) {
+    public enum RefactoringStatus {
+        SUCCESS, SKIPPED, FAILED
     }
 
-    public record RefactoringSkip(DuplicateCluster cluster, String reason) {
+    public record RefactoringResult(DuplicateCluster cluster, RefactoringStatus status, String message) {
+        public String details() { return message; }
+        public String reason() { return message; }
+        public String error() { return message; }
     }
 
     private int getStrategyPriority(RefactoringRecommendation recommendation) {
@@ -385,8 +384,5 @@ public class RefactoringEngine {
             case EXTRACT_HELPER_METHOD -> 50;
             default -> 0;
         };
-    }
-
-    public record RefactoringFailure(DuplicateCluster cluster, String error) {
     }
 }
