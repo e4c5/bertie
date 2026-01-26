@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Validates and removes private methods that are no longer used after refactoring.
@@ -42,8 +41,8 @@ public class UnusedMethodCleaner {
 
     private boolean cleanClass(ClassOrInterfaceDeclaration clazz) {
         List<MethodDeclaration> privateMethods = clazz.getMethods().stream()
-                .filter(NodeWithPrivateModifier::isPrivate)
-                .collect(Collectors.toList());
+            .filter(NodeWithPrivateModifier::isPrivate)
+            .toList();
 
         if (privateMethods.isEmpty()) {
             return false;
