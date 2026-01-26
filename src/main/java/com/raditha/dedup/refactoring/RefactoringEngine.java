@@ -215,11 +215,11 @@ public class RefactoringEngine {
                         "Extracted to @ParameterizedTest: " + recommendation.getSuggestedMethodName());
             }
             case EXTRACT_TO_UTILITY_CLASS -> {
-                ExtractUtilityClassRefactorer refactorer = new ExtractUtilityClassRefactorer();
+                UtilityClassExtractor refactorer = new UtilityClassExtractor();
                 yield refactorer.refactor(cluster, recommendation);
             }
             case EXTRACT_PARENT_CLASS -> {
-                ExtractParentClassRefactorer refactorer = new ExtractParentClassRefactorer();
+                ParentClassExtractor refactorer = new ParentClassExtractor();
                 yield refactorer.refactor(cluster, recommendation);
             }
             default -> throw new UnsupportedOperationException(

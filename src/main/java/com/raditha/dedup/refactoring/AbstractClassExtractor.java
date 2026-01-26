@@ -22,7 +22,7 @@ import java.util.*;
  * Provides common functionality for both utility class and parent class
  * extraction.
  */
-public abstract class AbstractClassExtractorRefactorer {
+public abstract class AbstractClassExtractor {
 
     protected DuplicateCluster cluster;
     protected RefactoringRecommendation recommendation;

@@ -27,7 +27,7 @@ import java.util.*;
  * Child classes are modified to extend the new parent, inheriting the shared
  * method.
  */
-public class ExtractParentClassRefactorer extends AbstractClassExtractorRefactorer {
+public class ParentClassExtractor extends AbstractClassExtractor {
 
     private String parentClassName;
 

@@ -19,11 +19,11 @@ import java.util.List;
  */
 class ExtractUtilityClassRefactorerTest {
 
-    private ExtractUtilityClassRefactorer refactorer;
+    private UtilityClassExtractor refactorer;
 
     @BeforeEach
     void setUp() {
-        refactorer = new ExtractUtilityClassRefactorer();
+        refactorer = new UtilityClassExtractor();
     }
 
     @Test
