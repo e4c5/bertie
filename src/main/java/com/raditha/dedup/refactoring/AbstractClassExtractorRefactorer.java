@@ -14,7 +14,7 @@ import sa.com.cloudsolutions.antikythera.parser.ImportWrapper;
 
 import java.nio.file.Path;
 import java.util.*;
-import java.util.stream.Collectors;
+
 
 /**
  * Abstract base class for refactorers that extract duplicate code into a new
@@ -104,29 +104,21 @@ public abstract class AbstractClassExtractorRefactorer {
      */
     protected Set<String> collectRequiredImports(MethodDeclaration method) {
         Set<String> requiredImports = new HashSet<>();
-        
-        try {
-            // Create a dependency analyzer to collect imports for this method
-            DependencyAnalyzer analyzer = new DependencyAnalyzer() {
-                @Override
-                protected void onImportDiscovered(GraphNode node, ImportWrapper imp) {
-                    // Collect the import name when discovered during dependency analysis
-                    if (imp != null && imp.getImport() != null) {
-                        requiredImports.add(imp.getImport().getNameAsString());
-                    }
+    
+        // Create a dependency analyzer to collect imports for this method
+        DependencyAnalyzer analyzer = new DependencyAnalyzer() {
+            @Override
+            protected void onImportDiscovered(GraphNode node, ImportWrapper imp) {
+                // Collect the import name when discovered during dependency analysis
+                if (imp != null && imp.getImport() != null) {
+                    requiredImports.add(imp.getImport().getNameAsString());
                 }
-            };
-            
-            // Analyze dependencies for the method
-            analyzer.collectDependencies(Collections.singleton(method));
-            
-        } catch (Exception e) {
-            // If dependency analysis fails, fall back to conservative approach
-            // (copy all imports) by returning an empty set which will be handled
-            // in copyNeededImports
-            return Collections.emptySet();
-        }
+            }
+        };
         
+        // Analyze dependencies for the method
+        analyzer.collectDependencies(Collections.singleton(method));
+
         return requiredImports;
     }
 
