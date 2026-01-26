@@ -41,7 +41,7 @@ public class RefactoringEngine {
     /**
      * Refactor all duplicates in a report.
      */
-    public RefactoringSession refactorAll(DuplicationReport report) throws IOException {
+    public RefactoringSession refactorAll(DuplicationReport report) throws IOException, InterruptedException {
 
         System.out.println("=== Refactoring Session Started ===");
         System.out.println("Mode: " + mode);
@@ -84,55 +84,16 @@ public class RefactoringEngine {
      * Process a list of duplicate clusters.
      * Accessible by Workflows.
      */
-    public RefactoringSession processClusters(List<DuplicateCluster> clusters) throws IOException {
+    public RefactoringSession processClusters(List<DuplicateCluster> clusters) throws IOException, InterruptedException {
         RefactoringSession session = new RefactoringSession();
 
         for (int i = 0; i < clusters.size(); i++) {
             DuplicateCluster cluster = clusters.get(i);
             RefactoringRecommendation recommendation = cluster.recommendation();
-
-            if (recommendation == null) {
-                System.out.printf("  DEBUG: Cluster #%d skipped: No recommendation generated%n", i + 1);
-                session.addSkipped(cluster, "No recommendation generated");
+            if(! canRefactor(session, recommendation, cluster))
+            {
                 continue;
             }
-
-            if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
-                System.out.printf("  DEBUG: Cluster #%d skipped: Manual review required (%s)%n", 
-                    i + 1, recommendation.getSuggestedMethodName());
-                session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
-                continue;
-            }
-
-            System.out.printf("Processing cluster #%d (Strategy: %s, Confidence: %.0f%%)%n",
-                    i + 1, recommendation.getStrategy(), recommendation.getConfidenceScore() * 100);
-
-            // Safety validation
-            SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
-            if (!validation.isValid() && mode != RefactoringMode.DRY_RUN) {
-                System.out.println("  ⊘ Skipped due to safety validation errors:");
-                validation.getErrors().forEach(e -> System.out.println("     - " + e));
-                session.addSkipped(cluster, String.join("; ", validation.getErrors()));
-                continue;
-            }
-
-            if (validation.hasWarnings()) {
-                System.out.println("  ⚠️  Warnings:");
-                validation.getWarnings().forEach(w -> System.out.println("     - " + w));
-            }
-
-            // Interactive mode: show diff and ask for confirmation
-            if (mode == RefactoringMode.INTERACTIVE  && !showDiffAndConfirm(cluster, recommendation)) {
-                session.addSkipped(cluster, "User rejected");
-                continue;
-            }
-
-            // Batch mode: only process high-confidence refactorings
-            if (mode == RefactoringMode.BATCH && !recommendation.isHighConfidence()) {
-                session.addSkipped(cluster, "Low confidence for batch mode");
-                continue;
-            }
-
             try {
                 ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
@@ -174,7 +135,10 @@ public class RefactoringEngine {
                     verifier.rollback();
                     session.addFailed(cluster, String.join("; ", verify.errors()));
                 }
-            } catch (Exception t) {
+            } catch (InterruptedException ie) {
+                throw ie;
+            }
+            catch (Exception t) {
                 logger.error("  ❌ Refactoring failed: {}", t.getMessage());
                 // Ensure checking if rollback is needed in case files offered partial writes
                 // (unlikely based on implementation but safe)
@@ -192,6 +156,46 @@ public class RefactoringEngine {
         // Only print session summary if we processed standard refactoring via CLI
         // Workflows might aggregate sessions differently
         return session;
+    }
+
+    private boolean canRefactor(RefactoringSession session , RefactoringRecommendation recommendation, DuplicateCluster cluster) {
+
+        if (recommendation == null) {
+            session.addSkipped(cluster, "No recommendation generated");
+            return false;
+        }
+
+        if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
+            session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
+            return false;
+        }
+
+        // Safety validation
+        SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
+        if (!validation.isValid() && mode != RefactoringMode.DRY_RUN) {
+            System.out.println("  ⊘ Skipped due to safety validation errors:");
+            validation.getErrors().forEach(e -> System.out.println("     - " + e));
+            session.addSkipped(cluster, String.join("; ", validation.getErrors()));
+            return false;
+        }
+
+        if (validation.hasWarnings()) {
+            System.out.println("  ⚠️  Warnings:");
+            validation.getWarnings().forEach(w -> System.out.println("     - " + w));
+        }
+
+        // Interactive mode: show diff and ask for confirmation
+        if (mode == RefactoringMode.INTERACTIVE  && !showDiffAndConfirm(cluster, recommendation)) {
+            session.addSkipped(cluster, "User rejected");
+            return false;
+        }
+
+        // Batch mode: only process high-confidence refactorings
+        if (mode == RefactoringMode.BATCH && !recommendation.isHighConfidence()) {
+            session.addSkipped(cluster, "Low confidence for batch mode");
+            return false;
+        }
+        return true;
     }
 
     /**

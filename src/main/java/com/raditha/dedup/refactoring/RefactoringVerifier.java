@@ -10,21 +10,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import com.raditha.dedup.cli.VerifyMode;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import javax.tools.*;
-import java.io.StringWriter;
-import java.util.Arrays;
-import java.util.Collections;
 
 /**
  * Verifies refactored code compiles and tests pass.
  * Handles rollback on failure.
  */
 public class RefactoringVerifier {
+    private static final Logger logger = LoggerFactory.getLogger(RefactoringVerifier.class);
 
     private final Path projectRoot;
     private final Map<Path, String> backups = new HashMap<>();
@@ -94,7 +93,7 @@ public class RefactoringVerifier {
     /**
      * Run fast in-process compilation using JavaCompiler API.
      */
-    CompilationResult runFastCompile() throws IOException {
+    CompilationResult runFastCompile() {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
              return new CompilationResult(false, List.of("No Java compiler provided. Please ensure you are running with a JDK, not a JRE."), "");
@@ -138,9 +137,7 @@ public class RefactoringVerifier {
             
         } finally {
             closeFileManager(fileManager);
-            if (tempOutput != null) {
-                deleteDirectoryRecursively(tempOutput);
-            }
+            deleteDirectoryRecursively(tempOutput);
         }
     }
 
@@ -259,7 +256,7 @@ public class RefactoringVerifier {
                 .map(Path::toFile)
                 .forEach(java.io.File::delete);
         } catch (IOException e) {
-            System.err.println("Failed to cleanup temp directory: " + path + " - " + e.getMessage());
+            logger.warn("Failed to cleanup temp directory: {} {}" , path, e.getMessage());
         }
     }
 

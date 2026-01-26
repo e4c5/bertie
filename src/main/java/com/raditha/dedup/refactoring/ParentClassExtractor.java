@@ -171,7 +171,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
 
-        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverrides(
+        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
         recommendation.getSuggestedParameters().forEach(p -> {
@@ -183,7 +183,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             BlockStmt body = newMethod.getBody().get();
             for (int i = 0; i < body.getStatements().size(); i++) {
                 Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, ExtractMethodRefactorer.substituteParameters(
+                body.getStatements().set(i, ExtractMethodRefactorer.substituteParametersStatic(
                         stmt, recommendation, paramNameOverrides));
             }
         }
@@ -253,7 +253,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
 
-        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverrides(
+        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
         recommendation.getSuggestedParameters().forEach(p -> {
@@ -265,7 +265,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             BlockStmt body = newMethod.getBody().get();
             for (int i = 0; i < body.getStatements().size(); i++) {
                 Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, ExtractMethodRefactorer.substituteParameters(
+                body.getStatements().set(i, ExtractMethodRefactorer.substituteParametersStatic(
                         stmt, recommendation, paramNameOverrides));
             }
         }
