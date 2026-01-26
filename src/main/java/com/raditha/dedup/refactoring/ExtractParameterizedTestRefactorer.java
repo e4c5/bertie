@@ -95,7 +95,7 @@ public class ExtractParameterizedTestRefactorer {
      * Extract test instances from cluster.
      * 
      * <p><b>Important:</b> This method uses {@link DuplicateCluster#allSequences()} 
-     * which returns a stream of unique {@link StatementSequence} objects (deduplicated by range/file).
+     * which returns a stream of unique {@link TestInstance} objects (deduplicated by range/file).
      * 
      * <p>Using {@code allSequences()} is critical for two reasons:
      * <ol>

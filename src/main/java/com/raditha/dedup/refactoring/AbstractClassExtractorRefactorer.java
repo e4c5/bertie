@@ -8,9 +8,13 @@ import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
+import sa.com.cloudsolutions.antikythera.depsolver.DependencyAnalyzer;
+import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
+import sa.com.cloudsolutions.antikythera.parser.ImportWrapper;
 
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Abstract base class for refactorers that extract duplicate code into a new
@@ -92,12 +96,76 @@ public abstract class AbstractClassExtractorRefactorer {
     }
 
     /**
-     * Check if an import is needed by a method.
-     * Updated to return true conservatively to ensure all types are available in
-     * the new class.
+     * Collect the set of import names needed for a method.
+     * Uses DependencyAnalyzer to identify only the imports actually required.
+     * 
+     * @param method The method to analyze
+     * @return Set of import names (fully qualified or simple names) needed by the method
      */
-    protected boolean isImportNeeded(ImportDeclaration imp, MethodDeclaration method) {
-        return true; // Always copy all imports to be safe
+    protected Set<String> collectRequiredImports(MethodDeclaration method) {
+        Set<String> requiredImports = new HashSet<>();
+        
+        try {
+            // Create a dependency analyzer to collect imports for this method
+            DependencyAnalyzer analyzer = new DependencyAnalyzer() {
+                @Override
+                protected void onImportDiscovered(GraphNode node, ImportWrapper imp) {
+                    // Collect the import name when discovered during dependency analysis
+                    if (imp != null && imp.getImport() != null) {
+                        requiredImports.add(imp.getImport().getNameAsString());
+                    }
+                }
+            };
+            
+            // Analyze dependencies for the method
+            analyzer.collectDependencies(Collections.singleton(method));
+            
+        } catch (Exception e) {
+            // If dependency analysis fails, fall back to conservative approach
+            // (copy all imports) by returning an empty set which will be handled
+            // in copyNeededImports
+            return Collections.emptySet();
+        }
+        
+        return requiredImports;
+    }
+
+    /**
+     * Check if an import is needed by a method.
+     * Uses the collected required imports from dependency analysis.
+     * 
+     * @param imp The import declaration to check
+     * @param requiredImportNames Set of import names that are required
+     * @return true if the import is needed, false otherwise
+     */
+    protected boolean isImportNeeded(ImportDeclaration imp, Set<String> requiredImportNames) {
+        if (requiredImportNames.isEmpty()) {
+            // Fallback: if analysis failed, copy all imports to be safe
+            return true;
+        }
+        
+        String importName = imp.getNameAsString();
+        
+        // Check exact match
+        if (requiredImportNames.contains(importName)) {
+            return true;
+        }
+        
+        // For wildcard imports, check if any required import starts with this package
+        if (imp.isAsterisk()) {
+            String packageName = importName;
+            return requiredImportNames.stream()
+                    .anyMatch(required -> required.startsWith(packageName + "."));
+        }
+        
+        // For static imports, check both the full path and the simple name
+        if (imp.isStatic()) {
+            String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
+            return requiredImportNames.contains(simpleName) || 
+                   requiredImportNames.stream().anyMatch(req -> req.endsWith("." + simpleName));
+        }
+        
+        return false;
     }
 
     /**
@@ -111,12 +179,40 @@ public abstract class AbstractClassExtractorRefactorer {
 
     /**
      * Copy necessary imports from source CU to target CU for a given method.
+     * Uses DependencyAnalyzer to intelligently identify only required imports.
      */
     protected void copyNeededImports(CompilationUnit sourceCu, CompilationUnit targetCu,
             MethodDeclaration method) {
+        
+        // Collect the set of imports required by this method using dependency analysis
+        Set<String> requiredImportNames = collectRequiredImports(method);
+        
+        // Get the target package to avoid importing classes from the same package
+        String targetPackage = getPackageName(targetCu);
+        
+        // Filter and copy only the needed imports
+        Set<ImportDeclaration> addedImports = new HashSet<>();
         for (ImportDeclaration imp : sourceCu.getImports()) {
-            if (isImportNeeded(imp, method)) {
-                targetCu.addImport(imp);
+            // Skip imports from the same package (not needed)
+            String importName = imp.getNameAsString();
+            if (!imp.isAsterisk() && !imp.isStatic()) {
+                String importPackage = importName.contains(".")
+                        ? importName.substring(0, importName.lastIndexOf('.'))
+                        : "";
+                if (importPackage.equals(targetPackage)) {
+                    continue;
+                }
+            }
+            
+            // Check if this import is needed
+            if (isImportNeeded(imp, requiredImportNames)) {
+                // Avoid duplicate imports
+                boolean isDuplicate = addedImports.stream()
+                        .anyMatch(existing -> existing.getNameAsString().equals(importName));
+                if (!isDuplicate) {
+                    targetCu.addImport(imp);
+                    addedImports.add(imp);
+                }
             }
         }
     }

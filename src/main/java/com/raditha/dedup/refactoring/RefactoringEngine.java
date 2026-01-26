@@ -174,7 +174,7 @@ public class RefactoringEngine {
                     verifier.rollback();
                     session.addFailed(cluster, String.join("; ", verify.errors()));
                 }
-            } catch (Throwable t) {
+            } catch (Exception t) {
                 logger.error("  ❌ Refactoring failed: {}", t.getMessage());
                 // Ensure checking if rollback is needed in case files offered partial writes
                 // (unlikely based on implementation but safe)
