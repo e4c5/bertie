@@ -768,28 +768,107 @@ public class ExtractMethodRefactorer {
                                       com.github.javaparser.ast.type.Type returnType, 
                                       MethodDeclaration containingMethod, BlockStmt block, 
                                       int startIdx, ReturnStmt originalReturnValues) {
-        String varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence);
-        boolean nextIsReturn = startIdx < block.getStatements().size()
-                && block.getStatements().get(startIdx).isReturnStmt();
+        new ReplacementCommand(sequence, methodCall, forcedReturnVar, returnType,
+                containingMethod, block, startIdx, originalReturnValues).execute();
+    }
 
-        boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-        boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
-                returnHasExternalVars, nextIsReturn);
+    /**
+     * Command object that encapsulates the logic for replacing duplicate code
+     * with a method call and handling return values appropriately.
+     */
+    private class ReplacementCommand {
+        private final StatementSequence sequence;
+        private final MethodCallExpr methodCall;
+        private final String forcedReturnVar;
+        private final com.github.javaparser.ast.type.Type returnType;
+        private final MethodDeclaration containingMethod;
+        private final BlockStmt block;
+        private final int startIdx;
+        private final ReturnStmt originalReturnValues;
+        
+        // Computed state
+        private String varName;
+        private boolean shouldReturnDirectly;
+        private boolean nextIsReturn;
 
-        if (!shouldReturnDirectly && varName == null) {
-            varName = firstDefinedVariable(sequence);
-            if (varName == null) {
-                varName = "result"; // Absolute fallback
+        ReplacementCommand(StatementSequence sequence, MethodCallExpr methodCall,
+                          String forcedReturnVar, com.github.javaparser.ast.type.Type returnType,
+                          MethodDeclaration containingMethod, BlockStmt block,
+                          int startIdx, ReturnStmt originalReturnValues) {
+            this.sequence = sequence;
+            this.methodCall = methodCall;
+            this.forcedReturnVar = forcedReturnVar;
+            this.returnType = returnType;
+            this.containingMethod = containingMethod;
+            this.block = block;
+            this.startIdx = startIdx;
+            this.originalReturnValues = originalReturnValues;
+        }
+
+        void execute() {
+            computeDerivedState();
+            insertReplacement();
+            handleLiteralVariables();
+        }
+
+        private void computeDerivedState() {
+            varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence);
+            nextIsReturn = startIdx < block.getStatements().size()
+                    && block.getStatements().get(startIdx).isReturnStmt();
+
+            boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
+            shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
+                    returnHasExternalVars, nextIsReturn);
+
+            if (!shouldReturnDirectly && varName == null) {
+                varName = firstDefinedVariable(sequence);
+                if (varName == null) {
+                    varName = "result"; // Absolute fallback
+                }
             }
         }
 
-        insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
-                shouldReturnDirectly, nextIsReturn, returnType);
-        
-        // Critical Fix: Even if we return a value, other literal-initialized variables 
-        // might be needed by the caller code. We must re-declare them.
-        if (!shouldReturnDirectly) {
-             redeclareLiteralVariables(sequence, block, startIdx + 1, varName);
+        private void insertReplacement() {
+            if (varName != null && shouldReturnDirectly) {
+                insertDirectReturn();
+            } else if (varName != null) {
+                insertVariableDeclaration();
+            } else {
+                insertSimpleCall();
+            }
+        }
+
+        private void insertDirectReturn() {
+            if (nextIsReturn) {
+                block.getStatements().remove(startIdx);
+            }
+            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+        }
+
+        private void insertVariableDeclaration() {
+            VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
+                    returnType.clone(), varName);
+            varDecl.getVariable(0).setInitializer(methodCall);
+            block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+            }
+        }
+
+        private void insertSimpleCall() {
+            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+            } else {
+                block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+            }
+        }
+
+        private void handleLiteralVariables() {
+            // Critical Fix: Even if we return a value, other literal-initialized variables
+            // might be needed by the caller code. We must re-declare them.
+            if (!shouldReturnDirectly) {
+                redeclareLiteralVariables(sequence, block, startIdx + 1, varName);
+            }
         }
     }
 
@@ -924,9 +1003,7 @@ public class ExtractMethodRefactorer {
                 }
                 
                 // Fallback for literals if wrapper resolution failed
-                if (isNumericType(param.getType()) && expr.isStringLiteralExpr()) {
-                    return false;
-                }
+                return !isNumericType(param.getType()) || !expr.isStringLiteralExpr();
             } else {
                 // Fallback to old heuristic if param type cannot be resolved
                 if (isNumericType(param.getType())) {
@@ -934,10 +1011,8 @@ public class ExtractMethodRefactorer {
                         return false;
                     }
                     TypeWrapper exprTypeWrapper = resolveExprTypeWrapper(expr, sequence);
-                    if (exprTypeWrapper != null &&
-                        ("java.lang.String".equals(exprTypeWrapper.getName()) || "String".equals(exprTypeWrapper.getName()))) {
-                        return false;
-                    }
+                    return exprTypeWrapper == null ||
+                            (!"java.lang.String".equals(exprTypeWrapper.getName()) && !"String".equals(exprTypeWrapper.getName()));
                 }
             }
             return true;
@@ -1170,36 +1245,6 @@ public class ExtractMethodRefactorer {
         boolean blockEmptyAfterRemoval = block.getStatements().isEmpty();
         return ((nextIsReturn && originalReturnValues != null) ||
                 (blockEmptyAfterRemoval && !methodIsVoid && originalReturnValues != null));
-    }
-
-    private void insertValueReplacement(BlockStmt block, int startIdx,
-            MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
-            boolean shouldReturnDirectly, boolean nextIsReturn, com.github.javaparser.ast.type.Type returnType) {
-
-        if (varName != null && shouldReturnDirectly) {
-            if (nextIsReturn) {
-                block.getStatements().remove(startIdx);
-            }
-            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-            return;
-        }
-
-        if (varName != null) {
-            VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                    returnType.clone(), varName);
-            varDecl.getVariable(0).setInitializer(methodCall);
-            block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
-            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                block.getStatements().add(startIdx + 1, originalReturnValues.clone());
-            }
-            return;
-        }
-
-        if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-        } else {
-            block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
-        }
     }
 
     /**

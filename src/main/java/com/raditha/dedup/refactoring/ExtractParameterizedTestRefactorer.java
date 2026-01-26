@@ -11,7 +11,6 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
-import com.raditha.dedup.model.SimilarityPair;
 
 import java.nio.file.Path;
 import java.util.*;

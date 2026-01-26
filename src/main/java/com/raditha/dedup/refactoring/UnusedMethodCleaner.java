@@ -5,7 +5,7 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.nodeTypes.modifiers.NodeWithPrivateModifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +42,7 @@ public class UnusedMethodCleaner {
 
     private boolean cleanClass(ClassOrInterfaceDeclaration clazz) {
         List<MethodDeclaration> privateMethods = clazz.getMethods().stream()
-                .filter(m -> m.isPrivate())
+                .filter(NodeWithPrivateModifier::isPrivate)
                 .collect(Collectors.toList());
 
         if (privateMethods.isEmpty()) {
@@ -56,12 +56,8 @@ public class UnusedMethodCleaner {
             String name = method.getNameAsString();
 
             // 1. Check if method is used (called or referenced)
-            if (usedMethodNames.contains(name)) {
-                continue;
-            }
-
             // 2. Check for annotations that implicitly use the method
-            if (hasPreservedAnnotation(method)) {
+            if (usedMethodNames.contains(name)  && hasPreservedAnnotation(method)) {
                 continue;
             }
 
@@ -97,7 +93,6 @@ public class UnusedMethodCleaner {
                         used.add(s.getValue())
                     );
                 } else if (a.isNormalAnnotationExpr()) {
-                    // @MethodSource(value = "name") or value = {"n1", "n2"}
                     a.asNormalAnnotationExpr().getPairs().stream()
                         .filter(p -> p.getNameAsString().equals("value"))
                         .forEach(p -> {
