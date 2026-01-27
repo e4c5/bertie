@@ -54,9 +54,13 @@ public class UnusedMethodCleaner {
         for (MethodDeclaration method : privateMethods) {
             String name = method.getNameAsString();
 
-            // 1. Check if method is used (called or referenced)
-            // 2. Check for annotations that implicitly use the method
-            if (usedMethodNames.contains(name)  && hasPreservedAnnotation(method)) {
+            // Skip if method is used (called or referenced)
+            if (usedMethodNames.contains(name)) {
+                continue;
+            }
+
+            // Skip if method has a preserved annotation
+            if (hasPreservedAnnotation(method)) {
                 continue;
             }
 
