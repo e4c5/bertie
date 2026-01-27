@@ -28,7 +28,7 @@ import java.nio.file.Path;
  * Handles multi-file refactoring with utility class creation and call site
  * updates.
  */
-public class UtilityClassExtractor extends AbstractClassExtractor {
+public class UtilityClassExtractor extends AbstractExtractor {
 
     private String utilityClassName;
 

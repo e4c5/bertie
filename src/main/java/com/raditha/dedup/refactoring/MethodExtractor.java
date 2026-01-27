@@ -33,13 +33,9 @@ import java.util.Set;
  * Extracts duplicate code to a private helper method.
  * This is the most common and safest refactoring strategy.
  */
-public class MethodExtractor {
+public class MethodExtractor extends AbstractExtractor {
     private static final Logger logger = LoggerFactory.getLogger(MethodExtractor.class);
-    public static final String Boolean = "Boolean";
 
-    // Instance fields to reduce parameter passing
-    private DuplicateCluster cluster;
-    private RefactoringRecommendation recommendation;
     private Map<ParameterSpec, ASTNodePath> precomputedPaths;
     private List<ParameterSpec> effectiveParams;
     private Map<ParameterSpec, String> paramNameOverrides;
@@ -158,9 +154,12 @@ public class MethodExtractor {
 
         // Phase 1: Prepare
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingMethod() != null && seq.containingMethod().getNameAsString().equals(methodNameToUse)) {
+            if (seq.containingMethod() != null
+                    && seq.containingMethod().getNameAsString().equals(methodNameToUse)
+                    && isMethodBody(seq)
+            ) {
                 // Potential recursion check: skip if we are reusing THIS method
-                if (isMethodBody(seq)) continue; 
+                continue;
             }
 
             int limit = recommendation.getValidStatementCount();
@@ -650,41 +649,6 @@ public class MethodExtractor {
         return false;
     }
 
-    /**
-     * Check if a variable name refers to a local variable (defined in the
-     * containing method
-     * but NOT in the sequence).
-     */
-    private boolean isLocalVariable(StatementSequence sequence, String varName) {
-        MethodDeclaration containingMethod = sequence.containingMethod();
-        if (containingMethod == null || containingMethod.getBody().isEmpty()) {
-            return false;
-        }
-
-        // Search for variable declaration in method body but BEFORE the sequence start
-        int sequenceStartLine = sequence.range().startLine();
-        BlockStmt methodBody = containingMethod.getBody().get();
-
-        for (VariableDeclarationExpr varDecl : methodBody.findAll(VariableDeclarationExpr.class)) {
-            if (varDecl.getRange().isPresent() &&
-                    varDecl.getRange().get().begin.line < sequenceStartLine) {
-                for (var variable : varDecl.getVariables()) {
-                    if (variable.getNameAsString().equals(varName)) {
-                        return true; // Found as local variable before sequence
-                    }
-                }
-            }
-        }
-
-        // Also check method parameters
-        for (var param : containingMethod.getParameters()) {
-            if (param.getNameAsString().equals(varName)) {
-                return true; // It's a method parameter, treated as external
-            }
-        }
-
-        return false;
-    }
 
     /**
      * Phase 1: Prepare the method call expression by resolving arguments.
@@ -883,20 +847,8 @@ public class MethodExtractor {
      */
     private void redeclareLiteralVariables(StatementSequence sequence, BlockStmt block, 
                                            int insertionPoint, String returnedVarName) {
-        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-        
-        Set<String> literalVars = dfa.findLiteralInitializedVariables(sequence);
-        Set<String> usedAfter = dfa.findVariablesUsedAfter(sequence);
-        
-        // Find literals that are used after
-        Set<String> literalsToRedeclare = new HashSet<>(literalVars);
-        literalsToRedeclare.retainAll(usedAfter);
+        Set<String> literalsToRedeclare = getLiteralsToRedeclare(sequence, returnedVarName);
 
-        // CRITICAL: Don't re-declare the variable that's being returned by the helper
-        if (returnedVarName != null) {
-            literalsToRedeclare.remove(returnedVarName);
-        }
-        
         if (literalsToRedeclare.isEmpty()) {
             return;
         }
@@ -909,7 +861,6 @@ public class MethodExtractor {
         for (String varName : sortedVars) {
             VariableDeclarator originalDecl = findVariableDeclaratorInSequence(sequence, varName);
             if (originalDecl != null && originalDecl.getInitializer().isPresent()) {
-                // Create: Type varName = literalValue;
                 VariableDeclarationExpr redecl = new VariableDeclarationExpr(
                     originalDecl.getType().clone(),
                     varName
@@ -920,6 +871,23 @@ public class MethodExtractor {
                 currentIdx++;
             }
         }
+    }
+
+    private static Set<String> getLiteralsToRedeclare(StatementSequence sequence, String returnedVarName) {
+        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+
+        Set<String> literalVars = dfa.findLiteralInitializedVariables(sequence);
+        Set<String> usedAfter = dfa.findVariablesUsedAfter(sequence);
+
+        // Find literals that are used after
+        Set<String> literalsToRedeclare = new HashSet<>(literalVars);
+        literalsToRedeclare.retainAll(usedAfter);
+
+        // CRITICAL: Don't re-declare the variable that's being returned by the helper
+        if (returnedVarName != null) {
+            literalsToRedeclare.remove(returnedVarName);
+        }
+        return literalsToRedeclare;
     }
 
     /**
@@ -1146,6 +1114,65 @@ public class MethodExtractor {
             return null; // Fail if structural extraction cannot find it
         }
 
+
+        /**
+         * Check if a variable name refers to a local variable (defined in the
+         * containing method
+         * but NOT in the sequence).
+         */
+        private boolean isLocalVariable(StatementSequence sequence, String varName) {
+            MethodDeclaration containingMethod = sequence.containingMethod();
+            if (containingMethod == null || containingMethod.getBody().isEmpty()) {
+                return false;
+            }
+
+            // Search for variable declaration in method body but BEFORE the sequence start
+            int sequenceStartLine = sequence.range().startLine();
+            BlockStmt methodBody = containingMethod.getBody().get();
+
+            for (VariableDeclarationExpr varDecl : methodBody.findAll(VariableDeclarationExpr.class)) {
+                if (varDecl.getRange().isPresent() &&
+                        varDecl.getRange().get().begin.line < sequenceStartLine) {
+                    for (var variable : varDecl.getVariables()) {
+                        if (variable.getNameAsString().equals(varName)) {
+                            return true; // Found as local variable before sequence
+                        }
+                    }
+                }
+            }
+
+            // Also check method parameters
+            for (var param : containingMethod.getParameters()) {
+                if (param.getNameAsString().equals(varName)) {
+                    return true; // It's a method parameter, treated as external
+                }
+            }
+
+            return false;
+        }
+
+
+        private Expression followPath(StatementSequence sequence, ASTNodePath path) {
+            if (path.statementIndex < 0 || path.statementIndex >= sequence.statements().size()) {
+                return null;
+            }
+            com.github.javaparser.ast.Node current = sequence.statements().get(path.statementIndex);
+
+            for (int idx : path.childPath) {
+                List<com.github.javaparser.ast.Node> children = current.getChildNodes().stream()
+                        .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
+                        .toList();
+                if (idx < 0 || idx >= children.size()) {
+                    return null;
+                }
+                current = children.get(idx);
+            }
+
+            if (current instanceof Expression expr) {
+                return expr.clone();
+            }
+            return null;
+        }
     }
 
     private ReturnStmt findOriginalReturnInSequence(StatementSequence sequence, int limit) {
@@ -1248,29 +1275,6 @@ public class MethodExtractor {
         }
         return -1;
     }
-
-    private Expression followPath(StatementSequence sequence, ASTNodePath path) {
-        if (path.statementIndex < 0 || path.statementIndex >= sequence.statements().size()) {
-            return null;
-        }
-        com.github.javaparser.ast.Node current = sequence.statements().get(path.statementIndex);
-
-        for (int idx : path.childPath) {
-            List<com.github.javaparser.ast.Node> children = current.getChildNodes().stream()
-                    .filter(n -> !(n instanceof com.github.javaparser.ast.comments.Comment))
-                    .toList();
-            if (idx < 0 || idx >= children.size()) {
-                return null;
-            }
-            current = children.get(idx);
-        }
-
-        if (current instanceof Expression expr) {
-            return expr.clone();
-        }
-        return null;
-    }
-
     /**
      * Find the index of the first statement in a sequence within a block.
      */
@@ -1300,17 +1304,7 @@ public class MethodExtractor {
         if (line == null || column == null) {
             return null;
         }
-        for (Statement stmt : sequence.statements()) {
-            for (Expression expr : stmt.findAll(Expression.class)) {
-                if (expr.getRange().isPresent()) {
-                    com.github.javaparser.Position begin = expr.getRange().get().begin;
-                    if (begin.line == line && begin.column == column) {
-                        return expr;
-                    }
-                }
-            }
-        }
-        return null;
+        return super.findNodeByCoordinates(sequence, line, column);
     }
 
     /**
@@ -1441,13 +1435,7 @@ public class MethodExtractor {
 
         for (MethodDeclaration candidate : containingType.getMethods()) {
             // CRITICAL FIX: Never reuse ANY method that is part of the cluster being refactored!
-            if (excludedMethods.contains(candidate))
-                continue;
-
-            // CRITICAL FIX: Only reuse PRIVATE methods as helpers.
-            // Reuse of public methods leads to infinite recursion if we are refactoring
-            // that public method.
-            if (!candidate.getModifiers().contains(Modifier.privateModifier()))
+            if (excludedMethods.contains(candidate) || !candidate.getModifiers().contains(Modifier.privateModifier()))
                 continue;
 
             // Only consider private helpers (or same staticness and signature) to be
@@ -1466,15 +1454,7 @@ public class MethodExtractor {
                 }
             }
 
-            boolean paramsMatch = true;
-            for (int i = 0; i < candidate.getParameters().size(); i++) {
-                String ct = candidate.getParameter(i).getType().asString();
-                if (!ct.equals(newParamTypes.get(i))) {
-                    paramsMatch = false;
-                    break;
-                }
-            }
-            if (!paramsMatch)
+            if (!isParamsMatch(candidate, newParamTypes))
                 continue;
 
             // Compare normalized bodies
@@ -1485,6 +1465,18 @@ public class MethodExtractor {
         }
 
         return null;
+    }
+
+    private static boolean isParamsMatch(MethodDeclaration candidate, List<String> newParamTypes) {
+        boolean paramsMatch = true;
+        for (int i = 0; i < candidate.getParameters().size(); i++) {
+            String ct = candidate.getParameter(i).getType().asString();
+            if (!ct.equals(newParamTypes.get(i))) {
+                paramsMatch = false;
+                break;
+            }
+        }
+        return paramsMatch;
     }
 
     // Produce a canonical representation of the method body with parameter names

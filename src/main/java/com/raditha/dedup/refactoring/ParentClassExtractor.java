@@ -28,7 +28,7 @@ import java.util.*;
  * Child classes are modified to extend the new parent, inheriting the shared
  * method.
  */
-public class ParentClassExtractor extends AbstractClassExtractor {
+public class ParentClassExtractor extends AbstractExtractor {
 
     private String parentClassName;
 
@@ -457,20 +457,6 @@ public class ParentClassExtractor extends AbstractClassExtractor {
                 call.addArgument(Reflect.createLiteralExpression(Reflect.getDefault(param.getType().asString())));
             }
         });
-    }
-
-    private Expression findNodeByCoordinates(StatementSequence sequence, int line, int column) {
-        for (Statement stmt : sequence.statements()) {
-            for (Expression expr : stmt.findAll(Expression.class)) {
-                if (expr.getRange().isPresent()) {
-                    com.github.javaparser.Position begin = expr.getRange().get().begin;
-                    if (begin.line == line && begin.column == column) {
-                        return expr;
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     private Expression findLiteralForParameter(MethodDeclaration method, com.raditha.dedup.model.ParameterSpec param) {

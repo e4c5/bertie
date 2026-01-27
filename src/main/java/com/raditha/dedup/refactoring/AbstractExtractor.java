@@ -4,7 +4,9 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.nodeTypes.NodeWithName;
+import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
@@ -17,12 +19,12 @@ import java.util.*;
 
 
 /**
- * Abstract base class for refactorers that extract duplicate code into a new
- * class.
+ * Abstract base class for refactorers that extract duplicate code into new classes and methods
+ *
  * Provides common functionality for both utility class and parent class
  * extraction.
  */
-public abstract class AbstractClassExtractor {
+public abstract class AbstractExtractor {
 
     protected DuplicateCluster cluster;
     protected RefactoringRecommendation recommendation;
@@ -214,5 +216,19 @@ public abstract class AbstractClassExtractor {
      */
     protected Optional<ClassOrInterfaceDeclaration> findPrimaryClass(CompilationUnit cu) {
         return cu.findFirst(ClassOrInterfaceDeclaration.class);
+    }
+
+    protected Expression findNodeByCoordinates(StatementSequence sequence, int line, int column) {
+        for (Statement stmt : sequence.statements()) {
+            for (Expression expr : stmt.findAll(Expression.class)) {
+                if (expr.getRange().isPresent()) {
+                    com.github.javaparser.Position begin = expr.getRange().get().begin;
+                    if (begin.line == line && begin.column == column) {
+                        return expr;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }
