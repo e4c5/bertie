@@ -936,7 +936,6 @@ public class MethodExtractor extends AbstractExtractor {
             NodeList<Expression> arguments = new NodeList<>();
 
             // Use the effective parameters which are already sorted and filtered
-            int argIndex = 0;
             for (ParameterSpec param : MethodExtractor.this.effectiveParams) {
                 Expression expr = resolveValue(sequence, param);
                 if (expr == null) {
@@ -953,7 +952,6 @@ public class MethodExtractor extends AbstractExtractor {
                 }
 
                 arguments.add(expr);
-                argIndex++;
             }
 
             return arguments;
@@ -1305,46 +1303,6 @@ public class MethodExtractor extends AbstractExtractor {
             return null;
         }
         return super.findNodeByCoordinates(sequence, line, column);
-    }
-
-    /**
-     * Checks if a variable name is already declared in the scope of the given context.
-     * Checks fields, parameters, and local variables in the containing method.
-     */
-    private boolean isVariableAlreadyDeclared(com.github.javaparser.ast.Node context, String varName) {
-        if (varName == null) return false;
-        try {
-            // 1. Check Fields
-            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz = 
-                context.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
-            if (clazz != null) {
-                for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
-                    for (com.github.javaparser.ast.body.VariableDeclarator v : field.getVariables()) {
-                        if (v.getNameAsString().equals(varName)) return true;
-                    }
-                }
-            }
-
-            // 2. Check Parameters
-            com.github.javaparser.ast.body.MethodDeclaration method = 
-                context.findAncestor(com.github.javaparser.ast.body.MethodDeclaration.class).orElse(null);
-            if (method != null) {
-                for (com.github.javaparser.ast.body.Parameter param : method.getParameters()) {
-                    if (param.getNameAsString().equals(varName)) return true;
-                }
-                
-                // 3. Check Method Body
-                if (method.getBody().isPresent()) {
-                    for (com.github.javaparser.ast.body.VariableDeclarator v : 
-                         method.getBody().get().findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
-                        if (v.getNameAsString().equals(varName)) return true;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error in isVariableAlreadyDeclared: {}", e.getMessage());
-        }
-        return false;
     }
 
     /**
