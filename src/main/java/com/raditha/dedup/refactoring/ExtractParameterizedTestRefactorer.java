@@ -166,11 +166,10 @@ public class ExtractParameterizedTestRefactorer {
         List<ParameterInfo> parameters = new ArrayList<>();
 
         for (int i = 0; i < paramCount; i++) {
-            final int index = i;
             String type = instances.get(0).literals.get(i).type;
-            String name = generateParameterName(index, paramCount);
+            String name = generateParameterName(i, paramCount);
 
-            parameters.add(new ParameterInfo(name, type, index));
+            parameters.add(new ParameterInfo(name, type, i));
         }
 
         return parameters;

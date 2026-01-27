@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -291,7 +292,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         }
 
         String commonSuffix = findCommonSuffix(classNames);
-        if (!commonSuffix.isEmpty() && commonSuffix.length() > 3) {
+        if (commonSuffix.length() > 3) {
             return "Base" + commonSuffix;
         }
 
@@ -330,7 +331,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
 
         // Find all nested types
         cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class).stream()
-                .filter(t -> t.isNestedType())
+                .filter(TypeDeclaration::isNestedType)
                 .forEach(t -> innerClassNames.add(t.getNameAsString()));
 
         if (innerClassNames.isEmpty()) {
@@ -387,10 +388,9 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         // method, it shadows.
         // False positives (usage before decl) are safer (will skip refactoring) than
         // false negatives.
-        boolean isLocal = method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
+        return method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
                 .anyMatch(v -> v.getNameAsString().equals(identifier));
 
-        return isLocal;
     }
 
     /**

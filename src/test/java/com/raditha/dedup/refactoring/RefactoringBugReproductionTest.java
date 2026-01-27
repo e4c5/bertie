@@ -5,7 +5,6 @@ import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
-import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.SimilarityResult;
 import com.raditha.dedup.model.RefactoringStrategy;
@@ -20,7 +19,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -128,7 +126,7 @@ class RefactoringBugReproductionTest {
     }
 
     @Test
-    public void testServiceWithImmutableConfigurationReproduction() throws IOException {
+    void testServiceWithImmutableConfigurationReproduction() throws IOException {
         String code = """
             package com.raditha.bertie.testbed.testisolation;
             public class ServiceWithImmutableConfiguration {
@@ -206,7 +204,6 @@ class RefactoringBugReproductionTest {
                 }
                 """;
         CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
-        var type = cu.findFirst(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class); // Class decl
 
         var method = cu.findFirst(com.github.javaparser.ast.body.MethodDeclaration.class).orElseThrow();
         var statement = method.getBody().get().getStatements().get(0);

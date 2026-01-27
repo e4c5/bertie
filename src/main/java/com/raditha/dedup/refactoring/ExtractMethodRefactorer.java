@@ -764,88 +764,48 @@ public class ExtractMethodRefactorer {
     }
 
     private void applyValueReplacement(StatementSequence sequence,
-                                      MethodCallExpr methodCall, String forcedReturnVar, 
-                                      com.github.javaparser.ast.type.Type returnType, 
-                                      MethodDeclaration containingMethod, BlockStmt block, 
+                                      MethodCallExpr methodCall, String forcedReturnVar,
+                                      com.github.javaparser.ast.type.Type returnType,
+                                      MethodDeclaration containingMethod, BlockStmt block,
                                       int startIdx, ReturnStmt originalReturnValues) {
-        new ReplacementCommand(sequence, methodCall, forcedReturnVar, returnType,
-                containingMethod, block, startIdx, originalReturnValues).execute();
+        String varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence);
+        boolean nextIsReturn = startIdx < block.getStatements().size()
+                && block.getStatements().get(startIdx).isReturnStmt();
+
+        boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
+        boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
+                returnHasExternalVars, nextIsReturn);
+
+        if (!shouldReturnDirectly && varName == null) {
+            varName = firstDefinedVariable(sequence);
+            if (varName == null) {
+                varName = "result"; // Absolute fallback
+            }
+        }
+
+        insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
+                shouldReturnDirectly, nextIsReturn, returnType);
+
+        // Critical Fix: Even if we return a value, other literal-initialized variables
+        // might be needed by the caller code. We must re-declare them.
+        if (!shouldReturnDirectly) {
+             redeclareLiteralVariables(sequence, block, startIdx + 1, varName);
+        }
     }
 
-    /**
-     * Command object that encapsulates the logic for replacing duplicate code
-     * with a method call and handling return values appropriately.
-     */
-    private class ReplacementCommand {
-        private final StatementSequence sequence;
-        private final MethodCallExpr methodCall;
-        private final String forcedReturnVar;
-        private final com.github.javaparser.ast.type.Type returnType;
-        private final MethodDeclaration containingMethod;
-        private final BlockStmt block;
-        private final int startIdx;
-        private final ReturnStmt originalReturnValues;
-        
-        // Computed state
-        private String varName;
-        private boolean shouldReturnDirectly;
-        private boolean nextIsReturn;
+    private void insertValueReplacement(BlockStmt block, int startIdx,
+            MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
+            boolean shouldReturnDirectly, boolean nextIsReturn, com.github.javaparser.ast.type.Type returnType) {
 
-        ReplacementCommand(StatementSequence sequence, MethodCallExpr methodCall,
-                          String forcedReturnVar, com.github.javaparser.ast.type.Type returnType,
-                          MethodDeclaration containingMethod, BlockStmt block,
-                          int startIdx, ReturnStmt originalReturnValues) {
-            this.sequence = sequence;
-            this.methodCall = methodCall;
-            this.forcedReturnVar = forcedReturnVar;
-            this.returnType = returnType;
-            this.containingMethod = containingMethod;
-            this.block = block;
-            this.startIdx = startIdx;
-            this.originalReturnValues = originalReturnValues;
-        }
-
-        void execute() {
-            computeDerivedState();
-            insertReplacement();
-            handleLiteralVariables();
-        }
-
-        private void computeDerivedState() {
-            varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence);
-            nextIsReturn = startIdx < block.getStatements().size()
-                    && block.getStatements().get(startIdx).isReturnStmt();
-
-            boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-            shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
-                    returnHasExternalVars, nextIsReturn);
-
-            if (!shouldReturnDirectly && varName == null) {
-                varName = firstDefinedVariable(sequence);
-                if (varName == null) {
-                    varName = "result"; // Absolute fallback
-                }
-            }
-        }
-
-        private void insertReplacement() {
-            if (varName != null && shouldReturnDirectly) {
-                insertDirectReturn();
-            } else if (varName != null) {
-                insertVariableDeclaration();
-            } else {
-                insertSimpleCall();
-            }
-        }
-
-        private void insertDirectReturn() {
+        if (varName != null && shouldReturnDirectly) {
             if (nextIsReturn) {
                 block.getStatements().remove(startIdx);
             }
             block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+            return;
         }
 
-        private void insertVariableDeclaration() {
+        if (varName != null) {
             VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
                     returnType.clone(), varName);
             varDecl.getVariable(0).setInitializer(methodCall);
@@ -853,78 +813,68 @@ public class ExtractMethodRefactorer {
             if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
                 block.getStatements().add(startIdx + 1, originalReturnValues.clone());
             }
+            return;
         }
 
-        private void insertSimpleCall() {
-            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-            } else {
-                block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+        if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+        } else {
+            block.getStatements().add(startIdx, new ExpressionStmt(methodCall));
+        }
+    }
+
+    private String inferReturnVariable(StatementSequence sequence) {
+        int limit = getEffectiveLimit(sequence);
+        // Create a prefix sequence for analysis if needed
+        List<Statement> stmts = sequence.statements();
+        StatementSequence analyzeSeq = sequence;
+        if (limit < stmts.size()) {
+            analyzeSeq = new StatementSequence(
+                    stmts.subList(0, limit),
+                    new Range(sequence.range().startLine(), sequence.range().startColumn(),
+                            stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
+                            stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
+                    sequence.startOffset(), sequence.containingMethod(), sequence.compilationUnit(),
+                    sequence.sourceFilePath());
+        }
+
+        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+        Set<String> defined = dfa.findDefinedVariables(analyzeSeq);
+
+        String varName = null;
+        // PRIORITY: Trust the recommendation generator's analysis if applicable
+        if (recommendation.getPrimaryReturnVariable() != null) {
+            String primaryVar = recommendation.getPrimaryReturnVariable();
+            if (defined.contains(primaryVar)) {
+                varName = primaryVar;
             }
         }
 
-        private void handleLiteralVariables() {
-            // Critical Fix: Even if we return a value, other literal-initialized variables
-            // might be needed by the caller code. We must re-declare them.
-            if (!shouldReturnDirectly) {
-                redeclareLiteralVariables(sequence, block, startIdx + 1, varName);
-            }
+        // Fallback or if primary var not found in this sequence (shouldn't happen for clones)
+        if (varName == null) {
+            varName = findReturnVariable(analyzeSeq,
+                    recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
+                            : "void");
         }
-
-        private String inferReturnVariable(StatementSequence sequence) {
-            int limit = getEffectiveLimit(sequence);
-            // Create a prefix sequence for analysis if needed
-            List<Statement> stmts = sequence.statements();
-            StatementSequence analyzeSeq = sequence;
-            if (limit < stmts.size()) {
-                analyzeSeq = new StatementSequence(
-                        stmts.subList(0, limit),
-                        new Range(sequence.range().startLine(), sequence.range().startColumn(),
-                                stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
-                                stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
-                        sequence.startOffset(), sequence.containingMethod(), sequence.compilationUnit(),
-                        sequence.sourceFilePath());
-            }
-
-            DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-            Set<String> defined = dfa.findDefinedVariables(analyzeSeq);
-
-            String varName = null;
-            // PRIORITY: Trust the recommendation generator's analysis if applicable
-            if (recommendation.getPrimaryReturnVariable() != null) {
-                String primaryVar = recommendation.getPrimaryReturnVariable();
-                if (defined.contains(primaryVar)) {
-                    varName = primaryVar;
-                }
-            }
-
-            // Fallback or if primary var not found in this sequence (shouldn't happen for
-            // clones)
-            if (varName == null) {
-                varName = findReturnVariable(analyzeSeq,
-                        recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
-                                : "void");
-            }
-            if (varName == null) {
-                List<String> typedCandidates = new ArrayList<>();
-                for (Statement stmt : sequence.statements()) {
-                    stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
-                        vde.getVariables().forEach(v -> {
-                            if (v.getType().asString()
-                                    .equals(recommendation.getSuggestedReturnType() != null
-                                            ? recommendation.getSuggestedReturnType().asString()
-                                            : "")) {
-                                typedCandidates.add(v.getNameAsString());
-                            }
-                        });
+        if (varName == null) {
+            List<String> typedCandidates = new ArrayList<>();
+            for (Statement stmt : sequence.statements()) {
+                stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
+                    vde.getVariables().forEach(v -> {
+                        if (v.getType().asString()
+                                .equals(recommendation.getSuggestedReturnType() != null
+                                        ? recommendation.getSuggestedReturnType().asString()
+                                        : "")) {
+                            typedCandidates.add(v.getNameAsString());
+                        }
                     });
-                }
-                if (typedCandidates.size() == 1) {
-                    varName = typedCandidates.getFirst();
-                }
+                });
             }
-            return varName;
+            if (typedCandidates.size() == 1) {
+                varName = typedCandidates.getFirst();
+            }
         }
+        return varName;
     }
 
     /**
