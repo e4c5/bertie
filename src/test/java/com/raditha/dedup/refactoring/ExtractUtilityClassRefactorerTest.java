@@ -58,7 +58,7 @@ class ExtractUtilityClassRefactorerTest {
                 0.95,
                 5);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         assertNotNull(result);
         assertEquals(2, result.modifiedFiles().size());
@@ -192,7 +192,7 @@ class ExtractUtilityClassRefactorerTest {
                 0.95,
                 10);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         assertEquals(3, result.modifiedFiles().size()); // Utility + ServiceA + ServiceB
 
@@ -296,7 +296,7 @@ class ExtractUtilityClassRefactorerTest {
                 0.95,
                 5);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         assertNotNull(result);
         

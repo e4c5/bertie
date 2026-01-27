@@ -33,7 +33,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
     private String parentClassName;
 
     @Override
-    public ExtractMethodRefactorer.RefactoringResult refactor(
+    public MethodExtractor.RefactoringResult refactor(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
         initialize(cluster, recommendation);
@@ -91,7 +91,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
         }
 
-        return new ExtractMethodRefactorer.RefactoringResult(
+        return new MethodExtractor.RefactoringResult(
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted to parent class: " + parentClassName);
@@ -172,7 +172,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
 
-        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverridesStatic(
+        Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
         recommendation.getSuggestedParameters().forEach(p -> {
@@ -184,7 +184,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             BlockStmt body = newMethod.getBody().get();
             for (int i = 0; i < body.getStatements().size(); i++) {
                 Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, ExtractMethodRefactorer.substituteParametersStatic(
+                body.getStatements().set(i, MethodExtractor.substituteParametersStatic(
                         stmt, recommendation, paramNameOverrides));
             }
         }
@@ -254,7 +254,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
 
-        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverridesStatic(
+        Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
         recommendation.getSuggestedParameters().forEach(p -> {
@@ -266,7 +266,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             BlockStmt body = newMethod.getBody().get();
             for (int i = 0; i < body.getStatements().size(); i++) {
                 Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, ExtractMethodRefactorer.substituteParametersStatic(
+                body.getStatements().set(i, MethodExtractor.substituteParametersStatic(
                         stmt, recommendation, paramNameOverrides));
             }
         }

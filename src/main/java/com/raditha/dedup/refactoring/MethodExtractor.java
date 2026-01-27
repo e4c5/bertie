@@ -33,8 +33,8 @@ import java.util.Set;
  * Extracts duplicate code to a private helper method.
  * This is the most common and safest refactoring strategy.
  */
-public class ExtractMethodRefactorer {
-    private static final Logger logger = LoggerFactory.getLogger(ExtractMethodRefactorer.class);
+public class MethodExtractor {
+    private static final Logger logger = LoggerFactory.getLogger(MethodExtractor.class);
     public static final String Boolean = "Boolean";
 
     // Instance fields to reduce parameter passing
@@ -969,7 +969,7 @@ public class ExtractMethodRefactorer {
 
             // Use the effective parameters which are already sorted and filtered
             int argIndex = 0;
-            for (ParameterSpec param : ExtractMethodRefactorer.this.effectiveParams) {
+            for (ParameterSpec param : MethodExtractor.this.effectiveParams) {
                 Expression expr = resolveValue(sequence, param);
                 if (expr == null) {
                     return new NodeList<>(); // cannot resolve safely
@@ -1044,7 +1044,7 @@ public class ExtractMethodRefactorer {
                 }
                 // Check local variables in sequence scope?
                 // Use outer class method for resolving in sequence
-                com.github.javaparser.ast.type.Type type = ExtractMethodRefactorer.this.resolveVariableType(sequence, varName);
+                com.github.javaparser.ast.type.Type type = MethodExtractor.this.resolveVariableType(sequence, varName);
                 if (type != null) {
                      return AbstractCompiler.findType(sequence.compilationUnit(), type);
                 }

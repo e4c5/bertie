@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
@@ -72,7 +71,7 @@ class ExtractParentClassRefactorerTest {
                 0.95,
                 12);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         assertNotNull(result);
         assertEquals(3, result.modifiedFiles().size()); // Parent + 2 children
@@ -146,7 +145,7 @@ class ExtractParentClassRefactorerTest {
                 0.95,
                 5);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         // Parent should be named "BaseService" (common suffix)
         String parentCode = result.modifiedFiles().values().stream()
@@ -188,7 +187,7 @@ class ExtractParentClassRefactorerTest {
                 0.95,
                 5);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         // Parse the result to verify extends
         String serviceACode = result.modifiedFiles().values().stream()
@@ -239,7 +238,7 @@ class ExtractParentClassRefactorerTest {
                 0.95,
                 5);
 
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
 
         // Verify original methods are removed
         String repoACode = result.modifiedFiles().values().stream()

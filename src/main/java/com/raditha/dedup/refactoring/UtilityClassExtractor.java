@@ -33,8 +33,8 @@ public class UtilityClassExtractor extends AbstractClassExtractor {
     private String utilityClassName;
 
     @Override
-    public ExtractMethodRefactorer.RefactoringResult refactor(DuplicateCluster cluster,
-            RefactoringRecommendation recommendation) {
+    public MethodExtractor.RefactoringResult refactor(DuplicateCluster cluster,
+                                                      RefactoringRecommendation recommendation) {
 
         initialize(cluster, recommendation);
         StatementSequence primary = cluster.primary();
@@ -60,7 +60,7 @@ public class UtilityClassExtractor extends AbstractClassExtractor {
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
         }
 
-        return new ExtractMethodRefactorer.RefactoringResult(
+        return new MethodExtractor.RefactoringResult(
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted to utility class: " + utilityClassName);

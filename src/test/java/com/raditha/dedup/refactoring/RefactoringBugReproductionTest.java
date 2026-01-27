@@ -117,8 +117,8 @@ class RefactoringBugReproductionTest {
                 1.0,
                 2);
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         // AFTER FIX: Should succeed (modified files not empty)
         assertFalse(result.modifiedFiles().isEmpty(), "Should succeed with multiple live-outs (literals should be redeclared)");
@@ -176,8 +176,8 @@ class RefactoringBugReproductionTest {
             null // primaryReturnVariable
         );
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         if (result.modifiedFiles().isEmpty()) {
             System.out.println("Reproduction Failed Reason: " + result.description());
@@ -242,8 +242,8 @@ class RefactoringBugReproductionTest {
                 recommendation,
                 100);
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         assertTrue(result.modifiedFiles().isEmpty(), "Refactoring should fail");
         

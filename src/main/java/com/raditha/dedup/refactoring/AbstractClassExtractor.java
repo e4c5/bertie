@@ -35,7 +35,7 @@ public abstract class AbstractClassExtractor {
     /**
      * Apply the refactoring to extract code into a new class.
      */
-    public abstract ExtractMethodRefactorer.RefactoringResult refactor(
+    public abstract MethodExtractor.RefactoringResult refactor(
             DuplicateCluster cluster, RefactoringRecommendation recommendation);
 
     /**

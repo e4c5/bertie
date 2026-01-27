@@ -95,7 +95,7 @@ public class RefactoringEngine {
                 continue;
             }
             try {
-                ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
+                MethodExtractor.RefactoringResult result = applyRefactoring(cluster, recommendation);
 
                 if (mode == RefactoringMode.DRY_RUN) {
                     // Collect diff for summary report
@@ -201,18 +201,18 @@ public class RefactoringEngine {
     /**
      * Apply the refactoring for a given cluster.
      */
-    private ExtractMethodRefactorer.RefactoringResult applyRefactoring(
+    private MethodExtractor.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
-                ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
+                MethodExtractor refactorer = new MethodExtractor();
                 yield refactorer.refactor(cluster, recommendation);
             }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
                 ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
                 ExtractParameterizedTestRefactorer.RefactoringResult result = refactorer.refactor(cluster,
                         recommendation);
-                yield new ExtractMethodRefactorer.RefactoringResult(
+                yield new MethodExtractor.RefactoringResult(
                         result.sourceFile(),
                         result.refactoredCode(),
                         recommendation.getStrategy(),
@@ -244,7 +244,7 @@ public class RefactoringEngine {
 
         // Generate and show actual diff
         try {
-            ExtractMethodRefactorer.RefactoringResult result = applyRefactoring(cluster, recommendation);
+            MethodExtractor.RefactoringResult result = applyRefactoring(cluster, recommendation);
             // For diff preview, show the primary file (first in map)
             Map.Entry<Path, String> primaryFile = result.modifiedFiles().entrySet().iterator().next();
             String diff = diffGenerator.generateUnifiedDiff(primaryFile.getKey(), primaryFile.getValue());
@@ -277,7 +277,7 @@ public class RefactoringEngine {
      * Collect diff for dry-run summary report.
      */
     private void collectDryRunDiff(RefactoringRecommendation recommendation,
-            ExtractMethodRefactorer.RefactoringResult result, int clusterNum) {
+                                   MethodExtractor.RefactoringResult result, int clusterNum) {
         try {
             StringBuilder entry = new StringBuilder();
             entry.append(String.format("%n### Cluster #%d: %s ###%n", clusterNum, recommendation.getStrategy()));
