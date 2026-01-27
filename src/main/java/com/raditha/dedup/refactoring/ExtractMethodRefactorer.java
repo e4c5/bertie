@@ -870,6 +870,61 @@ public class ExtractMethodRefactorer {
                 redeclareLiteralVariables(sequence, block, startIdx + 1, varName);
             }
         }
+
+        private String inferReturnVariable(StatementSequence sequence) {
+            int limit = getEffectiveLimit(sequence);
+            // Create a prefix sequence for analysis if needed
+            List<Statement> stmts = sequence.statements();
+            StatementSequence analyzeSeq = sequence;
+            if (limit < stmts.size()) {
+                analyzeSeq = new StatementSequence(
+                        stmts.subList(0, limit),
+                        new Range(sequence.range().startLine(), sequence.range().startColumn(),
+                                stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
+                                stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
+                        sequence.startOffset(), sequence.containingMethod(), sequence.compilationUnit(),
+                        sequence.sourceFilePath());
+            }
+
+            DataFlowAnalyzer dfa = new DataFlowAnalyzer();
+            Set<String> defined = dfa.findDefinedVariables(analyzeSeq);
+
+            String varName = null;
+            // PRIORITY: Trust the recommendation generator's analysis if applicable
+            if (recommendation.getPrimaryReturnVariable() != null) {
+                String primaryVar = recommendation.getPrimaryReturnVariable();
+                if (defined.contains(primaryVar)) {
+                    varName = primaryVar;
+                }
+            }
+
+            // Fallback or if primary var not found in this sequence (shouldn't happen for
+            // clones)
+            if (varName == null) {
+                varName = findReturnVariable(analyzeSeq,
+                        recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
+                                : "void");
+            }
+            if (varName == null) {
+                List<String> typedCandidates = new ArrayList<>();
+                for (Statement stmt : sequence.statements()) {
+                    stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
+                        vde.getVariables().forEach(v -> {
+                            if (v.getType().asString()
+                                    .equals(recommendation.getSuggestedReturnType() != null
+                                            ? recommendation.getSuggestedReturnType().asString()
+                                            : "")) {
+                                typedCandidates.add(v.getNameAsString());
+                            }
+                        });
+                    });
+                }
+                if (typedCandidates.size() == 1) {
+                    varName = typedCandidates.getFirst();
+                }
+            }
+            return varName;
+        }
     }
 
     /**
@@ -889,8 +944,6 @@ public class ExtractMethodRefactorer {
         // Find literals that are used after
         Set<String> literalsToRedeclare = new HashSet<>(literalVars);
         literalsToRedeclare.retainAll(usedAfter);
-        
-
 
         // CRITICAL: Don't re-declare the variable that's being returned by the helper
         if (returnedVarName != null) {
@@ -1173,60 +1226,6 @@ public class ExtractMethodRefactorer {
         }
     }
 
-    private String inferReturnVariable(StatementSequence sequence) {
-        int limit = getEffectiveLimit(sequence);
-        // Create a prefix sequence for analysis if needed
-        List<Statement> stmts = sequence.statements();
-        StatementSequence analyzeSeq = sequence;
-        if (limit < stmts.size()) {
-            analyzeSeq = new StatementSequence(
-                    stmts.subList(0, limit),
-                    new Range(sequence.range().startLine(), sequence.range().startColumn(),
-                            stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
-                            stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
-                    sequence.startOffset(), sequence.containingMethod(), sequence.compilationUnit(),
-                    sequence.sourceFilePath());
-        }
-
-        DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-        Set<String> defined = dfa.findDefinedVariables(analyzeSeq);
-
-        String varName = null;
-        // PRIORITY: Trust the recommendation generator's analysis if applicable
-        if (recommendation.getPrimaryReturnVariable() != null) {
-            String primaryVar = recommendation.getPrimaryReturnVariable();
-            if (defined.contains(primaryVar)) {
-                varName = primaryVar;
-            }
-        }
-
-        // Fallback or if primary var not found in this sequence (shouldn't happen for
-        // clones)
-        if (varName == null) {
-            varName = findReturnVariable(analyzeSeq,
-                    recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
-                            : "void");
-        }
-        if (varName == null) {
-            List<String> typedCandidates = new ArrayList<>();
-            for (Statement stmt : sequence.statements()) {
-                stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
-                    vde.getVariables().forEach(v -> {
-                        if (v.getType().asString()
-                                .equals(recommendation.getSuggestedReturnType() != null
-                                        ? recommendation.getSuggestedReturnType().asString()
-                                        : "")) {
-                            typedCandidates.add(v.getNameAsString());
-                        }
-                    });
-                });
-            }
-            if (typedCandidates.size() == 1) {
-                varName = typedCandidates.getFirst();
-            }
-        }
-        return varName;
-    }
 
     private String firstDefinedVariable(StatementSequence sequence) {
         DataFlowAnalyzer dfa2 = new DataFlowAnalyzer();

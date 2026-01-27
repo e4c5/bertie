@@ -145,9 +145,9 @@ public abstract class AbstractClassExtractor {
         
         // For wildcard imports, check if any required import starts with this package
         if (imp.isAsterisk()) {
-            String packageName = importName;
+
             return requiredImportNames.stream()
-                    .anyMatch(required -> required.startsWith(packageName + "."));
+                    .anyMatch(required -> required.startsWith(importName + "."));
         }
         
         // For static imports, check both the full path and the simple name
