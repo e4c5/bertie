@@ -38,6 +38,7 @@ public class ExtractMethodRefactorer {
     public static final String Boolean = "Boolean";
 
     // Instance fields to reduce parameter passing
+    private DuplicateCluster cluster;
     private RefactoringRecommendation recommendation;
     private Map<ParameterSpec, ASTNodePath> precomputedPaths;
     private List<ParameterSpec> effectiveParams;
@@ -58,26 +59,24 @@ public class ExtractMethodRefactorer {
      */
     public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         // Initialize instance fields
+        this.cluster = cluster;
         this.recommendation = recommendation;
-        
-        StatementSequence primary = cluster.primary();
-        Set<StatementSequence> uniqueSequences = new java.util.LinkedHashSet<>(cluster.allSequences());
 
         // 1. Create the new helper method (tentative)
-        helperResult = createHelperMethod(primary, uniqueSequences);
+        helperResult = createHelperMethod();
         if (helperResult == null) {
             return new RefactoringResult(Map.of(), recommendation.getStrategy(),
-                    "Refactoring aborted: Multiple live-out variables detected " + uniqueSequences.size()
+                    "Refactoring aborted: Multiple live-out variables detected " + cluster.allSequences().size()
                             + " sequences analyzed");
         }
 
         // 2. Identify reuse target or use the new helper
         MethodDeclaration helperMethod = helperResult.method();
-        methodNameToUse = findReusableMethod(cluster, uniqueSequences);
-        
+        methodNameToUse = findReusableMethod();
+
         // Add new helper if no reuse target was found
         if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-            MethodDeclaration containingMethod = primary.containingMethod();
+            MethodDeclaration containingMethod = cluster.primary().containingMethod();
             if (containingMethod == null) {
                 throw new IllegalStateException("No containing method found for primary sequence");
             }
@@ -89,7 +88,7 @@ public class ExtractMethodRefactorer {
                 logger.debug("Refreshing detached containingMethod: {}", methodName);
                 
                 // Look up the method in the current CompilationUnit
-                CompilationUnit cu = primary.compilationUnit();
+                CompilationUnit cu = cluster.primary().compilationUnit();
                 if (cu != null) {
                     containingMethod = cu.findAll(MethodDeclaration.class).stream()
                             .filter(m -> m.getNameAsString().equals(methodName))
@@ -119,22 +118,22 @@ public class ExtractMethodRefactorer {
         }
 
         // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
-        return executeReplacements(cluster, primary);
+        return executeReplacements();
     }
 
     /**
      * Identify if any existing method in the cluster can be reused as the refactoring target.
      */
-    private String findReusableMethod(DuplicateCluster cluster, Set<StatementSequence> uniqueSequences) {
+    private String findReusableMethod() {
         MethodDeclaration helperMethod = helperResult.method();
         effectiveParams = helperResult.usedParameters();
-        
-        for (StatementSequence seq : uniqueSequences) {
+
+        for (StatementSequence seq : cluster.allSequences()) {
             MethodDeclaration m = seq.containingMethod();
             if (m != null && isMethodBody(seq)) {
                  if (m.getParameters().size() == effectiveParams.size() &&
                          m.getType().equals(helperMethod.getType())) {
-                     
+
                      String candNorm = normalizeMethodBody(m);
                      String helperNorm = normalizeMethodBody(helperMethod);
                      if (candNorm != null && candNorm.equals(helperNorm)) {
@@ -144,22 +143,21 @@ public class ExtractMethodRefactorer {
                  }
             }
         }
-        return cluster.recommendation().getSuggestedMethodName();
+        return recommendation.getSuggestedMethodName();
     }
 
     /**
      * Executes the replacement of duplicates with method calls across all affected files.
      */
-    private RefactoringResult executeReplacements(DuplicateCluster cluster, StatementSequence primary) {
-        Set<StatementSequence> uniqueSequences = new java.util.LinkedHashSet<>(cluster.allSequences());
+    private RefactoringResult executeReplacements() {
         MethodDeclaration helperMethod = helperResult.method();
         String forcedReturnVar = helperResult.forcedReturnVar();
 
         Map<StatementSequence, MethodCallExpr> preparedReplacements = new LinkedHashMap<>();
-        precomputedPaths = precomputeParameterPaths(primary);
+        precomputedPaths = precomputeParameterPaths();
 
         // Phase 1: Prepare
-        for (StatementSequence seq : uniqueSequences) {
+        for (StatementSequence seq : cluster.allSequences()) {
             if (seq.containingMethod() != null && seq.containingMethod().getNameAsString().equals(methodNameToUse)) {
                 // Potential recursion check: skip if we are reusing THIS method
                 if (isMethodBody(seq)) continue; 
@@ -168,7 +166,7 @@ public class ExtractMethodRefactorer {
             int limit = recommendation.getValidStatementCount();
             StatementSequence seqToRefactor = (limit != -1 && limit < seq.size()) ? createTruncatedSequence(seq, limit) : seq;
 
-            MethodCallExpr call = prepareReplacement(seqToRefactor, primary);
+            MethodCallExpr call = prepareReplacement(seqToRefactor);
             if (call == null) {
                 if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
                     helperMethod.remove();
@@ -181,7 +179,7 @@ public class ExtractMethodRefactorer {
 
         // Phase 2: Apply
         Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
-        modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
+        modifiedCUs.put(cluster.primary().compilationUnit(), cluster.primary().sourceFilePath());
 
         int successfulReplacements = 0;
 
@@ -221,15 +219,15 @@ public class ExtractMethodRefactorer {
      * Precompute AST paths for parameters using the intact primary sequence.
      * This safeguards against AST detachment issues during repeated traversals.
      */
-    private Map<ParameterSpec, ASTNodePath> precomputeParameterPaths(StatementSequence primary) {
+    private Map<ParameterSpec, ASTNodePath> precomputeParameterPaths() {
         Map<ParameterSpec, ASTNodePath> paths = new LinkedHashMap<>();
 
         for (ParameterSpec param : effectiveParams) {
             // Only structural params need paths (variationIndex != -1 usually, but check
             // all with coords)
-            Expression node = findNodeByCoordinates(primary, param.getStartLine(), param.getStartColumn());
+            Expression node = findNodeByCoordinates(cluster.primary(), param.getStartLine(), param.getStartColumn());
             if (node != null) {
-                ASTNodePath path = computePath(primary, node);
+                ASTNodePath path = computePath(node);
                 if (path != null) {
                     paths.put(param, path);
                 }
@@ -257,10 +255,10 @@ public class ExtractMethodRefactorer {
      * Create the helper method from the primary sequence.
      * Simplified by delegating cohesive responsibilities to dedicated helpers.
      */
-    private HelperMethodResult createHelperMethod(StatementSequence sequence, Set<StatementSequence> allSequences) {
-
+    private HelperMethodResult createHelperMethod() {
+        StatementSequence sequence = cluster.primary();
         DataFlowAnalyzer dfa = new DataFlowAnalyzer();
-        Set<String> liveOutVars = getLiveOuts(allSequences, dfa);
+        Set<String> liveOutVars = getLiveOuts(dfa);
 
         String forcedReturnVar = null;
         com.github.javaparser.ast.type.Type forcedReturnType = null;
@@ -297,7 +295,7 @@ public class ExtractMethodRefactorer {
         }
 
         MethodDeclaration method = initializeHelperMethod();
-        applyMethodModifiers(method, allSequences);
+        applyMethodModifiers(method);
 
         // Apply return type: Use forced type if available, otherwise recommendation
         if (forcedReturnType != null) {
@@ -363,12 +361,12 @@ public class ExtractMethodRefactorer {
         return usedParams;
     }
 
-    private Set<String> getLiveOuts(Set<StatementSequence> allSequences, DataFlowAnalyzer dfa) {
+    private Set<String> getLiveOuts(DataFlowAnalyzer dfa) {
         Set<String> liveOutVars = new HashSet<>();
 
         int limit = recommendation.getValidStatementCount();
 
-        for (StatementSequence seq : allSequences) {
+        for (StatementSequence seq : cluster.allSequences()) {
             StatementSequence seqToAnalyze = seq;
             if (limit != -1 && limit < seq.size()) {
                 seqToAnalyze = createTruncatedSequence(seq, limit);
@@ -394,9 +392,9 @@ public class ExtractMethodRefactorer {
         return method;
     }
 
-    private void applyMethodModifiers(MethodDeclaration method, Set<StatementSequence> allSequences) {
+    private void applyMethodModifiers(MethodDeclaration method) {
         boolean shouldBeStatic = false;
-        for (StatementSequence seq : allSequences) {
+        for (StatementSequence seq : cluster.allSequences()) {
             if (seq.containingMethod() != null && seq.containingMethod().isStatic()) {
                 shouldBeStatic = true;
                 break;
@@ -693,15 +691,14 @@ public class ExtractMethodRefactorer {
      * This reads the AST but does NOT modify it.
      * Returns null if argument resolution fails.
      */
-    private MethodCallExpr prepareReplacement(StatementSequence sequence,
-            StatementSequence primarySequence) {
+    private MethodCallExpr prepareReplacement(StatementSequence sequence) {
         MethodDeclaration containingMethod = sequence.containingMethod();
         if (containingMethod == null || containingMethod.getBody().isEmpty()) {
             return null;
         }
 
         // 1) Build arguments using precomputed paths (avoiding AST traversal issues)
-        NodeList<Expression> arguments = buildArgumentsForCall(sequence, primarySequence);
+        NodeList<Expression> arguments = buildArgumentsForCall(sequence);
         if (arguments.size() != effectiveParams.size()) {
             return null; // Could not resolve args safely (mismatch indicates failure)
         }
@@ -939,10 +936,9 @@ public class ExtractMethodRefactorer {
         return null;
     }
 
-    private NodeList<Expression> buildArgumentsForCall(StatementSequence sequence,
-            StatementSequence primarySequence) {
+    private NodeList<Expression> buildArgumentsForCall(StatementSequence sequence) {
         // Delegate to a focused builder that preserves existing behavior and guardrails
-        return new ArgumentBuilder().buildArgs(sequence, primarySequence);
+        return new ArgumentBuilder().buildArgs(sequence);
     }
 
     /**
@@ -968,14 +964,13 @@ public class ExtractMethodRefactorer {
     }
 
     private class ArgumentBuilder {
-        NodeList<Expression> buildArgs(StatementSequence sequence,
-                StatementSequence primarySequence) {
+        NodeList<Expression> buildArgs(StatementSequence sequence) {
             NodeList<Expression> arguments = new NodeList<>();
 
             // Use the effective parameters which are already sorted and filtered
             int argIndex = 0;
             for (ParameterSpec param : ExtractMethodRefactorer.this.effectiveParams) {
-                Expression expr = resolveValue(sequence, param, primarySequence);
+                Expression expr = resolveValue(sequence, param);
                 if (expr == null) {
                     return new NodeList<>(); // cannot resolve safely
                 }
@@ -1099,21 +1094,20 @@ public class ExtractMethodRefactorer {
 
         /**
          * Extract the actual value using Structural Path logic.
-         * Requires primarySequence to identify the node from coordinates.
+         * Uses cluster.primary() to identify the node from coordinates.
          */
-        private Expression extractActualValue(StatementSequence targetSequence, ParameterSpec param,
-                                              StatementSequence primarySequence) {
-            if (primarySequence == null)
+        private Expression extractActualValue(StatementSequence targetSequence, ParameterSpec param) {
+            if (cluster.primary() == null)
                 return null;
 
             // 1. Find the node in the primary sequence using coordinates
-            Expression primaryNode = findNodeByCoordinates(primarySequence, param.getStartLine(), param.getStartColumn());
+            Expression primaryNode = findNodeByCoordinates(cluster.primary(), param.getStartLine(), param.getStartColumn());
             if (primaryNode == null) {
                 return null;
             }
 
             // 2. Compute path in primary
-            ASTNodePath path = computePath(primarySequence, primaryNode);
+            ASTNodePath path = computePath(primaryNode);
             if (path == null) {
                 return null;
             }
@@ -1122,14 +1116,11 @@ public class ExtractMethodRefactorer {
             return followPath(targetSequence, path);
         }
 
-        private Expression resolveValue(StatementSequence sequence,
-                ParameterSpec param,
-                StatementSequence primarySequence) {
-
+        private Expression resolveValue(StatementSequence sequence, ParameterSpec param) {
             // Priority 0: Precomputed Structural Path (Robust against AST mutation)
-            if (ExtractMethodRefactorer.this.precomputedPaths != null && ExtractMethodRefactorer.this.precomputedPaths.containsKey(param)) {
-                ASTNodePath path = ExtractMethodRefactorer.this.precomputedPaths.get(param);
-                Expression found = ExtractMethodRefactorer.this.followPath(sequence, path);
+            if (precomputedPaths != null && precomputedPaths.containsKey(param)) {
+                ASTNodePath path = precomputedPaths.get(param);
+                Expression found = followPath(sequence, path);
                 if (found != null) {
                     return found.clone();
                 }
@@ -1140,8 +1131,8 @@ public class ExtractMethodRefactorer {
 
             // Priority 1: Structural Extraction (Most robust) - Fallback
             // (Skipped if we are using precomputed paths, as logic is identical but slower)
-            if (ExtractMethodRefactorer.this.precomputedPaths == null) {
-                Expression structuralExpr = extractActualValue(sequence, param, primarySequence);
+            if (precomputedPaths == null) {
+                Expression structuralExpr = extractActualValue(sequence, param);
                 if (structuralExpr != null) {
                     return structuralExpr;
                 }
@@ -1205,12 +1196,13 @@ public class ExtractMethodRefactorer {
     private record ASTNodePath(int statementIndex, List<Integer> childPath) {
     }
 
-    private ASTNodePath computePath(StatementSequence sequence, com.github.javaparser.ast.Node target) {
+    private ASTNodePath computePath(com.github.javaparser.ast.Node target) {
         // 1. Find which statement contains the target
         int stmtIdx = -1;
         Statement rootStmt = null;
-        for (int i = 0; i < sequence.statements().size(); i++) {
-            Statement s = sequence.statements().get(i);
+        List<Statement> statements = cluster.primary().statements();
+        for (int i = 0; i < statements.size(); i++) {
+            Statement s = statements.get(i);
             if (isAncestor(s, target)) {
                 stmtIdx = i;
                 rootStmt = s;
