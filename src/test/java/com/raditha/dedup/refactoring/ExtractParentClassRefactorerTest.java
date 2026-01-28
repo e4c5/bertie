@@ -85,7 +85,9 @@ class ExtractParentClassRefactorerTest {
         assertNotNull(parentCode, "Should contain abstract parent class");
         assertTrue(parentCode.contains("package com.example;"));
         assertTrue(parentCode.contains("abstract class BaseService"));
-        assertTrue(parentCode.contains("protected void processInventory()"));
+        // Visibility is preserved from original method (public) - not forced to protected
+        assertTrue(parentCode.contains("public void processInventory()"),
+                "Parent method should preserve original public visibility");
         assertTrue(parentCode.contains("System.out.println(\"Start\")"));
         
         // Check InventoryService extends parent
