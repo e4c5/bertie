@@ -202,8 +202,9 @@ public abstract class AbstractClassExtractor {
                 boolean isDuplicate = addedImports.stream()
                         .anyMatch(existing -> existing.getNameAsString().equals(importName));
                 if (!isDuplicate) {
-                    targetCu.addImport(imp);
-                    addedImports.add(imp);
+                    ImportDeclaration clonedImport = imp.clone();
+                    targetCu.addImport(clonedImport);
+                    addedImports.add(clonedImport);
                 }
             }
         }
