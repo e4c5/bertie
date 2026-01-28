@@ -28,13 +28,13 @@ import java.nio.file.Path;
  * Handles multi-file refactoring with utility class creation and call site
  * updates.
  */
-public class UtilityClassExtractor extends AbstractClassExtractor {
+public class UtilityClassExtractor extends AbstractExtractor {
 
     private String utilityClassName;
 
     @Override
-    public ExtractMethodRefactorer.RefactoringResult refactor(DuplicateCluster cluster,
-            RefactoringRecommendation recommendation) {
+    public MethodExtractor.RefactoringResult refactor(DuplicateCluster cluster,
+                                                      RefactoringRecommendation recommendation) {
 
         initialize(cluster, recommendation);
         StatementSequence primary = cluster.primary();
@@ -60,7 +60,7 @@ public class UtilityClassExtractor extends AbstractClassExtractor {
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
         }
 
-        return new ExtractMethodRefactorer.RefactoringResult(
+        return new MethodExtractor.RefactoringResult(
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted to utility class: " + utilityClassName);

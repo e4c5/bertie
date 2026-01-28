@@ -5,7 +5,6 @@ import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
-import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.SimilarityResult;
 import com.raditha.dedup.model.RefactoringStrategy;
@@ -20,7 +19,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -119,8 +117,8 @@ class RefactoringBugReproductionTest {
                 1.0,
                 2);
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         // AFTER FIX: Should succeed (modified files not empty)
         assertFalse(result.modifiedFiles().isEmpty(), "Should succeed with multiple live-outs (literals should be redeclared)");
@@ -128,7 +126,7 @@ class RefactoringBugReproductionTest {
     }
 
     @Test
-    public void testServiceWithImmutableConfigurationReproduction() throws IOException {
+    void testServiceWithImmutableConfigurationReproduction() throws IOException {
         String code = """
             package com.raditha.bertie.testbed.testisolation;
             public class ServiceWithImmutableConfiguration {
@@ -178,8 +176,8 @@ class RefactoringBugReproductionTest {
             null // primaryReturnVariable
         );
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         if (result.modifiedFiles().isEmpty()) {
             System.out.println("Reproduction Failed Reason: " + result.description());
@@ -206,7 +204,6 @@ class RefactoringBugReproductionTest {
                 }
                 """;
         CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
-        var type = cu.findFirst(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class); // Class decl
 
         var method = cu.findFirst(com.github.javaparser.ast.body.MethodDeclaration.class).orElseThrow();
         var statement = method.getBody().get().getStatements().get(0);
@@ -245,8 +242,8 @@ class RefactoringBugReproductionTest {
                 recommendation,
                 100);
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         assertTrue(result.modifiedFiles().isEmpty(), "Refactoring should fail");
         

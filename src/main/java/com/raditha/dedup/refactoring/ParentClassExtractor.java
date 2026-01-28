@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -27,12 +28,12 @@ import java.util.*;
  * Child classes are modified to extend the new parent, inheriting the shared
  * method.
  */
-public class ParentClassExtractor extends AbstractClassExtractor {
+public class ParentClassExtractor extends AbstractExtractor {
 
     private String parentClassName;
 
     @Override
-    public ExtractMethodRefactorer.RefactoringResult refactor(
+    public MethodExtractor.RefactoringResult refactor(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) {
 
         initialize(cluster, recommendation);
@@ -90,7 +91,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
         }
 
-        return new ExtractMethodRefactorer.RefactoringResult(
+        return new MethodExtractor.RefactoringResult(
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted to parent class: " + parentClassName);
@@ -110,11 +111,17 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         String parentMethodName = methodToExtract.getNameAsString();
         String childMethodName = methodToRemove.getNameAsString();
 
+        // Check if child method has critical annotations that must be preserved
+        boolean hasAnnotations = hasPreservableAnnotations(methodToRemove);
+
         if (childMethodName.equals(parentMethodName) &&
                 methodToExtract.getParameters().size() == recommendation.getSuggestedParameters().size()
-                        + methodToRemove.getParameters().size()) {
+                        + methodToRemove.getParameters().size() &&
+                !hasAnnotations) {
+            // Only remove if no annotations need preserving
             methodToRemove.remove();
         } else {
+            // Keep as thin wrapper - either names differ, params differ, or has annotations
             BlockStmt body = new BlockStmt();
             MethodCallExpr call = new MethodCallExpr(new SuperExpr(), parentMethodName);
 
@@ -128,6 +135,32 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             }
             methodToRemove.setBody(body);
         }
+    }
+
+    /**
+     * Check if a method has annotations that should be preserved when refactoring.
+     * These annotations affect method behavior and should not be discarded.
+     */
+    private boolean hasPreservableAnnotations(MethodDeclaration method) {
+        // Annotations that affect method behavior and must be preserved
+        Set<String> preservableAnnotations = Set.of(
+            "Transactional",
+            "Async",
+            "Cacheable",
+            "Scheduled",
+            "Retryable",
+            "Timed",
+            "Override",
+            "RequestMapping",
+            "GetMapping",
+            "PostMapping",
+            "PutMapping",
+            "DeleteMapping",
+            "PatchMapping"
+        );
+
+        return method.getAnnotations().stream()
+            .anyMatch(annotation -> preservableAnnotations.contains(annotation.getNameAsString()));
     }
 
     private void validateInheritance() {
@@ -165,13 +198,14 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         }
 
         MethodDeclaration newMethod = originalMethod.clone();
-        newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        // Preserve original visibility, but promote private to protected
+        setParentMethodModifiers(newMethod, originalMethod);
 
         Set<String> declaredVars = new HashSet<>();
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
 
-        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverridesStatic(
+        Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
         recommendation.getSuggestedParameters().forEach(p -> {
@@ -183,7 +217,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             BlockStmt body = newMethod.getBody().get();
             for (int i = 0; i < body.getStatements().size(); i++) {
                 Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, ExtractMethodRefactorer.substituteParametersStatic(
+                body.getStatements().set(i, MethodExtractor.substituteParametersStatic(
                         stmt, recommendation, paramNameOverrides));
             }
         }
@@ -247,13 +281,14 @@ public class ParentClassExtractor extends AbstractClassExtractor {
     private void addMethodToExistingParent(ClassOrInterfaceDeclaration parentClass,
             MethodDeclaration method) {
         MethodDeclaration newMethod = method.clone();
-        newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        // Preserve original visibility, but promote private to protected
+        setParentMethodModifiers(newMethod, method);
 
         Set<String> declaredVars = new HashSet<>();
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
 
-        Map<ParameterSpec, String> paramNameOverrides = ExtractMethodRefactorer.computeParamNameOverridesStatic(
+        Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
         recommendation.getSuggestedParameters().forEach(p -> {
@@ -265,7 +300,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             BlockStmt body = newMethod.getBody().get();
             for (int i = 0; i < body.getStatements().size(); i++) {
                 Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, ExtractMethodRefactorer.substituteParametersStatic(
+                body.getStatements().set(i, MethodExtractor.substituteParametersStatic(
                         stmt, recommendation, paramNameOverrides));
             }
         }
@@ -291,7 +326,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         }
 
         String commonSuffix = findCommonSuffix(classNames);
-        if (!commonSuffix.isEmpty() && commonSuffix.length() > 3) {
+        if (commonSuffix.length() > 3) {
             return "Base" + commonSuffix;
         }
 
@@ -330,7 +365,7 @@ public class ParentClassExtractor extends AbstractClassExtractor {
 
         // Find all nested types
         cu.findAll(com.github.javaparser.ast.body.TypeDeclaration.class).stream()
-                .filter(t -> t.isNestedType())
+                .filter(TypeDeclaration::isNestedType)
                 .forEach(t -> innerClassNames.add(t.getNameAsString()));
 
         if (innerClassNames.isEmpty()) {
@@ -387,10 +422,9 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         // method, it shadows.
         // False positives (usage before decl) are safer (will skip refactoring) than
         // false negatives.
-        boolean isLocal = method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
+        return method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
                 .anyMatch(v -> v.getNameAsString().equals(identifier));
 
-        return isLocal;
     }
 
     /**
@@ -459,20 +493,6 @@ public class ParentClassExtractor extends AbstractClassExtractor {
         });
     }
 
-    private Expression findNodeByCoordinates(StatementSequence sequence, int line, int column) {
-        for (Statement stmt : sequence.statements()) {
-            for (Expression expr : stmt.findAll(Expression.class)) {
-                if (expr.getRange().isPresent()) {
-                    com.github.javaparser.Position begin = expr.getRange().get().begin;
-                    if (begin.line == line && begin.column == column) {
-                        return expr;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
     private Expression findLiteralForParameter(MethodDeclaration method, com.raditha.dedup.model.ParameterSpec param) {
         // Scan method body for literals of the required type
         // This is tricky. For ReportGenerator, it's usually strings.
@@ -488,5 +508,30 @@ public class ParentClassExtractor extends AbstractClassExtractor {
             }
         }
         return null;
+    }
+
+    /**
+     * Set appropriate modifiers for the parent class method.
+     * Preserves original visibility when public, promotes private to protected.
+     *
+     * @param newMethod The method declaration to modify
+     * @param originalMethod The original method to get visibility from
+     */
+    private void setParentMethodModifiers(MethodDeclaration newMethod, MethodDeclaration originalMethod) {
+        // Clear existing modifiers
+        newMethod.getModifiers().clear();
+
+        // Preserve public visibility, otherwise use protected
+        // (Private methods need to be promoted to protected so subclasses can call super)
+        if (originalMethod.isPublic()) {
+            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
+        } else {
+            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        }
+
+        // Preserve static modifier if present
+        if (originalMethod.isStatic()) {
+            newMethod.addModifier(Modifier.Keyword.STATIC);
+        }
     }
 }

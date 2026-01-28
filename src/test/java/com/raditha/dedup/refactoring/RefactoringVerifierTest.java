@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
@@ -63,10 +62,6 @@ class RefactoringVerifierTest {
     @Test
     void testInvalidateCache() {
         RefactoringVerifier verifier = new RefactoringVerifier(tempDir);
-        
-        String cp1 = verifier.getClasspath();
-        String sp1 = verifier.getSourcepath();
-        
         verifier.invalidateCache();
         
         // This is a bit hard to test without reflection or observer, 

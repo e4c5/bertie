@@ -17,6 +17,7 @@ output_path: /tmp/bertie-test-output
 min_lines: 3
 threshold: 75
 include_tests: true
+#target_class: com.raditha.bertie.testbed.cards.service.AsyncCardDealer,com.raditha.bertie.testbed.cards.service.SyncCardDealer
 #target_class: com.raditha.bertie.testbed.report.ReportA,com.raditha.bertie.testbed.report.ReportB,com.raditha.bertie.testbed.parameterizedtest.TestsWithConstantsAndVariables
 #target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceServiceImplTest
 

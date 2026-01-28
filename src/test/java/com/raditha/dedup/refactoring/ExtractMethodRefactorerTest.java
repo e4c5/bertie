@@ -162,8 +162,8 @@ class ExtractMethodRefactorerTest {
                 recommendation,
                 100);
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         assertTrue(result.modifiedFiles().isEmpty(), "Should abort and return empty modifications");
         assertTrue(result.description().contains("aborted"), "Message should indicate abort");
