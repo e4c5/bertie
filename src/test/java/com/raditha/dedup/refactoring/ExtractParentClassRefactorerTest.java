@@ -20,11 +20,11 @@ import java.util.List;
  */
 class ExtractParentClassRefactorerTest {
 
-    private ExtractParentClassRefactorer refactorer;
+    private ParentClassExtractor refactorer;
 
     @BeforeEach
     void setUp() {
-        refactorer = new ExtractParentClassRefactorer();
+        refactorer = new ParentClassExtractor();
     }
 
     @Test

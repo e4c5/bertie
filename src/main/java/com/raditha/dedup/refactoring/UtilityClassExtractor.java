@@ -1,7 +1,6 @@
 package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -10,7 +9,6 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
-import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -23,7 +21,6 @@ import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.MCEWrapper;
 
 import java.nio.file.Path;
-import java.util.*;
 
 /**
  * Refactorer that extracts cross-class duplicate methods into a dedicated
@@ -31,66 +28,32 @@ import java.util.*;
  * Handles multi-file refactoring with utility class creation and call site
  * updates.
  */
-public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefactorer {
+public class UtilityClassExtractor extends AbstractClassExtractor {
 
-    /**
-     * Apply the refactoring to extract a utility class.
-     */
+    private String utilityClassName;
+
     @Override
     public ExtractMethodRefactorer.RefactoringResult refactor(DuplicateCluster cluster,
             RefactoringRecommendation recommendation) {
-        StatementSequence primary = cluster.primary();
-        CompilationUnit cu = primary.compilationUnit();
-        Path sourceFile = primary.sourceFilePath();
 
-        // Get the method to extract
+        initialize(cluster, recommendation);
+        StatementSequence primary = cluster.primary();
+        Path sourceFile = primary.sourceFilePath();
         MethodDeclaration methodToExtract = primary.containingMethod();
 
-        // Validate the method can be made static
         validateCanBeStatic(methodToExtract);
 
-        // Determine utility class name
-        String utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
-        String packageName = getPackageName(cu);
+        this.utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
 
-        // Create the new Utility Class AST
-        CompilationUnit utilityCu = createUtilityClass(utilityClassName, packageName, methodToExtract);
-        String utilityClassCode = utilityCu.toString();
-
-        // Prepare result map
-        Map<Path, String> modifiedFiles = new LinkedHashMap<>();
-
-        // 1. Add key for the new utility class file
-        // Assumption: simple package structure mapping to path, relative to source root
-        // logic handling elsewhere
-        // But here we need a Path key. We can derive it from the source file's parent
-        // if in same package,
-        // or we might need a "util" subpackage.
-        // For simplicity and safety in this context, let's put it in a 'util'
-        // subpackage relative to the current file's directory.
-        // Note: Real path resolution might be more complex ensuring 'util' directory
-        // exists, but RefactoringResult just expects a path key.
+        CompilationUnit utilityCu = createUtilityClass(methodToExtract);
         Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
-        modifiedFiles.put(utilityPath, utilityClassCode);
-
-        // 2. Process all Classes in the cluster (Primary + Duplicates)
-        // We need to remove the original method from Primary, and replace calls in ALL
-        // involved files.
-        // Note: The DuplicateCluster contains 'duplicates' which are SimilarityPairs.
-        // We need to visit every file involved.
-
-        // Use inherited methods from base class
-        Set<CompilationUnit> involvedCus = collectInvolvedCUs(cluster);
-        Map<CompilationUnit, Path> cuToPath = buildCUToPathMap(cluster);
-        Map<CompilationUnit, MethodDeclaration> methodsToRemove = buildMethodsToRemoveMap(cluster);
+        modifiedFiles.put(utilityPath, utilityCu.toString());
 
         for (CompilationUnit currentCu : involvedCus) {
-            updateCallSitesAndImports(currentCu, methodToExtract, utilityClassName, packageName);
+            updateCallSitesAndImports(currentCu, methodToExtract);
 
-            // Remove the duplicate method definition if strictly mapped
             MethodDeclaration methodToRemove = methodsToRemove.get(currentCu);
             if (methodToRemove != null) {
-                // Ensure we are removing the node from the tree
                 methodToRemove.remove();
             }
 
@@ -104,32 +67,25 @@ public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefacto
     }
 
     private void validateCanBeStatic(MethodDeclaration method) {
-        if (method.isStatic())
+        if (method.isStatic()) {
             return;
+        }
 
-        // Check for 'this'
         if (!method.findAll(ThisExpr.class).isEmpty()) {
             throw new IllegalArgumentException("Method uses 'this' and cannot be made static.");
         }
-
-        // Check for instance field access using a simplified heuristic.
-        // A robust check requires full symbol resolution which is not available here.
-        // We assume if 'this' is absent, it's likely a static candidate.
     }
 
-    private CompilationUnit createUtilityClass(String className, String packageName, MethodDeclaration originalMethod) {
+    private CompilationUnit createUtilityClass(MethodDeclaration originalMethod) {
         CompilationUnit utilCu = new CompilationUnit();
         utilCu.setPackageDeclaration(packageName + ".util");
 
-        // Clone method and make static public
         MethodDeclaration newMethod = originalMethod.clone();
         newMethod.setModifiers(Modifier.Keyword.PUBLIC, Modifier.Keyword.STATIC);
 
-        // Create Class
-        ClassOrInterfaceDeclaration utilClass = utilCu.addClass(className)
-                .setJavadocComment("Utility class for " + getUtilityDescription(className) + ".");
+        ClassOrInterfaceDeclaration utilClass = utilCu.addClass(utilityClassName)
+                .setJavadocComment("Utility class for " + getUtilityDescription() + ".");
 
-        // Private Constructor
         utilClass.addConstructor(Modifier.Keyword.PRIVATE)
                 .setBody(new com.github.javaparser.ast.stmt.BlockStmt()
                         .addStatement(new com.github.javaparser.ast.stmt.ThrowStmt(
@@ -141,50 +97,29 @@ public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefacto
 
         utilClass.addMember(newMethod);
 
-        // Copy Imports
-        // We need to copy imports from the original CU that are needed by the method.
-        // This is tricky without type resolution.
-        // Heuristic: Copy ALL imports from original CU.
-        // Optimization: Filter imports that seem referenced by types in the method.
         CompilationUnit originalCu = originalMethod.findCompilationUnit()
                 .orElseThrow(() -> new IllegalStateException("Original method not part of a CompilationUnit"));
-        for (ImportDeclaration imp : originalCu.getImports()) {
-            if (isImportNeeded()) {
-                utilCu.addImport(imp);
-            }
-        }
+        copyNeededImports(originalCu, utilCu, newMethod);
 
         return utilCu;
     }
 
-
-
-    /**
-     * Check if a method call is either unqualified (e.g., methodName(...)) or
-     * qualified with 'this' (e.g., this.methodName(...)).
-     */
     private boolean isUnqualifiedOrThisScoped(MethodCallExpr call) {
         return call.getScope().isEmpty() ||
                 call.getScope().map(s -> s instanceof ThisExpr).orElse(false);
     }
 
-    private void updateCallSitesAndImports(CompilationUnit cu, MethodDeclaration originalMethod,
-            String utilityClassName, String originalPackage) {
+    private void updateCallSitesAndImports(CompilationUnit cu, MethodDeclaration originalMethod) {
         String methodName = originalMethod.getNameAsString();
-
-        // Add import
-        String utilityRunTimePackage = originalPackage + ".util"; // Assumed location
+        String utilityRunTimePackage = packageName + ".util";
         cu.addImport(utilityRunTimePackage + "." + utilityClassName);
 
-        // Find the primary type declaration to use as context for resolution
         ClassOrInterfaceDeclaration typeDecl = cu.findFirst(ClassOrInterfaceDeclaration.class).orElse(null);
         if (typeDecl == null) {
             return;
         }
         GraphNode contextNode = Graph.createGraphNode(typeDecl);
 
-        // Update calls: method(...) -> UtilityClass.method(...)
-        // Also handles this.method(...) -> UtilityClass.method(...)
         cu.findAll(MethodCallExpr.class).forEach(call -> {
             if (call.getNameAsString().equals(methodName) && isUnqualifiedOrThisScoped(call)) {
                 MCEWrapper wrapper = Resolver.resolveArgumentTypes(contextNode, call);
@@ -192,10 +127,6 @@ public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefacto
 
                 if (callable != null && callable.isMethodDeclaration()) {
                     MethodDeclaration resolvedMethod = callable.asMethodDeclaration();
-                    // Check if the resolved method is indeed the one we are extracting (or a
-                    // signature match)
-                    // We compare signatures since 'originalMethod' might be from a different file
-                    // (duplicate)
                     if (resolvedMethod.getSignature().equals(originalMethod.getSignature())) {
                         call.setScope(new NameExpr(utilityClassName));
                     }
@@ -204,8 +135,8 @@ public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefacto
         });
     }
 
-    private String getUtilityDescription(String className) {
-        return switch (className) {
+    private String getUtilityDescription() {
+        return switch (utilityClassName) {
             case "ValidationUtils" -> "validation operations";
             case "StringUtils" -> "string manipulation";
             case "DateUtils" -> "date and time operations";

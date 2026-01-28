@@ -5,14 +5,13 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.MethodReferenceExpr;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.nodeTypes.modifiers.NodeWithPrivateModifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Validates and removes private methods that are no longer used after refactoring.
@@ -42,8 +41,8 @@ public class UnusedMethodCleaner {
 
     private boolean cleanClass(ClassOrInterfaceDeclaration clazz) {
         List<MethodDeclaration> privateMethods = clazz.getMethods().stream()
-                .filter(m -> m.isPrivate())
-                .collect(Collectors.toList());
+            .filter(NodeWithPrivateModifier::isPrivate)
+            .toList();
 
         if (privateMethods.isEmpty()) {
             return false;
@@ -55,12 +54,12 @@ public class UnusedMethodCleaner {
         for (MethodDeclaration method : privateMethods) {
             String name = method.getNameAsString();
 
-            // 1. Check if method is used (called or referenced)
+            // Skip if method is used (called or referenced)
             if (usedMethodNames.contains(name)) {
                 continue;
             }
 
-            // 2. Check for annotations that implicitly use the method
+            // Skip if method has a preserved annotation
             if (hasPreservedAnnotation(method)) {
                 continue;
             }
@@ -97,7 +96,6 @@ public class UnusedMethodCleaner {
                         used.add(s.getValue())
                     );
                 } else if (a.isNormalAnnotationExpr()) {
-                    // @MethodSource(value = "name") or value = {"n1", "n2"}
                     a.asNormalAnnotationExpr().getPairs().stream()
                         .filter(p -> p.getNameAsString().equals("value"))
                         .forEach(p -> {

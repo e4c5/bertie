@@ -1,6 +1,7 @@
 package com.raditha.dedup.cli;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.raditha.dedup.model.SimilarityPair;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine;
@@ -12,7 +13,6 @@ import com.raditha.dedup.metrics.MetricsExporter;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.refactoring.RefactoringEngine;
-import com.raditha.dedup.refactoring.RefactoringVerifier;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -20,7 +20,6 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -200,7 +199,7 @@ public class BertieCLI implements Callable<Integer> {
      */
     private void validateConfiguration() {
         // Validate threshold range
-        if (threshold != 0 && (threshold < 0 || threshold > 100)) {
+        if (threshold < 0 || threshold > 100) {
             throw new IllegalArgumentException("Threshold must be between 0 and 100, got: " + threshold);
         }
 
@@ -233,6 +232,10 @@ public class BertieCLI implements Callable<Integer> {
             throw new IllegalArgumentException("Base path not found: " + basePath);
         }
 
+        validateOutputPath();
+    }
+
+    private void validateOutputPath() {
         // Validate output path is writable if specified
         if (outputPath != null) {
             java.io.File outputDir = new java.io.File(outputPath);
@@ -253,7 +256,6 @@ public class BertieCLI implements Callable<Integer> {
         // Get compilation units and filter criteria
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
         System.out.println("DEBUG: allCUs detected " + allCUs.size() + " files.");
-        // allCUs.keySet().forEach(k -> System.out.println(" - " + k));
 
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer(allCUs);
 
@@ -262,17 +264,23 @@ public class BertieCLI implements Callable<Integer> {
 
         Map<String, CompilationUnit> targetCUs = new java.util.HashMap<>(allCUs);
         if (targetClass != null && !targetClass.isEmpty()) {
-            String[] targets = targetClass.split(",");
-            System.out.println("DEBUG: Samples of allCUs keys:");
-            allCUs.keySet().stream().limit(5).forEach(k -> System.out.println("  - " + k));
-            targetCUs.entrySet().removeIf(entry -> {
-                for (String t : targets) {
-                    if (entry.getKey().startsWith(t.trim())) {
-                        return false; // Keep it
+            String[] targets = java.util.Arrays.stream(targetClass.split(","))
+                    .map(String::trim)
+                    .filter(t -> !t.isEmpty())
+                    .toArray(String[]::new);
+            
+            if (targets.length > 0) {
+                System.out.println("DEBUG: Samples of allCUs keys:");
+                allCUs.keySet().stream().limit(5).forEach(k -> System.out.println("  - " + k));
+                targetCUs.entrySet().removeIf(entry -> {
+                    for (String t : targets) {
+                        if (entry.getKey().startsWith(t)) {
+                            return false; // Keep it
+                        }
                     }
-                }
-                return true; // Remove it
-            });
+                    return true; // Remove it
+                });
+            }
             System.out.println("DEBUG: Retained " + targetCUs.size() + " files for analysis.");
         }
 
@@ -433,78 +441,7 @@ public class BertieCLI implements Callable<Integer> {
         }
 
         for (DuplicationReport report : reports) {
-            if (!report.hasDuplicates()) {
-                continue;
-            }
-
-            System.out.println("-".repeat(80));
-            System.out.println("File: " + report.sourceFile().getFileName());
-            System.out.println("-".repeat(80));
-            System.out.println();
-
-            // Show top duplicates with details
-            var duplicates = report.duplicates();
-            for (int i = 0; i < Math.min(10, duplicates.size()); i++) {
-                var pair = duplicates.get(i);
-                var seq1 = pair.seq1();
-                var seq2 = pair.seq2();
-                var similarity = pair.similarity();
-
-                System.out.printf("DUPLICATE #%d (Similarity: %.1f%%)%n", i + 1,
-                        similarity.overallScore() * 100);
-                System.out.println();
-
-                // Display the duplicated code segment once
-                System.out.println("  Duplicated Code:");
-                printFullCodeSnippet(seq1.statements());
-                System.out.println();
-
-                // List all locations where this duplication appears
-                System.out.println("  Found in:");
-                printLocation(report, seq1, 1);
-                printLocation(report, seq2, 2);
-                System.out.println();
-
-                // Similarity breakdown
-                System.out.printf("  Similarity: LCS=%.1f%%, Levenshtein=%.1f%%, Structural=%.1f%%%n",
-                        similarity.lcsScore() * 100,
-                        similarity.levenshteinScore() * 100,
-                        similarity.structuralScore() * 100);
-
-                if (similarity.canRefactor()) {
-                    System.out.println("  ✓ Can be refactored - extract to helper method");
-                    if (similarity.variations().hasVariations()) {
-                        System.out.println("  Parameters needed: " +
-                                similarity.variations().getVariationCount());
-                    }
-                } else {
-                    System.out.println("  ⚠ Manual review needed - variations may be complex");
-                }
-
-                System.out.println();
-            }
-
-            // Show cluster summary
-            if (!report.clusters().isEmpty()) {
-                System.out.println("REFACTORING OPPORTUNITIES:");
-                for (int i = 0; i < report.clusters().size(); i++) {
-                    var cluster = report.clusters().get(i);
-                    System.out.printf("  Cluster #%d: %d duplicates, potential %d LOC reduction%n",
-                            i + 1,
-                            cluster.duplicates().size(),
-                            cluster.estimatedLOCReduction());
-
-                    if (cluster.recommendation() != null) {
-                        var rec = cluster.recommendation();
-                        System.out.printf("    → Strategy: %s%n", rec.getStrategy());
-                        System.out.printf("    → Confidence: %s%n", rec.formatConfidence());
-                        if (rec.getSuggestedMethodName() != null) {
-                            System.out.printf("    → Suggested method: %s%n", rec.getSuggestedMethodName());
-                        }
-                    }
-                }
-                System.out.println();
-            }
+            showReport(report);
         }
 
         // Final summary
@@ -521,6 +458,85 @@ public class BertieCLI implements Callable<Integer> {
                         .flatMap(r -> r.duplicates().stream())
                         .filter(p -> p.similarity().canRefactor())
                         .count());
+        System.out.println();
+    }
+
+    private static void showReport(DuplicationReport report) {
+        if (!report.hasDuplicates()) {
+            return;
+        }
+
+        System.out.println("-".repeat(80));
+        System.out.println("File: " + report.sourceFile().getFileName());
+        System.out.println("-".repeat(80));
+        System.out.println();
+
+        // Show top duplicates with details
+        var duplicates = report.duplicates();
+        for (int i = 0; i < Math.min(10, duplicates.size()); i++) {
+            showDuplications(report, duplicates, i);
+        }
+
+        // Show cluster summary
+        if (!report.clusters().isEmpty()) {
+            System.out.println("REFACTORING OPPORTUNITIES:");
+            for (int i = 0; i < report.clusters().size(); i++) {
+                var cluster = report.clusters().get(i);
+                System.out.printf("  Cluster #%d: %d duplicates, potential %d LOC reduction%n",
+                        i + 1,
+                        cluster.duplicates().size(),
+                        cluster.estimatedLOCReduction());
+
+                if (cluster.recommendation() != null) {
+                    var rec = cluster.recommendation();
+                    System.out.printf("    → Strategy: %s%n", rec.getStrategy());
+                    System.out.printf("    → Confidence: %s%n", rec.formatConfidence());
+                    if (rec.getSuggestedMethodName() != null) {
+                        System.out.printf("    → Suggested method: %s%n", rec.getSuggestedMethodName());
+                    }
+                }
+            }
+            System.out.println();
+        }
+    }
+
+    private static void showDuplications(DuplicationReport report, List<SimilarityPair> duplicates, int i) {
+        var pair = duplicates.get(i);
+        var seq1 = pair.seq1();
+        var seq2 = pair.seq2();
+        var similarity = pair.similarity();
+
+        System.out.printf("DUPLICATE #%d (Similarity: %.1f%%)%n", i + 1,
+                similarity.overallScore() * 100);
+        System.out.println();
+
+        // Display the duplicated code segment once
+        System.out.println("  Duplicated Code:");
+        printFullCodeSnippet(seq1.statements());
+        System.out.println();
+
+        // List all locations where this duplication appears
+        System.out.println("  Found in:");
+        printLocation(report, seq1, 1);
+        printLocation(report, seq2, 2);
+        System.out.println();
+
+        // Similarity breakdown
+        System.out.printf("  Similarity: LCS=%.1f%%, Levenshtein=%.1f%%, Structural=%.1f%%%n",
+                similarity.lcsScore() * 100,
+                similarity.levenshteinScore() * 100,
+                similarity.structuralScore() * 100);
+
+        if (similarity.canRefactor()) {
+            System.out.println("  ✓ Can be refactored - extract to helper method");
+            if (similarity.variations().hasVariations()) {
+                System.out.println("  Parameters needed: " +
+                        similarity.variations().getVariationCount());
+            }
+        } else {
+            System.out.println("  ⚠ Manual review needed - variations may be complex");
+        }
+
         System.out.println();
     }
 

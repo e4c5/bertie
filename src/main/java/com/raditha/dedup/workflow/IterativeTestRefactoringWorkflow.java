@@ -11,7 +11,6 @@ import com.raditha.dedup.refactoring.RefactoringEngine.RefactoringSession;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -39,7 +38,6 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         Path sourceFile = cu.getStorage().map(CompilationUnit.Storage::getPath).orElse(null);
 
         if (sourceFile == null) {
-            System.err.println("Warning: Could not determine source file path for " + clazz.getNameAsString());
             return totalSession;
         }
 

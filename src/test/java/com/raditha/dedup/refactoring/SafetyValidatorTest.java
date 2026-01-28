@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -170,12 +169,99 @@ class SafetyValidatorTest {
 
     @Test
     void testIncompatibleAnnotations() {
-        // hasIncompatibleAnnotations currently returns false, so this should pass
         StatementSequence seq = mock(StatementSequence.class);
         when(seq.statements()).thenReturn(List.of());
         when(cluster.primary()).thenReturn(seq);
         
         SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
         assertFalse(result.hasWarnings()); 
+    }
+    
+    @Test
+    void testIncompatibleAnnotations_Transactional() {
+        // Create methods with @Transactional on one but not the other
+        CompilationUnit cu = StaticJavaParser.parse(
+            "class A { " +
+            "  @Transactional void method1() { int x = 1; } " +
+            "  void method2() { int x = 1; } " +
+            "}"
+        );
+        ClassOrInterfaceDeclaration clazz = cu.getClassByName("A").get();
+        
+        // Create sequences from each method's body
+        Statement stmt1 = clazz.getMethods().get(0).getBody().get().getStatements().get(0);
+        Statement stmt2 = clazz.getMethods().get(1).getBody().get().getStatements().get(0);
+        
+        StatementSequence seq1 = mock(StatementSequence.class);
+        StatementSequence seq2 = mock(StatementSequence.class);
+        
+        when(seq1.containingMethod()).thenReturn(clazz.getMethods().get(0));
+        when(seq2.containingMethod()).thenReturn(clazz.getMethods().get(1));
+        when(seq1.statements()).thenReturn(List.of(stmt1));
+        when(seq2.statements()).thenReturn(List.of(stmt2));
+        
+        when(cluster.primary()).thenReturn(seq1);
+        
+        SimilarityPair pair = mock(SimilarityPair.class);
+        when(pair.seq1()).thenReturn(seq1);
+        when(pair.seq2()).thenReturn(seq2);
+        
+        SimilarityResult similarity = mock(SimilarityResult.class);
+        VariationAnalysis variations = mock(VariationAnalysis.class);
+        when(pair.similarity()).thenReturn(similarity);
+        when(similarity.variations()).thenReturn(variations);
+        when(variations.hasControlFlowDifferences()).thenReturn(false);
+        
+        when(cluster.duplicates()).thenReturn(List.of(pair));
+        
+        SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
+        
+        // Should detect annotation incompatibility
+        assertTrue(result.hasWarnings());
+        assertTrue(result.getWarnings().stream()
+            .anyMatch(w -> w.contains("different annotations")));
+    }
+    
+    @Test
+    void testCompatibleAnnotations() {
+        // Create methods both with @Transactional
+        CompilationUnit cu = StaticJavaParser.parse(
+            "class A { " +
+            "  @Transactional void method1() { int x = 1; } " +
+            "  @Transactional void method2() { int x = 1; } " +
+            "}"
+        );
+        ClassOrInterfaceDeclaration clazz = cu.getClassByName("A").get();
+        
+        Statement stmt1 = clazz.getMethods().get(0).getBody().get().getStatements().get(0);
+        Statement stmt2 = clazz.getMethods().get(1).getBody().get().getStatements().get(0);
+        
+        StatementSequence seq1 = mock(StatementSequence.class);
+        StatementSequence seq2 = mock(StatementSequence.class);
+        
+        when(seq1.containingMethod()).thenReturn(clazz.getMethods().get(0));
+        when(seq2.containingMethod()).thenReturn(clazz.getMethods().get(1));
+        when(seq1.statements()).thenReturn(List.of(stmt1));
+        when(seq2.statements()).thenReturn(List.of(stmt2));
+        
+        when(cluster.primary()).thenReturn(seq1);
+        
+        SimilarityPair pair = mock(SimilarityPair.class);
+        when(pair.seq1()).thenReturn(seq1);
+        when(pair.seq2()).thenReturn(seq2);
+        
+        SimilarityResult similarity = mock(SimilarityResult.class);
+        VariationAnalysis variations = mock(VariationAnalysis.class);
+        when(pair.similarity()).thenReturn(similarity);
+        when(similarity.variations()).thenReturn(variations);
+        when(variations.hasControlFlowDifferences()).thenReturn(false);
+        
+        when(cluster.duplicates()).thenReturn(List.of(pair));
+        
+        SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
+        
+        // Should be valid since annotations match
+        assertTrue(result.isValid());
+        assertFalse(result.hasWarnings());
     }
 }
