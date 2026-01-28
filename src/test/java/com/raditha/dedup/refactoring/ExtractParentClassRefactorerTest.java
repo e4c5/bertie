@@ -7,7 +7,12 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.model.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
+import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Paths;
@@ -22,7 +27,23 @@ class ExtractParentClassRefactorerTest {
     private ParentClassExtractor refactorer;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        // Initialize Settings.props via reflection to avoid NPE
+        Field propsField = Settings.class.getDeclaredField("props");
+        propsField.setAccessible(true);
+        if (propsField.get(null) == null) {
+            propsField.set(null, new HashMap<String, Object>());
+        }
+        Settings.setProperty(Settings.BASE_PATH, ".");
+        Settings.setProperty("jar_files", new ArrayList<String>());
+        
+        // Initialize AbstractCompiler.loader via reflection
+        Field loaderField = AbstractCompiler.class.getDeclaredField("loader");
+        loaderField.setAccessible(true);
+        if (loaderField.get(null) == null) {
+            loaderField.set(null, AbstractCompiler.class.getClassLoader());
+        }
+        
         refactorer = new ParentClassExtractor();
     }
 
@@ -259,6 +280,49 @@ class ExtractParentClassRefactorerTest {
         
         assertTrue(repoBCode.contains("public String getData()"), "getData should be preserved (delegated)");
         assertTrue(repoBCode.contains("return super.findData()"), "Should delegate to parent method (findData)");
+    }
+
+    @Test
+    void testVisibilityPromotionFromPrivate() {
+        // Setup: Two classes with identical private methods
+        String code1 = """
+                package com.example;
+                public class ServiceA {
+                    private void secret() { System.out.println("private"); }
+                }
+                """;
+        String code2 = """
+                package com.example;
+                public class ServiceB {
+                    private void secret() { System.out.println("private"); }
+                }
+                """;
+
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+
+        DuplicateCluster cluster = createMultiFileMockCluster(cu1, cu2, "secret", "secret");
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_PARENT_CLASS,
+                "secret",
+                List.of(),
+                "void",
+                "BaseService",
+                0.95,
+                5);
+
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+
+        // Check Parent Class - private should be promoted to protected
+        String parentCode = result.modifiedFiles().values().stream()
+                .filter(s -> s.contains("abstract class"))
+                .findFirst()
+                .orElse(null);
+
+        assertNotNull(parentCode);
+        assertTrue(parentCode.contains("protected void secret()"), 
+                "Private method should be promoted to protected in parent");
+        assertFalse(parentCode.contains("private void secret()"));
     }
 
     private DuplicateCluster createMultiFileMockCluster(

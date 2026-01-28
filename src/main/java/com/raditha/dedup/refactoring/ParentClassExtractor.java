@@ -82,6 +82,8 @@ public class ParentClassExtractor extends AbstractExtractor {
                 if (isCurrentCuParent) {
                     if (methodToRemove.isPrivate()) {
                         methodToRemove.setModifiers(Modifier.Keyword.PROTECTED);
+                    } else if (methodToRemove.isPublic()) {
+                        methodToRemove.setModifiers(Modifier.Keyword.PUBLIC);
                     }
                 } else {
                     processChildMethod(methodToRemove, methodToExtract);
@@ -198,8 +200,19 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
 
         MethodDeclaration newMethod = originalMethod.clone();
-        // Preserve original visibility, but promote private to protected
-        setParentMethodModifiers(newMethod, originalMethod);
+        // Clear existing modifiers
+        newMethod.getModifiers().clear();
+        // Preserve public visibility, otherwise use protected
+        // (Private methods need to be promoted to protected so subclasses can call super)
+        if (originalMethod.isPublic()) {
+            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
+        } else {
+            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        }
+        // Preserve static modifier if present
+        if (originalMethod.isStatic()) {
+            newMethod.addModifier(Modifier.Keyword.STATIC);
+        }
 
         Set<String> declaredVars = new HashSet<>();
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
@@ -281,8 +294,19 @@ public class ParentClassExtractor extends AbstractExtractor {
     private void addMethodToExistingParent(ClassOrInterfaceDeclaration parentClass,
             MethodDeclaration method) {
         MethodDeclaration newMethod = method.clone();
-        // Preserve original visibility, but promote private to protected
-        setParentMethodModifiers(newMethod, method);
+        // Clear existing modifiers
+        newMethod.getModifiers().clear();
+        // Preserve public visibility, otherwise use protected
+        // (Private methods need to be promoted to protected so subclasses can call super)
+        if (method.isPublic()) {
+            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
+        } else {
+            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        }
+        // Preserve static modifier if present
+        if (method.isStatic()) {
+            newMethod.addModifier(Modifier.Keyword.STATIC);
+        }
 
         Set<String> declaredVars = new HashSet<>();
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
@@ -508,30 +532,5 @@ public class ParentClassExtractor extends AbstractExtractor {
             }
         }
         return null;
-    }
-
-    /**
-     * Set appropriate modifiers for the parent class method.
-     * Preserves original visibility when public, promotes private to protected.
-     *
-     * @param newMethod The method declaration to modify
-     * @param originalMethod The original method to get visibility from
-     */
-    private void setParentMethodModifiers(MethodDeclaration newMethod, MethodDeclaration originalMethod) {
-        // Clear existing modifiers
-        newMethod.getModifiers().clear();
-
-        // Preserve public visibility, otherwise use protected
-        // (Private methods need to be promoted to protected so subclasses can call super)
-        if (originalMethod.isPublic()) {
-            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
-        } else {
-            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
-        }
-
-        // Preserve static modifier if present
-        if (originalMethod.isStatic()) {
-            newMethod.addModifier(Modifier.Keyword.STATIC);
-        }
     }
 }
