@@ -4,10 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithName;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
@@ -70,11 +67,7 @@ public abstract class AbstractClassExtractorRefactorer {
     /**
      * Check if an import is needed by a method (heuristic based on type references).
      */
-    /**
-     * Check if an import is needed by a method.
-     * Updated to return true conservatively to ensure all types are available in the new class.
-     */
-    protected boolean isImportNeeded(ImportDeclaration imp, MethodDeclaration method) {
+    protected boolean isImportNeeded() {
         return true; // Always copy all imports to be safe
     }
 
@@ -93,7 +86,7 @@ public abstract class AbstractClassExtractorRefactorer {
     protected void copyNeededImports(CompilationUnit sourceCu, CompilationUnit targetCu, 
             MethodDeclaration method) {
         for (ImportDeclaration imp : sourceCu.getImports()) {
-            if (isImportNeeded(imp, method)) {
+            if (isImportNeeded()) {
                 targetCu.addImport(imp);
             }
         }

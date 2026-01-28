@@ -149,7 +149,7 @@ public class ExtractUtilityClassRefactorer extends AbstractClassExtractorRefacto
         CompilationUnit originalCu = originalMethod.findCompilationUnit()
                 .orElseThrow(() -> new IllegalStateException("Original method not part of a CompilationUnit"));
         for (ImportDeclaration imp : originalCu.getImports()) {
-            if (isImportNeeded(imp, newMethod)) {
+            if (isImportNeeded()) {
                 utilCu.addImport(imp);
             }
         }

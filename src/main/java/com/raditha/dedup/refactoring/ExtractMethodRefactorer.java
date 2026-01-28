@@ -66,49 +66,62 @@ public class ExtractMethodRefactorer {
         
         // Add new helper if no reuse target was found
         if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-            MethodDeclaration containingMethod = primary.containingMethod();
-            if (containingMethod == null) {
-                throw new IllegalStateException("No containing method found for primary sequence");
-            }
-            
-            // FIXED: If the containingMethod is detached from the AST (e.g., after previous 
-            // refactorings modified the file), re-resolve it from the live CompilationUnit
-            if (containingMethod.getParentNode().isEmpty()) {
-                String methodName = containingMethod.getNameAsString();
-                logger.debug("Refreshing detached containingMethod: {}", methodName);
-                
-                // Look up the method in the current CompilationUnit
-                CompilationUnit cu = primary.compilationUnit();
-                if (cu != null) {
-                    containingMethod = cu.findAll(MethodDeclaration.class).stream()
-                            .filter(m -> m.getNameAsString().equals(methodName))
-                            .findFirst()
-                            .orElse(null);
-                }
-                
-                if (containingMethod == null || containingMethod.getParentNode().isEmpty()) {
-                    // Method was already refactored by a previous cluster (e.g., merged into parameterized test)
-                    // This is expected behavior, not an error - skip gracefully
-                    return new RefactoringResult(Map.of(), recommendation.getStrategy(),
-                            "Skipped: method '" + methodName + "' was already refactored by a previous cluster");
-                }
-            }
-            
-            TypeDeclaration<?> containingType = containingMethod
-                    .findAncestor(TypeDeclaration.class)
-                    .orElseThrow(() -> new IllegalStateException("No containing type found"));
-
-            MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
-                    cluster.getContainingMethods());
-            if (equivalent == null) {
-                containingType.addMember(helperMethod);
-            } else {
-                methodNameToUse = equivalent.getNameAsString();
+            methodNameToUse = prepareHelperMethodForInsertion(primary, cluster, helperMethod, methodNameToUse);
+            if (methodNameToUse == null) {
+                String methodName = primary.containingMethod().getNameAsString();
+                return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                        "Skipped: method '" + methodName + "' was already refactored by a previous cluster");
             }
         }
 
         // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
         return executeReplacements(cluster, recommendation, helperResult, methodNameToUse);
+    }
+
+
+    private String prepareHelperMethodForInsertion(StatementSequence primary, DuplicateCluster cluster, 
+                                                 MethodDeclaration helperMethod, String defaultMethodName) {
+        MethodDeclaration containingMethod = primary.containingMethod();
+        if (containingMethod == null) {
+            throw new IllegalStateException("No containing method found for primary sequence");
+        }
+
+        containingMethod = refreshDetachedMethod(containingMethod, primary);
+        
+        if (containingMethod == null || containingMethod.getParentNode().isEmpty()) {
+            return null; // Signal skipping
+        }
+
+        TypeDeclaration<?> containingType = containingMethod
+                .findAncestor(TypeDeclaration.class)
+                .orElseThrow(() -> new IllegalStateException("No containing type found"));
+
+        MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
+                cluster.getContainingMethods());
+        if (equivalent == null) {
+            containingType.addMember(helperMethod);
+            return defaultMethodName;
+        } else {
+            return equivalent.getNameAsString();
+        }
+    }
+
+    private MethodDeclaration refreshDetachedMethod(MethodDeclaration method, StatementSequence primary) {
+        if (!method.getParentNode().isEmpty()) {
+            return method;
+        }
+        
+        String methodName = method.getNameAsString();
+        logger.debug("Refreshing detached containingMethod: {}", methodName);
+
+        CompilationUnit cu = primary.compilationUnit();
+        if (cu != null) {
+            return cu.findAll(MethodDeclaration.class).stream()
+                    .filter(m -> m.getNameAsString().equals(methodName))
+                    .findFirst()
+                    .orElse(null);
+        }
+        return null;
     }
 
     /**
@@ -155,10 +168,7 @@ public class ExtractMethodRefactorer {
 
         // Phase 1: Prepare
         for (StatementSequence seq : uniqueSequences) {
-            if (seq.containingMethod() != null && seq.containingMethod().getNameAsString().equals(methodNameToUse)) {
-                // Potential recursion check: skip if we are reusing THIS method
-                if (isMethodBody(seq)) continue; 
-            }
+            if (shouldSkipSequence(seq, methodNameToUse)) continue;
 
             int limit = recommendation.getValidStatementCount();
             StatementSequence seqToRefactor = (limit != -1 && limit < seq.size()) ? createTruncatedSequence(seq, limit) : seq;
@@ -166,10 +176,7 @@ public class ExtractMethodRefactorer {
             MethodCallExpr call = prepareReplacement(seqToRefactor,
                     methodNameToUse, primary, precomputedPaths, effectiveParams);
             if (call == null) {
-                if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-                    System.out.println("  DEBUG: Removing orphaned helper method '" + methodNameToUse + "' due to call preparation failure.");
-                    helperMethod.remove();
-                }
+                handleCallPreparationFailure(methodNameToUse, recommendation, helperMethod);
                 return new RefactoringResult(Map.of(), recommendation.getStrategy(),
                         "Refactoring aborted due to argument resolution failure");
             }
@@ -177,34 +184,87 @@ public class ExtractMethodRefactorer {
         }
 
         // Phase 2: Apply
-        Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
-        modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
-
-        int successfulReplacements = 0;
-
-        for (Map.Entry<StatementSequence, MethodCallExpr> entry : preparedReplacements.entrySet()) {
-            StatementSequence seq = entry.getKey();
-            boolean applied = applyReplacement(seq, recommendation, entry.getValue(), forcedReturnVar, helperMethod.getType());
-            if (applied) {
-                successfulReplacements++;
-                modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
-            }
+        Map<CompilationUnit, Path> modifiedCUs = applyReplacements(preparedReplacements, recommendation, forcedReturnVar, helperMethod.getType(), primary);
+        
+        if (modifiedCUs.size() <= 1) { // Only primary (which is always added) implies 0 actual replacements of duplicates if we don't count primary modifications correctly?
+            // Actually, applyReplacements logic below adds to modifiedCUs if applied.
+            // If the map only contains the primary CU and no other changes were made (or even if primary was modified but no others?), 
+            // the check should correspond to 'successfulReplacements == 0'.
+            // Let's rely on the return size. If equal to 1 (just primary) and primary wasn't actually changed? 
+            // Better to track successful count.
+            // But for now, let's implement applyReplacements to return the map, and we check its size.
+            // The original logic tracked 'successfulReplacements'.
+            // If successfulReplacements == 0, rollback.
+            // We can check if modifiedCUs is empty or just contains primary.
+            // However, primary might be modified.
+            // Let's refine applyReplacements to return a Result object or just check the map size carefully.
+            // Or simpler: pass successful count back? 
+            // Let's stick to the extracted method returning the map, and we assume if map size is > 0 it worked.
+            // Wait, primary is added to map at start.
         }
 
-        // ROLLBACK IF NO REPLACEMENTS
-        if (successfulReplacements == 0) {
-            // If the helper method was newly created (not reused), remove it
-            if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-                System.out.println("  DEBUG: Removing unused helper method '" + methodNameToUse + "' (0 replacements).");
-                helperMethod.remove();
-            }
+        // ROLLBACK IF NO REPLACEMENTS (Heuristic: modifiedCUs only has 1 and it's primary, but maybe primary wasn't even changed?)
+        // Let's fix applyReplacements to ONLY return modified CUs.
+        
+        if (modifiedCUs.isEmpty()) {
+            rollbackUnusedHelper(methodNameToUse, recommendation, helperMethod);
             return new RefactoringResult(Map.of(), recommendation.getStrategy(),
                     "Skipped: Could not substitute calls for extracted method " + methodNameToUse);
+        }
+
+        // Ensure primary is in the map for the result if it was modified (it should be if applyReplacements worked)
+        // usage of modifiedCUs in buildRefactoringResult expects primary?
+        if (!modifiedCUs.containsKey(primary.compilationUnit())) {
+             modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath());
         }
 
         return buildRefactoringResult(modifiedCUs, recommendation, methodNameToUse);
     }
 
+    private Map<CompilationUnit, Path> applyReplacements(Map<StatementSequence, MethodCallExpr> preparedReplacements,
+                                                       RefactoringRecommendation recommendation,
+                                                       String forcedReturnVar,
+                                                       com.github.javaparser.ast.type.Type helperReturnType,
+                                                       StatementSequence primary) {
+        Map<CompilationUnit, Path> modifiedCUs = new LinkedHashMap<>();
+        // modifiedCUs.put(primary.compilationUnit(), primary.sourceFilePath()); // Don't add default, add if modified.
+
+        int successfulReplacements = 0;
+        for (Map.Entry<StatementSequence, MethodCallExpr> entry : preparedReplacements.entrySet()) {
+            StatementSequence seq = entry.getKey();
+            boolean applied = applyReplacement(seq, recommendation, entry.getValue(), forcedReturnVar, helperReturnType);
+            if (applied) {
+                successfulReplacements++;
+                modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
+            }
+        }
+        
+        return modifiedCUs;
+    }
+
+    private boolean shouldSkipSequence(StatementSequence seq, String methodNameToUse) {
+        return seq.containingMethod() != null && seq.containingMethod().getNameAsString().equals(methodNameToUse) && isMethodBody(seq);
+    }
+
+    private void handleCallPreparationFailure(String methodNameToUse, RefactoringRecommendation recommendation, MethodDeclaration helperMethod) {
+        if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+            logger.debug("Removing orphaned helper method '{}' due to call preparation failure.", methodNameToUse);
+            helperMethod.remove();
+        }
+    }
+
+    private void rollbackUnusedHelper(String methodNameToUse, RefactoringRecommendation recommendation, MethodDeclaration helperMethod) {
+        if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+            logger.debug("Removing unused helper method '{}' (0 replacements).", methodNameToUse);
+            helperMethod.remove();
+        }
+    }
+
+    // Helper for phase 2 kept inline or extracted? 
+    // The original method had mixed logic. 
+    // To match signature and complexity, I'll keep the surrounding method simple.
+    // However, I need to make sure I don't break the return.
+    
     private RefactoringResult buildRefactoringResult(Map<CompilationUnit, Path> modifiedCUs, 
                                                    RefactoringRecommendation recommendation, 
                                                    String methodNameToUse) {
@@ -1349,35 +1409,43 @@ public class ExtractMethodRefactorer {
     private boolean isVariableAlreadyDeclared(com.github.javaparser.ast.Node context, String varName) {
         if (varName == null) return false;
         try {
-            // 1. Check Fields
-            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz = 
-                context.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
-            if (clazz != null) {
-                for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
-                    for (com.github.javaparser.ast.body.VariableDeclarator v : field.getVariables()) {
-                        if (v.getNameAsString().equals(varName)) return true;
-                    }
-                }
-            }
-
-            // 2. Check Parameters
-            com.github.javaparser.ast.body.MethodDeclaration method = 
-                context.findAncestor(com.github.javaparser.ast.body.MethodDeclaration.class).orElse(null);
-            if (method != null) {
-                for (com.github.javaparser.ast.body.Parameter param : method.getParameters()) {
-                    if (param.getNameAsString().equals(varName)) return true;
-                }
-                
-                // 3. Check Method Body
-                if (method.getBody().isPresent()) {
-                    for (com.github.javaparser.ast.body.VariableDeclarator v : 
-                         method.getBody().get().findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
-                        if (v.getNameAsString().equals(varName)) return true;
-                    }
-                }
-            }
+            if (isDeclaredInFields(context, varName)) return true;
+            if (isDeclaredInParameters(context, varName)) return true;
+            return isDeclaredInMethodBody(context, varName);
         } catch (Exception e) {
             logger.error("Error in isVariableAlreadyDeclared: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    private boolean isDeclaredInFields(com.github.javaparser.ast.Node context, String varName) {
+        var clazz = context.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+        if (clazz != null) {
+            for (var field : clazz.getFields()) {
+                for (var v : field.getVariables()) {
+                    if (v.getNameAsString().equals(varName)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isDeclaredInParameters(com.github.javaparser.ast.Node context, String varName) {
+        var method = context.findAncestor(com.github.javaparser.ast.body.MethodDeclaration.class).orElse(null);
+        if (method != null) {
+            for (var param : method.getParameters()) {
+                if (param.getNameAsString().equals(varName)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isDeclaredInMethodBody(com.github.javaparser.ast.Node context, String varName) {
+        var method = context.findAncestor(com.github.javaparser.ast.body.MethodDeclaration.class).orElse(null);
+        if (method != null && method.getBody().isPresent()) {
+            for (var v : method.getBody().get().findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+                if (v.getNameAsString().equals(varName)) return true;
+            }
         }
         return false;
     }
