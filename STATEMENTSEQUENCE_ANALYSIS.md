@@ -12,7 +12,7 @@
 **Current Status:** Lightweight, immutable, well-designed for its purpose  
 **Usage Frequency:** Very high (100+ references across codebase)  
 **Performance Impact:** Low (optimized - path normalization completed Jan 2026)  
-**Recent Optimizations:** ✅ Path normalization + direct Path.equals() implemented
+**Recent Optimizations:** ✅ Path normalization + direct Path.equals() implemented ✅ startOffset semantic improvement completed
 
 ---
 
