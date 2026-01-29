@@ -18,6 +18,7 @@ import com.raditha.dedup.model.StatementSequence;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.SuperExpr;
+import org.jspecify.annotations.NonNull;
 import sa.com.cloudsolutions.antikythera.evaluator.Reflect;
 import java.nio.file.Path;
 import java.util.*;
@@ -101,10 +102,8 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void addImportIfNeeded(CompilationUnit currentCu) {
         String currentPackage = getPackageName(currentCu);
-        if (!currentPackage.equals(packageName)) {
-            if (!packageName.isEmpty()) {
-                currentCu.addImport(packageName + "." + parentClassName);
-            }
+        if (!currentPackage.equals(packageName) && !packageName.isEmpty()) {
+            currentCu.addImport(packageName + "." + parentClassName);
         }
     }
 
@@ -199,6 +198,23 @@ public class ParentClassExtractor extends AbstractExtractor {
             parentCu.setPackageDeclaration(packageName);
         }
 
+        MethodDeclaration newMethod = createMethod(originalMethod);
+
+        ClassOrInterfaceDeclaration parentClass = parentCu.addClass(parentClassName)
+                .setPublic(true)
+                .setAbstract(true)
+                .setJavadocComment("Common parent class for shared functionality.");
+
+        parentClass.addMember(newMethod);
+
+        CompilationUnit originalCu = originalMethod.findCompilationUnit()
+                .orElseThrow(() -> new IllegalStateException("Original method not part of a CompilationUnit"));
+        copyNeededImports(originalCu, parentCu, newMethod);
+
+        return parentCu;
+    }
+
+    private @NonNull MethodDeclaration createMethod(MethodDeclaration originalMethod) {
         MethodDeclaration newMethod = originalMethod.clone();
         // Clear existing modifiers
         newMethod.getModifiers().clear();
@@ -234,19 +250,7 @@ public class ParentClassExtractor extends AbstractExtractor {
                         stmt, recommendation, paramNameOverrides));
             }
         }
-
-        ClassOrInterfaceDeclaration parentClass = parentCu.addClass(parentClassName)
-                .setPublic(true)
-                .setAbstract(true)
-                .setJavadocComment("Common parent class for shared functionality.");
-
-        parentClass.addMember(newMethod);
-
-        CompilationUnit originalCu = originalMethod.findCompilationUnit()
-                .orElseThrow(() -> new IllegalStateException("Original method not part of a CompilationUnit"));
-        copyNeededImports(originalCu, parentCu, newMethod);
-
-        return parentCu;
+        return newMethod;
     }
 
     /**
@@ -293,41 +297,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void addMethodToExistingParent(ClassOrInterfaceDeclaration parentClass,
             MethodDeclaration method) {
-        MethodDeclaration newMethod = method.clone();
-        // Clear existing modifiers
-        newMethod.getModifiers().clear();
-        // Preserve public visibility, otherwise use protected
-        // (Private methods need to be promoted to protected so subclasses can call super)
-        if (method.isPublic()) {
-            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
-        } else {
-            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
-        }
-        // Preserve static modifier if present
-        if (method.isStatic()) {
-            newMethod.addModifier(Modifier.Keyword.STATIC);
-        }
-
-        Set<String> declaredVars = new HashSet<>();
-        newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
-                .forEach(v -> declaredVars.add(v.getNameAsString())));
-
-        Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
-                declaredVars, recommendation.getSuggestedParameters());
-
-        recommendation.getSuggestedParameters().forEach(p -> {
-            String targetName = paramNameOverrides.getOrDefault(p, p.getName());
-            newMethod.addParameter(p.getType(), targetName);
-        });
-
-        if (newMethod.getBody().isPresent()) {
-            BlockStmt body = newMethod.getBody().get();
-            for (int i = 0; i < body.getStatements().size(); i++) {
-                Statement stmt = body.getStatements().get(i);
-                body.getStatements().set(i, MethodExtractor.substituteParametersStatic(
-                        stmt, recommendation, paramNameOverrides));
-            }
-        }
+        MethodDeclaration newMethod = createMethod(method);
 
         parentClass.addMember(newMethod);
 
@@ -418,12 +388,9 @@ public class ParentClassExtractor extends AbstractExtractor {
         // Check for usage
         method.findAll(NameExpr.class).forEach(name -> {
             String identifier = name.getNameAsString();
-            if (fieldNames.contains(identifier)) {
-                // Check if shadowed by local variable or parameter
-                if (!isShadowed(name, method)) {
+            if (fieldNames.contains(identifier) && !isShadowed(name, method)) {
                     throw new IllegalStateException(
                             "Skipped: Method uses field '" + identifier + "' which is not extracted.");
-                }
             }
         });
     }
@@ -449,35 +416,6 @@ public class ParentClassExtractor extends AbstractExtractor {
         return method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
                 .anyMatch(v -> v.getNameAsString().equals(identifier));
 
-    }
-
-    /**
-     * Checks if two methods are semantically equivalent for the purpose of
-     * replacement.
-     * With parameterization support, we check if they are structurally identical
-     * even if literals differ (assuming those literals are handled by
-     * recommendation).
-     */
-    private boolean areMethodsEquivalent(MethodDeclaration m1, MethodDeclaration m2) {
-        if (!m1.getBody().isPresent() || !m2.getBody().isPresent()) {
-            return false;
-        }
-
-        // Normalize strings by removing all whitespace and literals that should be
-        // parameterized
-        String body1 = normalizeWithLiterals(m1);
-        String body2 = normalizeWithLiterals(m2);
-
-        return body1.equals(body2);
-    }
-
-    private String normalizeWithLiterals(MethodDeclaration method) {
-        String body = method.getBody().get().toString().replaceAll("\\s+", "");
-        // This is a bit simplistic, but usually enough to catch structural differences
-        // while ignoring literal values if they are in the same position.
-        // A better way would be to use JavaParser to replace literals with a
-        // placeholder.
-        return body.replaceAll("\".*?\"", "\"LITERAL\"").replaceAll("\\d+", "0");
     }
 
     private void addLiteralArguments(MethodCallExpr call, MethodDeclaration childMethod) {

@@ -35,10 +35,6 @@ public class ReturnTypeResolver {
     private final SequenceTruncator truncator;
     private final Map<String, CompilationUnit> allCUs;
 
-    public ReturnTypeResolver() {
-        this(new DataFlowAnalyzer(), new SequenceTruncator(), java.util.Collections.emptyMap());
-    }
-
     public ReturnTypeResolver(Map<String, CompilationUnit> allCUs) {
         this(new DataFlowAnalyzer(), new SequenceTruncator(), allCUs);
     }
@@ -92,13 +88,6 @@ public class ReturnTypeResolver {
         }
 
         return new ReturnTypeResult(returnType != null ? returnType : "void", primaryReturnVariable);
-    }
-
-    /**
-     * Determine the return type by analyzing all sequences in the cluster.
-     */
-    public String determineReturnType(DuplicateCluster cluster) {
-        return determineReturnTypeWithVariable(cluster).type();
     }
 
     private record InternalReturnType(String type, String variable) {}
@@ -455,9 +444,5 @@ public class ReturnTypeResolver {
             return fqn.substring(lastDot + 1);
         }
         return fqn;
-    }
-
-    private String findReturnVariable(StatementSequence sequence) {
-        return dataFlowAnalyzer.findReturnVariable(sequence, null);
     }
 }
