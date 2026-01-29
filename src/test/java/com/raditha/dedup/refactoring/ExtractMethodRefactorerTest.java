@@ -74,15 +74,15 @@ class ExtractMethodRefactorerTest {
 
         engine = new RefactoringEngine(
                 tempDir,
-                RefactoringEngine.RefactoringMode.INTERACTIVE,
+                RefactoringEngine.RefactoringMode.BATCH,
                 VerifyMode.NONE);
 
         RefactoringEngine.RefactoringSession session = engine.refactorAll(report);
 
         if (session.getSuccessful().isEmpty()) {
-            System.out.println("Skipped reasons:");
-            session.getSkipped().forEach(s -> System.out.println("- " + s.reason()));
-            session.getFailed().forEach(f -> System.out.println("- FAIL: " + f.error()));
+            System.err.println("Skipped reasons:");
+            session.getSkipped().forEach(s -> System.err.println("- " + s.reason()));
+            session.getFailed().forEach(f -> System.err.println("- FAIL: " + f.error()));
         }
 
         assertEquals(1, session.getSuccessful().size());
@@ -162,8 +162,8 @@ class ExtractMethodRefactorerTest {
                 recommendation,
                 100);
 
-        ExtractMethodRefactorer refactorer = new ExtractMethodRefactorer();
-        ExtractMethodRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+        MethodExtractor refactorer = new MethodExtractor();
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
         
         assertTrue(result.modifiedFiles().isEmpty(), "Should abort and return empty modifications");
         assertTrue(result.description().contains("aborted"), "Message should indicate abort");

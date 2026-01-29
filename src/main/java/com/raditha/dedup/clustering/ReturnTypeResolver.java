@@ -35,10 +35,6 @@ public class ReturnTypeResolver {
     private final SequenceTruncator truncator;
     private final Map<String, CompilationUnit> allCUs;
 
-    public ReturnTypeResolver() {
-        this(new DataFlowAnalyzer(), new SequenceTruncator(), java.util.Collections.emptyMap());
-    }
-
     public ReturnTypeResolver(Map<String, CompilationUnit> allCUs) {
         this(new DataFlowAnalyzer(), new SequenceTruncator(), allCUs);
     }
@@ -92,13 +88,6 @@ public class ReturnTypeResolver {
         }
 
         return new ReturnTypeResult(returnType != null ? returnType : "void", primaryReturnVariable);
-    }
-
-    /**
-     * Determine the return type by analyzing all sequences in the cluster.
-     */
-    public String determineReturnType(DuplicateCluster cluster) {
-        return determineReturnTypeWithVariable(cluster).type();
     }
 
     private record InternalReturnType(String type, String variable) {}
@@ -371,10 +360,19 @@ public class ReturnTypeResolver {
 
     private String inferTypeFromExpression(Expression expr) {
         if (expr.isStringLiteralExpr()) return STRING;
-        if (expr.isIntegerLiteralExpr() || expr.isLongLiteralExpr()) return "int";
+        if (expr.isIntegerLiteralExpr()) return "int";
+        if (expr.isLongLiteralExpr()) return "long";
+        if (expr.isDoubleLiteralExpr()) return DOUBLE;
         if (expr.isBooleanLiteralExpr()) return BOOLEAN;
+        if (expr.isCharLiteralExpr()) return "char";
         if (expr.isObjectCreationExpr()) return expr.asObjectCreationExpr().getType().asString();
-        if (expr.isBinaryExpr()) return STRING;
+        // Conservative binary expression checking
+        if (expr.isBinaryExpr()) {
+            // If any operand is string, result is string
+            if (expr.toString().contains("\"")) return STRING;
+            // Otherwise default to int for safety (could be refined)
+            return "int";
+        }
         return OBJECT;
     }
 
@@ -446,9 +444,5 @@ public class ReturnTypeResolver {
             return fqn.substring(lastDot + 1);
         }
         return fqn;
-    }
-
-    private String findReturnVariable(StatementSequence sequence) {
-        return dataFlowAnalyzer.findReturnVariable(sequence, null);
     }
 }

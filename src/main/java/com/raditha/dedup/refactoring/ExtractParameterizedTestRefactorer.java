@@ -11,10 +11,10 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
-import com.raditha.dedup.model.SimilarityPair;
 
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Refactorer that converts duplicate test methods with varying data into
@@ -35,6 +35,31 @@ public class ExtractParameterizedTestRefactorer {
         // Extract parameters from all duplicate instances
         List<TestInstance> testInstances = extractTestInstances(cluster);
 
+        // Filter instances to ensure consistency (robustness against partial matches)
+        // Group instances by parameter count to find the dominant pattern
+        Map<Integer, List<TestInstance>> byParamCount = testInstances.stream()
+                .collect(Collectors.groupingBy(i -> i.literals.size()));
+
+
+
+        // Select the largest group (most common parameter count)
+        testInstances = byParamCount.values().stream()
+                .max(Comparator.comparingInt(List::size))
+                .orElse(List.of());
+        
+        // Safety Check: Do not attempt to parameterize a method that is already a ParameterizedTest.
+        // This prevents Pass 2 from destructively merging distinct parameterized tests created in Pass 1.
+        boolean anyAlreadyParameterized = testInstances.stream()
+                .anyMatch(inst -> inst.method.getAnnotationByName("ParameterizedTest").isPresent());
+        
+        if (anyAlreadyParameterized) {
+             throw new IllegalStateException("Cannot recursively parameterize existing @ParameterizedTest methods.");
+        }
+
+        if (testInstances.isEmpty()) {
+             // No instances selected. Aborting.
+        }
+
         if (testInstances.size() < 3) {
             throw new IllegalArgumentException(
                     "Need at least 3 similar tests for parameterization, found: " + testInstances.size());
@@ -44,8 +69,11 @@ public class ExtractParameterizedTestRefactorer {
         List<ParameterInfo> parameters = analyzeParameters(testInstances);
 
         // Create the parameterized test method
+        // Use the first consistent instance as the template to ensure body matches parameters
+        MethodDeclaration checkMethod = testInstances.get(0).method;
+
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
-                cluster.primary().containingMethod(),
+                checkMethod,
                 recommendation.getSuggestedMethodName(),
                 parameters,
                 testInstances);
@@ -64,23 +92,30 @@ public class ExtractParameterizedTestRefactorer {
 
     /**
      * Extract test instances from cluster.
+     * 
+     * <p><b>Important:</b> This method uses {@link DuplicateCluster#allSequences()} 
+     * which returns a stream of unique {@link TestInstance} objects (deduplicated by range/file).
+     * 
+     * <p>Using {@code allSequences()} is critical for two reasons:
+     * <ol>
+     *   <li><b>Deduplication:</b> It filters out duplicate occurrences of the same code block found in pairs,
+     *       preventing duplicate entries in the {@code @CsvSource}.</li>
+     *   <li><b>Correctness:</b> It provides the exact {@code StatementSequence} matched by the clusterer,
+     *       which contains the specific list of statements ({@code seq.statements()}). 
+     *       Attempting to re-parse the whole method body (e.g., via {@code seq.containingMethod().getBody()})
+     *       is incorrect because it may include extra statements not part of the match, leading to 
+     *       "Inconsistent literal counts" errors during parameterization.</li>
+     * </ol>
+     * 
+     * @param cluster The duplicate cluster containing similar test methods
+     * @return List of unique test instances, one per unique sequence
      */
     private List<TestInstance> extractTestInstances(DuplicateCluster cluster) {
-        List<TestInstance> instances = new ArrayList<>();
-
-        // Add primary
-        instances.add(new TestInstance(
-                cluster.primary().containingMethod(),
-                extractLiterals(cluster.primary().statements())));
-
-        // Add duplicates
-        for (SimilarityPair pair : cluster.duplicates()) {
-            instances.add(new TestInstance(
-                    pair.seq2().containingMethod(),
-                    extractLiterals(pair.seq2().statements())));
-        }
-
-        return instances;
+        return cluster.allSequences().stream()
+            .map(seq -> new TestInstance(
+                seq.containingMethod(),
+                extractLiterals(seq.statements())))
+            .toList();
     }
 
     /**
@@ -131,11 +166,10 @@ public class ExtractParameterizedTestRefactorer {
         List<ParameterInfo> parameters = new ArrayList<>();
 
         for (int i = 0; i < paramCount; i++) {
-            final int index = i;
             String type = instances.get(0).literals.get(i).type;
-            String name = generateParameterName(index, paramCount);
+            String name = generateParameterName(i, paramCount);
 
-            parameters.add(new ParameterInfo(name, type, index));
+            parameters.add(new ParameterInfo(name, type, i));
         }
 
         return parameters;
@@ -185,10 +219,61 @@ public class ExtractParameterizedTestRefactorer {
 
         // Copy and parameterize the method body
         if (originalMethod.getBody().isPresent()) {
-            method.setBody(originalMethod.getBody().get().clone());
+            com.github.javaparser.ast.stmt.BlockStmt newBody = originalMethod.getBody().get().clone();
+            
+            // Logic to replace literals with parameter names
+            // We search for the sequence of literals that matches the *template instance's* values
+            // This handles partial matches where the method body contains more literals than the parameters
+            List<LiteralExpr> bodyLiterals = newBody.findAll(LiteralExpr.class);
+            List<LiteralValue> targetLiterals = instances.get(0).literals;
+
+            // Use robust subsequence matching to replacement literals even if there are gaps
+            replaceMatchingLiterals(bodyLiterals, targetLiterals, parameters);
+            
+            method.setBody(newBody);
         }
 
         return method;
+    }
+
+    /**
+     * Replace literals in the body that match the target sequence, allowing for gaps.
+     * This handles cases where the duplication sequence is a subset of the method body.
+     */
+    private void replaceMatchingLiterals(List<LiteralExpr> bodyLiterals, List<LiteralValue> targetLiterals, List<ParameterInfo> parameters) {
+        int targetIdx = 0;
+        int bodyIdx = 0;
+
+        while (targetIdx < targetLiterals.size() && bodyIdx < bodyLiterals.size()) {
+            LiteralExpr bodyLit = bodyLiterals.get(bodyIdx);
+            LiteralValue targetLit = targetLiterals.get(targetIdx);
+
+            // Check match
+            boolean match = false;
+            String bodyValue = bodyLit.toString();
+            String bodyType = determineLiteralType(bodyLit);
+
+            if (bodyType.equals(targetLit.type) && bodyValue.equals(targetLit.value)) {
+                match = true;
+            }
+
+            if (match) {
+                // Replace
+                ParameterInfo param = parameters.get(targetIdx);
+                bodyLit.replace(new NameExpr(param.name));
+                
+                // Advance both
+                targetIdx++;
+                bodyIdx++;
+            } else {
+                // Advance body only (skip non-matching literal)
+                bodyIdx++;
+            }
+        }
+        
+        if (targetIdx < targetLiterals.size()) {
+             // Debug or log: Could not replace all parameters.
+        }
     }
 
     /**
@@ -199,14 +284,14 @@ public class ExtractParameterizedTestRefactorer {
 
         for (TestInstance instance : instances) {
             String row = instance.literals.stream()
-                    .map(l -> l.value.replace("\"", ""))
+                    .map(l -> cleanLiteralValue(l.value, l.type))
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
             rows.add("\"" + row + "\"");
         }
 
         String csvData = "{\n        " +
-                String.join(",\n        ", rows) +
+                rows.stream().distinct().collect(Collectors.joining(",\n        ")) +
                 "\n    }";
 
         // Create annotation manually
@@ -263,6 +348,23 @@ public class ExtractParameterizedTestRefactorer {
     /**
      * Result of a refactoring operation.
      */
+    private String cleanLiteralValue(String rawValue, String type) {
+        if ("String".equals(type)) {
+            // Remove surrounding quotes
+            if (rawValue.startsWith("\"") && rawValue.endsWith("\"")) {
+                return rawValue.substring(1, rawValue.length() - 1);
+            }
+            return rawValue.replace("\"", "");
+        } else if ("long".equals(type)) {
+            return rawValue.toUpperCase().replace("L", "");
+        } else if ("float".equals(type)) {
+            return rawValue.toUpperCase().replace("F", "");
+        } else if ("double".equals(type)) {
+             return rawValue.toUpperCase().replace("D", "");
+        }
+        return rawValue;
+    }
+
     public record RefactoringResult(Path sourceFile, String refactoredCode) {
     }
 }

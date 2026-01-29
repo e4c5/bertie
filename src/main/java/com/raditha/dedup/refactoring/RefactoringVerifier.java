@@ -10,26 +10,27 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import com.raditha.dedup.cli.VerifyMode;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.parser.MavenHelper;
 
 import javax.tools.*;
-import java.io.StringWriter;
-import java.util.Arrays;
-import java.util.Collections;
 
 /**
  * Verifies refactored code compiles and tests pass.
  * Handles rollback on failure.
  */
 public class RefactoringVerifier {
+    private static final Logger logger = LoggerFactory.getLogger(RefactoringVerifier.class);
 
     private final Path projectRoot;
     private final Map<Path, String> backups = new HashMap<>();
     private final List<Path> createdFiles = new ArrayList<>();
     private final VerifyMode verificationLevel;
+    private String cachedClasspath;
+    private String cachedSourcepath;
 
     public RefactoringVerifier(Path projectRoot) {
         this(projectRoot, VerifyMode.COMPILE);
@@ -46,6 +47,7 @@ public class RefactoringVerifier {
     public void createBackup(Path file) throws IOException {
         if (!Files.exists(file)) {
             createdFiles.add(file);
+            invalidateCache();
             return;
         }
         String originalContent = Files.readString(file);
@@ -91,7 +93,7 @@ public class RefactoringVerifier {
     /**
      * Run fast in-process compilation using JavaCompiler API.
      */
-    private CompilationResult runFastCompile() {
+    CompilationResult runFastCompile() {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) {
              return new CompilationResult(false, List.of("No Java compiler provided. Please ensure you are running with a JDK, not a JRE."), "");
@@ -135,9 +137,7 @@ public class RefactoringVerifier {
             
         } finally {
             closeFileManager(fileManager);
-            if (tempOutput != null) {
-                deleteDirectoryRecursively(tempOutput);
-            }
+            deleteDirectoryRecursively(tempOutput);
         }
     }
 
@@ -172,7 +172,12 @@ public class RefactoringVerifier {
     private List<String> buildCompilerOptions(Path tempOutput) {
         List<String> options = new ArrayList<>();
         options.add("-classpath");
-        options.add(buildClasspath());
+        options.add(getClasspath());
+        
+        // Add source path so compiler can find other classes in the project
+        options.add("-sourcepath");
+        options.add(getSourcepath());
+
         options.add("-d");
         options.add(tempOutput.toString());
         
@@ -191,7 +196,10 @@ public class RefactoringVerifier {
     /**
      * Build the classpath string for compilation.
      */
-    private String buildClasspath() {
+    String getClasspath() {
+        if (cachedClasspath != null) {
+            return cachedClasspath;
+        }
         StringBuilder cp = new StringBuilder();
         // 1. External dependencies
         for (String jar : MavenHelper.getJarPaths()) {
@@ -200,7 +208,28 @@ public class RefactoringVerifier {
         // 2. Project classes (so we can resolve other classes in the project)
         cp.append(projectRoot.resolve("target/classes")).append(java.io.File.pathSeparator);
         cp.append(projectRoot.resolve("target/test-classes"));
-        return cp.toString();
+        cachedClasspath = cp.toString();
+        return cachedClasspath;
+    }
+
+    String getSourcepath() {
+        if (cachedSourcepath != null) {
+            return cachedSourcepath;
+        }
+        StringBuilder sp = new StringBuilder();
+        sp.append(projectRoot.resolve("src/main/java")).append(java.io.File.pathSeparator);
+        sp.append(projectRoot.resolve("src/test/java"));
+        cachedSourcepath = sp.toString();
+        return cachedSourcepath;
+    }
+
+    /**
+     * Invalidate the cached classpath and sourcepath.
+     * Should be called when the project structure changes (e.g., new file created).
+     */
+    public void invalidateCache() {
+        cachedClasspath = null;
+        cachedSourcepath = null;
     }
 
     /**
@@ -221,20 +250,20 @@ public class RefactoringVerifier {
         return errors;
     }
 
-    private void deleteDirectoryRecursively(Path path) {
+    void deleteDirectoryRecursively(Path path) {
         try (java.util.stream.Stream<Path> walk = Files.walk(path)) {
             walk.sorted(java.util.Comparator.reverseOrder())
                 .map(Path::toFile)
                 .forEach(java.io.File::delete);
         } catch (IOException e) {
-            System.err.println("Failed to cleanup temp directory: " + path + " - " + e.getMessage());
+            logger.warn("Failed to cleanup temp directory: {} {}" , path, e.getMessage());
         }
     }
 
     /**
      * Run maven compile.
      */
-    private CompilationResult runMavenCompile() throws IOException, InterruptedException {
+     CompilationResult runMavenCompile() throws IOException, InterruptedException {
         List<String> command = new ArrayList<>();
         command.add("mvn");
         command.add("test-compile");
@@ -263,7 +292,7 @@ public class RefactoringVerifier {
     /**
      * Run maven test.
      */
-    private TestResult runMavenTest() throws IOException, InterruptedException {
+    TestResult runMavenTest() throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder("mvn", "test", "-q");
         pb.directory(projectRoot.toFile());
         pb.redirectErrorStream(true);
@@ -281,7 +310,7 @@ public class RefactoringVerifier {
     /**
      * Read process output.
      */
-    private String readOutput(Process process) throws IOException {
+    String readOutput(Process process) throws IOException {
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream()))) {
@@ -296,7 +325,7 @@ public class RefactoringVerifier {
     /**
      * Extract error messages from maven output.
      */
-    private List<String> extractErrors(String output) {
+    List<String> extractErrors(String output) {
         List<String> errors = new ArrayList<>();
         String[] lines = output.split("\n");
 
@@ -339,11 +368,6 @@ public class RefactoringVerifier {
     }
 
     /**
-     * Verification levels.
-     */
-    // VerifyMode import replaces VerificationLevel enum
-
-    /**
      * Result of verification.
      */
     public record VerificationResult(boolean success, List<String> errors, String message) {
@@ -352,15 +376,9 @@ public class RefactoringVerifier {
         }
     }
 
-    /**
-     * Result of compilation.
-     */
-    private record CompilationResult(boolean success, List<String> errors, String output) {
+    record CompilationResult(boolean success, List<String> errors, String output) {
     }
 
-    /**
-     * Result of test execution.
-     */
-    private record TestResult(boolean success, List<String> errors, String output) {
+    record TestResult(boolean success, List<String> errors, String output) {
     }
 }

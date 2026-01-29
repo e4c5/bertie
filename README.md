@@ -28,7 +28,7 @@ Bertie is an intelligent duplication detector that automatically finds and refac
 ### Key Features
 
 - 🔍 **Smart Detection**: Multi-algorithm similarity analysis (AST-LCS, Levenshtein, Structural)
-- 🤖 **Intelligent Refactoring**: 4 automatic strategies (Extract Method, BeforeEach, ParameterizedTest, Utility Class)
+- 🤖 **Intelligent Refactoring**: 4 automatic strategies (Extract Method, BeforeEach, ParameterizedTest, Utility Class) with **Iterative Execution** for tests
 - 🎯 **AI-Powered Naming**: Generates meaningful method names using Gemini AI
 - 🛡️ **Safe Refactoring**: Automatic backups, compilation verification, rollback on failure
 - 📊 **Metrics Export**: CSV and JSON export for dashboards and CI/CD integration

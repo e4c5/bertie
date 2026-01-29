@@ -7,11 +7,4 @@ package com.raditha.dedup.clustering;
  * @param returnVariable The name of the variable to return (if applicable)
  */
 public record ReturnTypeResult(String returnType, String returnVariable) {
-    
-    /**
-     * Create a void return result.
-     */
-    public static ReturnTypeResult voidResult() {
-        return new ReturnTypeResult("void", null);
-    }
 }

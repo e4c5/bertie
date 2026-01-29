@@ -101,10 +101,21 @@ public class SequenceTruncator {
         if (count >= fullSequence.statements().size()) {
             return fullSequence;
         }
+        Range fullRange = fullSequence.range();
+        if (count <= 0) {
+            // Return empty sequence or smallest possible valid chunk? 
+            // In most cases count=0 means invalid truncation, so return empty list
+            return new StatementSequence(
+                    java.util.Collections.emptyList(),
+                    new Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(), fullRange.startColumn()),
+                    fullSequence.startOffset(),
+                    fullSequence.containingMethod(),
+                    fullSequence.compilationUnit(),
+                    fullSequence.sourceFilePath());
+        }
         List<Statement> prefixStmts = fullSequence.statements().subList(0, count);
 
         // Calculate new range based on prefix statements
-        Range fullRange = fullSequence.range();
         int endLine = prefixStmts.get(count - 1).getEnd().map(p -> p.line).orElse(fullRange.endLine());
         int endColumn = prefixStmts.get(count - 1).getEnd().map(p -> p.column).orElse(fullRange.endColumn());
 

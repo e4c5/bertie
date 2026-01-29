@@ -219,17 +219,12 @@ public void method2() {
 }
 ```
 
-### 2. Extract to @BeforeEach
-Consolidates duplicate test setup code.
-
-**Best for**: JUnit test classes with repeated setup
-
-### 3. Extract to @ParameterizedTest
+### 2. Extract to @ParameterizedTest
 Converts similar tests with different data into parameterized tests.
 
 **Best for**: Multiple test methods testing the same logic with different inputs
 
-### 4. Extract to Utility Class
+### 3. Extract to Utility Class
 Moves stateless helper methods to a dedicated utility class.
 
 **Best for**: Static methods duplicated across multiple classes

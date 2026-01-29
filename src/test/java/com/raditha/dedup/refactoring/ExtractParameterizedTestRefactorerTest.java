@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -327,6 +328,103 @@ class ExtractParameterizedTestRefactorerTest {
         assertEquals(1, parameterizedTests, "Should have one @ParameterizedTest method");
     }
 
+    @Test
+    void testNoDuplicateCsvSourceEntries() throws IOException {
+        String testCode = """
+                import org.junit.jupiter.api.Test;
+                import static org.junit.jupiter.api.Assertions.*;
+
+                class DuplicateTest {
+                    @Test
+                    void testA() { assertEquals(1, calc(1)); }
+
+                    @Test
+                    void testB() { assertEquals(2, calc(2)); }
+
+                    @Test
+                    void testC() { assertEquals(3, calc(3)); }
+
+                    @Test
+                    void testD() { assertEquals(4, calc(4)); }
+
+                    @Test
+                    void testE() { assertEquals(5, calc(5)); }
+
+                    int calc(int x) { return x; }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(testCode);
+        DuplicateCluster cluster = createMockCluster(cu, 5);
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST,
+                "testCalc",
+                List.of(),
+                null,
+                "DuplicateTest",
+                0.92,
+                8);
+
+        ExtractParameterizedTestRefactorer.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+
+        String refactored = result.refactoredCode();
+
+        // Extract the @CsvSource annotation content
+        assertTrue(refactored.contains("@CsvSource"), "Should have @CsvSource annotation");
+
+        // Parse the refactored code and extract CSV values
+        CompilationUnit refactoredCu = StaticJavaParser.parse(refactored);
+        var csvAnnotation = refactoredCu.findFirst(com.github.javaparser.ast.expr.NormalAnnotationExpr.class,
+                a -> a.getNameAsString().equals("CsvSource"))
+                .orElseThrow(() -> new AssertionError("@CsvSource annotation not found"));
+
+        // Extract the value array from the annotation
+        String csvContent = csvAnnotation.toString();
+        
+        // Count the number of CSV rows (each row is quoted)
+        int rowCount = 0;
+        for (int i = 0; i < csvContent.length() - 1; i++) {
+            if (csvContent.charAt(i) == '"' && csvContent.charAt(i + 1) != '"') {
+                rowCount++;
+            }
+        }
+        // Divide by 2 because each row has opening and closing quotes
+        rowCount = rowCount / 2;
+
+        // Should have exactly 5 unique entries (one per test method), not more
+        assertEquals(5, rowCount, 
+            "Should have exactly 5 CSV entries (one per unique test method), not duplicates. " +
+            "If this fails, the extractTestInstances method is creating duplicate TestInstance objects.");
+
+        // Verify the CSV content doesn't have obvious duplicates
+        assertFalse(csvContent.matches(".*\"(\\d+)\".*\"\\1\".*"), 
+            "CSV should not contain duplicate rows with the same value");
+    }
+
+    /**
+     * Create a mock cluster for testing.
+     * 
+     * <p>This creates a realistic cluster with cross-pairs between methods to properly
+     * test duplicate detection. For N methods, it creates pairs between all combinations,
+     * simulating what DuplicateClusterer would produce for a connected component.
+     * 
+     * <p>For example, with 3 methods (A, B, C), it creates:
+     * <ul>
+     *   <li>Primary: A</li>
+     *   <li>Pair 1: A vs B</li>
+     *   <li>Pair 2: A vs C</li>
+     *   <li>Pair 3: B vs C</li>
+     * </ul>
+     * 
+     * <p>This structure exposes the duplicate bug: if we naively iterate through pairs
+     * and extract seq2(), method C would be added twice (from pairs 2 and 3).
+     * 
+     * <p><b>Important:</b> Each StatementSequence must have a unique range because
+     * {@link StatementSequence#equals} only compares range, startOffset, and sourceFilePath
+     * (not containingMethod). Without unique ranges, all sequences would be considered equal
+     * and {@link DuplicateCluster#getContainingMethods()} would return only one method.
+     */
     private DuplicateCluster createMockCluster(CompilationUnit cu, int testCount) {
         ClassOrInterfaceDeclaration testClass = cu.findFirst(ClassOrInterfaceDeclaration.class)
                 .orElseThrow();
@@ -341,34 +439,41 @@ class ExtractParameterizedTestRefactorerTest {
             testMethods = testClass.getMethods().stream().limit(testCount).toList();
         }
 
-        MethodDeclaration firstTest = testMethods.get(0);
-        var statements = firstTest.getBody().orElseThrow().getStatements();
+        // Create StatementSequence for each method with UNIQUE ranges
+        // This is critical because StatementSequence.equals() only compares range/offset,
+        // not the containingMethod. Without unique ranges, all sequences would be equal.
+        List<StatementSequence> sequences = new ArrayList<>();
+        for (int i = 0; i < testMethods.size(); i++) {
+            MethodDeclaration method = testMethods.get(i);
+            var statements = method.getBody().orElseThrow().getStatements();
+            
+            // Give each sequence a unique range based on its index
+            // This ensures StatementSequence.equals() treats them as distinct
+            StatementSequence seq = new StatementSequence(
+                    statements.stream().toList(),
+                    new Range(i * 10 + 1, i * 10 + statements.size(), 1, 1), // Unique range per method
+                    0,
+                    method,
+                    cu,
+                    Paths.get("Test.java"));
+            sequences.add(seq);
+        }
 
-        StatementSequence seq = new StatementSequence(
-                statements.stream().toList(),
-                new Range(1, statements.size(), 1, 1),
-                0,
-                firstTest,
-                cu,
-                Paths.get("Test.java"));
+        // Primary is the first sequence
+        StatementSequence primary = sequences.get(0);
 
-        // Create similarity pairs for remaining methods
-        List<SimilarityPair> duplicates = testMethods.stream()
-                .skip(1)
-                .map(method -> {
-                    var stmts = method.getBody().orElseThrow().getStatements();
-                    StatementSequence seq2 = new StatementSequence(
-                            stmts.stream().toList(),
-                            new Range(1, stmts.size(), 1, 1),
-                            0,
-                            method,
-                            cu,
-                            Paths.get("Test.java"));
-                    return new SimilarityPair(seq, seq2,
-                            new SimilarityResult(0.95, 0.95, 0.95, 0.95, 0, 0, null, null, true));
-                })
-                .toList();
+        // Create cross-pairs between all methods (simulating a connected component)
+        // This creates pairs: (0,1), (0,2), (1,2), (0,3), (1,3), (2,3), etc.
+        List<SimilarityPair> duplicates = new ArrayList<>();
+        for (int i = 0; i < sequences.size(); i++) {
+            for (int j = i + 1; j < sequences.size(); j++) {
+                duplicates.add(new SimilarityPair(
+                        sequences.get(i),
+                        sequences.get(j),
+                        new SimilarityResult(0.95, 0.95, 0.95, 0.95, 0, 0, null, null, true)));
+            }
+        }
 
-        return new DuplicateCluster(seq, duplicates, null, testCount * 2);
+        return new DuplicateCluster(primary, duplicates, null, testCount * 2);
     }
 }

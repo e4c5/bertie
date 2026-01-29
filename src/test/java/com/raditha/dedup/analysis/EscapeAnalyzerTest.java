@@ -58,8 +58,8 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        // Test analyze method
-        assertTrue(analyzer.analyze(sequence));
+        // Test analyze method - should have escaping variables
+        assertFalse(analyzer.analyze(sequence).isEmpty());
     }
 
     @Test
@@ -80,7 +80,7 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        assertFalse(analyzer.analyze(sequence));
+        assertTrue(analyzer.analyze(sequence).isEmpty());
     }
 
     @Test
@@ -99,7 +99,7 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        assertTrue(analyzer.analyze(sequence));
+        assertFalse(analyzer.analyze(sequence).isEmpty());
     }
 
     @Test
@@ -131,6 +131,6 @@ class EscapeAnalyzerTest {
                 cu,
                 Paths.get("Test.java"));
 
-        assertTrue(analyzer.analyze(sequence));
+        assertFalse(analyzer.analyze(sequence).isEmpty());
     }
 }

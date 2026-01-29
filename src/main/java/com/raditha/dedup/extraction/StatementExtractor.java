@@ -2,6 +2,7 @@ package com.raditha.dedup.extraction;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.nodeTypes.NodeWithBody;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.raditha.dedup.analysis.BoundaryRefiner;
@@ -78,8 +79,11 @@ public class StatementExtractor {
     public List<StatementSequence> extractSequences(CompilationUnit cu, Path sourceFile) {
         List<StatementSequence> sequences = new ArrayList<>();
         
+        // Normalize path once for all sequences from this file
+        Path normalizedSourceFile = sourceFile != null ? sourceFile.toAbsolutePath().normalize() : null;
+        
         // Visit all methods in the compilation unit
-        cu.accept(new MethodVisitor(sequences, cu, sourceFile), null);
+        cu.accept(new MethodVisitor(sequences, cu, normalizedSourceFile), null);
         
         return sequences;
     }
@@ -141,26 +145,10 @@ public class StatementExtractor {
                 processTryBlock(method, tryStmt);
             } else if (stmt instanceof IfStmt ifStmt) {
                 processIfBlock(method, ifStmt);
-            } else if (stmt instanceof WhileStmt whileStmt) {
-                if (whileStmt.getBody() instanceof BlockStmt) {
-                    extractFromBlock((BlockStmt) whileStmt.getBody(), method);
-                }
-            } else if (stmt instanceof ForStmt forStmt) {
-                if (forStmt.getBody() instanceof BlockStmt) {
-                    extractFromBlock((BlockStmt) forStmt.getBody(), method);
-                }
-            } else if (stmt instanceof ForEachStmt forEachStmt) {
-                if (forEachStmt.getBody() instanceof BlockStmt) {
-                    extractFromBlock((BlockStmt) forEachStmt.getBody(), method);
-                }
-            } else if (stmt instanceof DoStmt doStmt) {
-                if (doStmt.getBody() instanceof BlockStmt) {
-                    extractFromBlock((BlockStmt) doStmt.getBody(), method);
-                }
-            } else if (stmt instanceof SynchronizedStmt syncStmt) {
-                extractFromBlock(syncStmt.getBody(), method);
             } else if (stmt instanceof SwitchStmt switchStmt) {
                 processSwitchBlock(method, switchStmt);
+            } else if (stmt instanceof NodeWithBody<?> block && block.getBody() instanceof BlockStmt blockStmt) {
+                extractFromBlock(blockStmt, method);
             }
         }
 
@@ -191,13 +179,13 @@ public class StatementExtractor {
 
         private void processIfBlock(MethodDeclaration method, IfStmt ifStmt) {
             // Extract from then branch
-            if (ifStmt.getThenStmt() instanceof BlockStmt) {
-                extractFromBlock((BlockStmt) ifStmt.getThenStmt(), method);
+            if (ifStmt.getThenStmt() instanceof BlockStmt blockStmt) {
+                extractFromBlock(blockStmt, method);
             }
             // Extract from else branch if present
             ifStmt.getElseStmt().ifPresent(elseStmt -> {
-                if (elseStmt instanceof BlockStmt) {
-                    extractFromBlock((BlockStmt) elseStmt, method);
+                if (elseStmt instanceof BlockStmt blockStmt) {
+                    extractFromBlock(blockStmt, method);
                 } else if (elseStmt instanceof IfStmt) {
                     // Handle else-if chains
                     processNestedBlocks(elseStmt, method);

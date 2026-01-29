@@ -2,7 +2,6 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
@@ -146,45 +145,21 @@ public class RefactoringRecommendationGenerator {
                 .allMatch(this::isTestFile);
 
         if (allTestFiles) {
-            // Strategy 2: Extract to @BeforeEach
-            // Logic: All duplicates must start at the beginning of their methods
-            boolean allAtStart = cluster.allSequences().stream()
-                    .allMatch(this::isAtStartOfMethod);
-            
-            if (allAtStart) {
-                return RefactoringStrategy.EXTRACT_TO_BEFORE_EACH;
-            }
-
-            // Strategy 3: Extract to @ParameterizedTest
+            // Strategy: Extract to @ParameterizedTest
             // Logic: If we have multiple sequences in the same file with similar structure
             // but different literals (handled by clustering), recommend parameterization.
             // We need 3+ instances for it to be worthwhile.
-            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster)) {
+            // FIXED: Only recommend if the sequence was NOT truncated.
+            // If it was truncated, it means there are structural differences near the end,
+            // so we should fallback to Helper Method extraction for safely extracting the common prefix.
+            boolean isTruncated = primarySeq.statements().size() < cluster.primary().statements().size();
+            
+            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster) && !isTruncated) {
                 return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
             }
         }
 
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
-    }
-
-    private boolean isAtStartOfMethod(StatementSequence seq) {
-        MethodDeclaration method = seq.containingMethod();
-        if (method == null || method.getBody().isEmpty())
-            return false;
-
-        List<Statement> methodStmts = method.getBody().get().getStatements();
-        if (methodStmts.isEmpty())
-            return false;
-
-        Statement firstInSeq = seq.statements().get(0);
-
-        // Find the index of the first statement of the sequence in the method body
-        for (int i = 0; i < methodStmts.size(); i++) {
-            if (methodStmts.get(i) == firstInSeq) {
-                return i == 0;
-            }
-        }
-        return false;
     }
 
     private boolean isCrossFileDuplication(DuplicateCluster cluster) {
@@ -214,8 +189,12 @@ public class RefactoringRecommendationGenerator {
             }
         }
         ReturnVisitor visitor = new ReturnVisitor();
-        for (Statement stmt : seq.statements()) {
-            if (stmt.isReturnStmt()) continue;
+        List<Statement> stmts = seq.statements();
+        for (int i = 0; i < stmts.size(); i++) {
+            Statement stmt = stmts.get(i);
+            // Top-level return at the end of the sequence is OK
+            if (stmt.isReturnStmt() && i == stmts.size() - 1) continue;
+            
             if (Boolean.TRUE.equals(stmt.accept(visitor, null))) {
                 return true;
             }

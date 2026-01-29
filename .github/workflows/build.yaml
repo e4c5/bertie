@@ -35,6 +35,7 @@ jobs:
         run: |
           git clone https://github.com/Cloud-Solutions-International/antikythera-common.git ../antikythera-common
           git clone https://github.com/Cloud-Solutions-International/antikythera-agent.git ../antikythera-agent
+          git clone https://github.com/Cloud-Solutions-International/antikythera.git ../antikythera
           git clone https://github.com/Cloud-Solutions-International/antikythera-test-helper.git ../antikythera-test-helper
           git clone https://github.com/Cloud-Solutions-International/antikythera-sample-project.git ../antikythera-sample-project
 
@@ -45,13 +46,13 @@ jobs:
           java-version: '21'
 
       - name: Build antikythera-common
-        run: cd ../antikythera-common && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+        run: cd ../antikythera-common && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install -DskipTests
 
       - name: Build antikythera-agent
-        run: cd ../antikythera-agent && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+        run: cd ../antikythera-agent && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install  -DskipTests
 
-      - name: Build antikythera-sample-project
-        run: cd ../antikythera-sample-project && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
+      - name: Build antikythera
+        run: cd ../antikythera && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install  -DskipTests
 
       - name: Build and Test
         run: MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install

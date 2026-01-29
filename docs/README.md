@@ -78,7 +78,7 @@ mvn exec:java -Dexec.args="analyze --export csv"
 - **Similarity Threshold**: 0.0-1.0 (default: 0.75 = 75% similar)
 - **Min Lines**: Minimum statements to consider (default: 5)
 - **Clusters**: Groups of related duplicates
-- **Strategies**: Extract Method, BeforeEach, ParameterizedTest, Utility Class
+- **Strategies**: Extract Method, ParameterizedTest, Utility Class, Parent Class
 
 ---
 

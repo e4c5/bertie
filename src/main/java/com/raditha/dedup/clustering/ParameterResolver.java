@@ -11,14 +11,12 @@ import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ExtractionPlan;
 import com.raditha.dedup.model.ParameterSpec;
-import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.VariableReference;
 import com.raditha.dedup.model.VariationAnalysis;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -56,23 +54,52 @@ public class ParameterResolver {
             DuplicateCluster cluster,
             int validStatementCount) {
 
-        DataFlowAnalyzer.SequenceAnalysis primaryAnalysis = dataFlowAnalyzer.analyzeSequenceVariables(cluster.primary());
+        StatementSequence effectiveSequence = cluster.primary();
+        if (validStatementCount > 0 && validStatementCount < cluster.primary().statements().size()) {
+             // Replicate truncation logic to ensure we analyze the exact code that will be extracted
+             java.util.List<Statement> prefixStmts = cluster.primary().statements().subList(0, validStatementCount);
+             com.raditha.dedup.model.Range fullRange = cluster.primary().range();
+             
+             // Calculate new range end based on last stmt
+             Statement last = prefixStmts.get(validStatementCount - 1);
+             int endLine = last.getEnd().map(p -> p.line).orElse(fullRange.endLine());
+             int endColumn = last.getEnd().map(p -> p.column).orElse(fullRange.endColumn());
+             
+             com.raditha.dedup.model.Range prefixRange = new com.raditha.dedup.model.Range(
+                 fullRange.startLine(), fullRange.startColumn(), endLine, endColumn);
+                 
+             effectiveSequence = new StatementSequence(
+                 prefixStmts, prefixRange, cluster.primary().startOffset(),
+                 cluster.primary().containingMethod(), cluster.primary().compilationUnit(),
+                 cluster.primary().sourceFilePath());
+        }
+
+
+
+        DataFlowAnalyzer.SequenceAnalysis primaryAnalysis = dataFlowAnalyzer.analyzeSequenceVariables(effectiveSequence);
+
+        
         ExtractionPlan extractionPlan = extractor.extractParameters(analysis);
         List<ParameterSpec> parameters = new ArrayList<>(extractionPlan.parameters());
 
         addArgumentsAsParameters(extractionPlan, parameters);
 
-        List<ParameterSpec> capturedParams = identifyCapturedParameters(cluster.primary(), parameters, primaryAnalysis);
-        parameters.addAll(capturedParams);
-
-        parameters = filterInternalParameters(parameters, cluster, primaryAnalysis);
-
-        parameters = refineParameterTypes(parameters, cluster);
-
+        // CRITICAL FIX: Filter truncated parameters (future variations) BEFORE identifying captured parameters
+        // This ensures that if a variable is found as a variation in the cut-off part, it is removed,
+        // allowing identifyCapturedParameters to correctly add it back if it is needed in the retained part.
         if (validStatementCount != -1 && validStatementCount < cluster.primary().statements().size()
                 && validStatementCount > 0) {
             parameters = filterTruncatedParameters(parameters, cluster.primary(), validStatementCount);
         }
+
+        List<ParameterSpec> capturedParams = identifyCapturedParameters(effectiveSequence, parameters, primaryAnalysis);
+        parameters.addAll(capturedParams);
+
+        parameters = filterInternalParameters(parameters, cluster, primaryAnalysis);
+        
+
+
+        parameters = refineParameterTypes(parameters, cluster);
 
         return parameters;
     }
@@ -109,15 +136,14 @@ public class ParameterResolver {
 
         List<ParameterSpec> capturedParams = new ArrayList<>();
         for (String varName : capturedVars) {
-            if (shouldSkipCapturedVariable(varName, existingParamNames, cu) ||
-                    processFieldCapture(varName, classFields, containingMethodIsStatic, capturedParams)) {
-                continue;
-            }
-
-            String type = typeResolver.findTypeInContext(sequence, varName);
-            if (!"void".equals(type)) {
-                capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : OBJECT),
-                        List.of(varName), null, null, null));
+            if (!shouldSkipCapturedVariable(varName, existingParamNames, cu) && 
+                !processFieldCapture(varName, classFields, containingMethodIsStatic, capturedParams)) {
+                
+                String type = typeResolver.findTypeInContext(sequence, varName);
+                if (!"void".equals(type)) {
+                    capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : OBJECT),
+                            List.of(varName), null, null, null));
+                }
             }
         }
 
@@ -125,16 +151,26 @@ public class ParameterResolver {
     }
 
     private boolean shouldSkipCapturedVariable(String varName, Set<String> existingParamNames, CompilationUnit cu) {
-        if (varName == null || varName.isEmpty() || varName.equals("this") || varName.equals("super")
-                || existingParamNames.contains(varName) || Character.isUpperCase(varName.charAt(0))) {
-            return true;
+        if (varName == null || varName.isEmpty()) {
+             return true;
+        }
+        if (varName.equals("this") || varName.equals("super")) {
+             return true;
+        }
+        if (existingParamNames.contains(varName)) {
+             return true;
+        }
+        
+        // If it starts with an uppercase letter, it might be a type.
+        // Check if it's a resolvable type in the compilation unit.
+        if (Character.isUpperCase(varName.charAt(0))) {
+            if (Set.of("System", "Math", "Integer", "String", "Double", "Long", "Boolean", OBJECT).contains(varName)) {
+                return true;
+            }
+            return  (cu != null && AbstractCompiler.findType(cu, varName) != null);
         }
 
-        if ("System".equals(varName) || "Math".equals(varName) || "Integer".equals(varName)) {
-            return true;
-        }
-
-        return cu != null && AbstractCompiler.findType(cu, varName) != null;
+        return false;
     }
 
     private boolean processFieldCapture(String varName, Map<String, FieldInfo> classFields, 
@@ -174,9 +210,9 @@ public class ParameterResolver {
     private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, DuplicateCluster cluster, 
             DataFlowAnalyzer.SequenceAnalysis primaryAnalysis) {
         Set<String> defined = new HashSet<>(primaryAnalysis.definedVars());
-        for (SimilarityPair pair : cluster.duplicates()) {
-            defined.addAll(dataFlowAnalyzer.analyzeSequenceVariables(pair.seq2()).definedVars());
-        }
+        // FIXED: Only consider variables defined in the PRIMARY sequence.
+        // If a variable is external (captured) in Primary, it MUST be a parameter for the helper method (which is based on Primary).
+        // If it happens to be internal in a duplicate, we deal with that during call replacement, but we can't strip it from the signature.
 
         CompilationUnit cu = null;
         if (!cluster.primary().statements().isEmpty()) {

@@ -72,6 +72,15 @@ public class PreFilterChain {
     }
 
     /**
+     * Clear any cached data in the filters. Call between analysis runs to free memory.
+     */
+    public void clearCache() {
+        if (structuralFilter != null) {
+            structuralFilter.clearCache();
+        }
+    }
+
+    /**
      * Statistics record for filter configuration.
      */
     public record FilterStats(

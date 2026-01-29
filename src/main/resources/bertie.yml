@@ -3,10 +3,12 @@
 
 variables:
   projects_folder: ${HOME}/csi/Antikythera
+  m2_folder: ${HOME}/.m2/repository
 
 # Point to Bertie's test-bed MAIN source (not tests!)
-base_path: ${projects_folder}/csi-bm-invoice-java-service
-base_package: com.csi
+base_path: ${projects_folder}/bertie/test-bed
+#base_path: ${projects_folder}/csi-bm-invoice-java-service/
+base_package: com.raditha.bertie.testbed
 
 # Output directory for any generated files
 output_path: /tmp/bertie-test-output
@@ -15,14 +17,15 @@ output_path: /tmp/bertie-test-output
 min_lines: 3
 threshold: 75
 include_tests: true
-# target_class: com.raditha.bertie.testbed.verif.ParameterizedTestVerif
+#target_class: com.raditha.bertie.testbed.cards.service.AsyncCardDealer,com.raditha.bertie.testbed.cards.service.SyncCardDealer
+#target_class: com.raditha.bertie.testbed.report.ReportA,com.raditha.bertie.testbed.report.ReportB,com.raditha.bertie.testbed.parameterizedtest.TestsWithConstantsAndVariables
+#target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceServiceImplTest
 
 # Analyze all classes in base_path (leave empty to analyze all)
-enable_lsh: false
+enable_lsh: true
 
 # Skip getters/setters
 skip_getters_setters: true
 
 # Log level
 log_level: DEBUG
-target_class: com.csi.bm.invoice.service.impl.ClaimInvoiceOrderServiceImplTest

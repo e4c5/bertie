@@ -5,6 +5,7 @@ import com.raditha.dedup.model.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Validates safety of refactor operations before applying them.
@@ -75,22 +76,35 @@ public class SafetyValidator {
      * 
      * FIXED Gap 8: Now uses EscapeAnalyzer to detect variable capture.
      * 
-     * Returns true if the sequence modifies variables from outer scope,
+     * Returns true if the sequence modifies LOCAL variables from outer scope,
      * which would break when extracted to a separate method.
+     * 
+     * Class fields are allowed to be modified (common in test setup code).
      */
     private boolean hasVariableScopeIssues(DuplicateCluster cluster) {
         EscapeAnalyzer analyzer = new EscapeAnalyzer();
 
-        if (analyzer.analyze(cluster.primary())) {
+        // Get class field names from the primary sequence
+        Set<String> classFields = getClassFieldNames(cluster.primary());
+
+        // Check primary sequence
+        Set<String> escapingVars = analyzer.analyze(cluster.primary());
+        escapingVars.removeAll(classFields); // Allow class field modifications
+        if (!escapingVars.isEmpty()) {
             return true;
         }
 
         // Check all duplicate sequences
         for (SimilarityPair pair : cluster.duplicates()) {
-            if (analyzer.analyze(pair.seq1())) {
+            Set<String> escapingVars1 = analyzer.analyze(pair.seq1());
+            escapingVars1.removeAll(classFields);
+            if (!escapingVars1.isEmpty()) {
                 return true;
             }
-            if (analyzer.analyze(pair.seq2())) {
+            
+            Set<String> escapingVars2 = analyzer.analyze(pair.seq2());
+            escapingVars2.removeAll(classFields);
+            if (!escapingVars2.isEmpty()) {
                 return true;
             }
         }
@@ -99,11 +113,96 @@ public class SafetyValidator {
     }
 
     /**
+     * Get all field names from the containing class of a sequence.
+     */
+    private Set<String> getClassFieldNames(StatementSequence sequence) {
+        var method = sequence.containingMethod();
+        if (method == null) {
+            return java.util.Collections.emptySet();
+        }
+        
+        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .orElse(null);
+        if (clazz == null) {
+            return java.util.Collections.emptySet();
+        }
+        
+        Set<String> fieldNames = new java.util.HashSet<>();
+        clazz.getFields().forEach(field -> 
+            field.getVariables().forEach(vd ->
+                fieldNames.add(vd.getNameAsString())
+            )
+        );
+        return fieldNames;
+    }
+
+    /**
      * Check for annotation incompatibilities.
+     * 
+     * Verifies that methods containing duplicate sequences have compatible annotations.
+     * Certain annotations like @Transactional, @Async, @Cacheable affect method behavior
+     * and should be consistent across all duplicates.
      */
     private boolean hasIncompatibleAnnotations(DuplicateCluster cluster) {
-        // Check if duplicate methods have different annotations
-        // For now, simplified check
+        // Annotations that affect method behavior and must be consistent
+        Set<String> criticalAnnotations = Set.of(
+            "Transactional",
+            "Async", 
+            "Cacheable",
+            "Scheduled",
+            "Retryable",
+            "Timed"
+        );
+        
+        // Get annotations from primary sequence's containing method
+        Set<String> primaryAnnotations = getMethodAnnotations(cluster.primary());
+        
+        // Check all duplicate pairs
+        for (SimilarityPair pair : cluster.duplicates()) {
+            Set<String> seq1Annotations = getMethodAnnotations(pair.seq1());
+            Set<String> seq2Annotations = getMethodAnnotations(pair.seq2());
+            
+            // Check if critical annotations differ
+            if (hasCriticalAnnotationDifference(primaryAnnotations, seq1Annotations, criticalAnnotations) ||
+                hasCriticalAnnotationDifference(primaryAnnotations, seq2Annotations, criticalAnnotations) ||
+                hasCriticalAnnotationDifference(seq1Annotations, seq2Annotations, criticalAnnotations)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Get all annotation names from a method containing a sequence.
+     */
+    private Set<String> getMethodAnnotations(StatementSequence sequence) {
+        var method = sequence.containingMethod();
+        if (method == null) {
+            return java.util.Collections.emptySet();
+        }
+        
+        return method.getAnnotations().stream()
+            .map(annotation -> annotation.getNameAsString())
+            .collect(java.util.stream.Collectors.toSet());
+    }
+    
+    /**
+     * Check if two annotation sets differ in critical annotations.
+     */
+    private boolean hasCriticalAnnotationDifference(Set<String> annotations1, 
+                                                    Set<String> annotations2, 
+                                                    Set<String> criticalAnnotations) {
+        for (String critical : criticalAnnotations) {
+            boolean has1 = annotations1.contains(critical);
+            boolean has2 = annotations2.contains(critical);
+            
+            // If one has it and the other doesn't, that's incompatible
+            if (has1 != has2) {
+                return true;
+            }
+        }
+        
         return false;
     }
 
