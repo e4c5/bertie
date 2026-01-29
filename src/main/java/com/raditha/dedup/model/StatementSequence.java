@@ -49,14 +49,11 @@ public record StatementSequence(
         StatementSequence that = (StatementSequence) o;
         return startOffset == that.startOffset &&
                 java.util.Objects.equals(range, that.range) &&
-                (sourceFilePath == null ? that.sourceFilePath == null
-                        : (that.sourceFilePath != null && sourceFilePath.toAbsolutePath().normalize().toString()
-                                .equals(that.sourceFilePath.toAbsolutePath().normalize().toString())));
+                java.util.Objects.equals(sourceFilePath, that.sourceFilePath);
     }
 
     @Override
     public int hashCode() {
-        return java.util.Objects.hash(range, startOffset,
-                sourceFilePath != null ? sourceFilePath.toAbsolutePath().normalize().toString() : 0);
+        return java.util.Objects.hash(range, startOffset, sourceFilePath);
     }
 }

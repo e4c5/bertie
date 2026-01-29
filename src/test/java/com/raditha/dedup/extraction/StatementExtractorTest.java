@@ -172,7 +172,8 @@ class StatementExtractorTest {
         assertNotNull(seq.containingMethod());
         assertEquals("myMethod", seq.containingMethod().getNameAsString());
         assertNotNull(seq.compilationUnit());
-        assertEquals(testFile, seq.sourceFilePath());
+        // Path is now normalized at creation time, so compare normalized versions
+        assertEquals(testFile.toAbsolutePath().normalize(), seq.sourceFilePath());
     }
 
     @Test

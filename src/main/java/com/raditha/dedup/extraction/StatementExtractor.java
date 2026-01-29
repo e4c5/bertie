@@ -79,8 +79,11 @@ public class StatementExtractor {
     public List<StatementSequence> extractSequences(CompilationUnit cu, Path sourceFile) {
         List<StatementSequence> sequences = new ArrayList<>();
         
+        // Normalize path once for all sequences from this file
+        Path normalizedSourceFile = sourceFile != null ? sourceFile.toAbsolutePath().normalize() : null;
+        
         // Visit all methods in the compilation unit
-        cu.accept(new MethodVisitor(sequences, cu, sourceFile), null);
+        cu.accept(new MethodVisitor(sequences, cu, normalizedSourceFile), null);
         
         return sequences;
     }
