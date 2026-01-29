@@ -117,4 +117,81 @@ public class VariationAggregator {
                 .exprBindings(aggregated.exprBindings())
                 .build();
     }
+
+    /**
+     * Detect fields that are common across all classes in a cluster.
+     * This is used for parent class extraction to identify fields that should be moved to the parent.
+     * 
+     * @param cluster The duplicate cluster to analyze
+     * @return List of field declarations that are common to all classes
+     */
+    public List<com.github.javaparser.ast.body.FieldDeclaration> detectCommonFields(DuplicateCluster cluster) {
+        // Get all unique classes involved in the cluster
+        Set<com.github.javaparser.ast.body.ClassOrInterfaceDeclaration> classes = new HashSet<>();
+        
+        for (StatementSequence seq : cluster.allSequences()) {
+            seq.containingMethod()
+                    .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .ifPresent(classes::add);
+        }
+        
+        if (classes.size() < 2) {
+            // Need at least 2 classes for field duplication
+            return new ArrayList<>();
+        }
+        
+        // Build field signature map for each class
+        Map<com.github.javaparser.ast.body.ClassOrInterfaceDeclaration, Map<String, com.github.javaparser.ast.body.FieldDeclaration>> classToFields = new HashMap<>();
+        
+        for (com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz : classes) {
+            Map<String, com.github.javaparser.ast.body.FieldDeclaration> fieldMap = new HashMap<>();
+            
+            for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
+                // Skip static fields
+                if (field.isStatic()) {
+                    continue;
+                }
+                
+                // Create signature: type + name for each variable
+                for (com.github.javaparser.ast.body.VariableDeclarator var : field.getVariables()) {
+                    String signature = field.getCommonType().asString() + ":" + var.getNameAsString();
+                    fieldMap.put(signature, field);
+                }
+            }
+            
+            classToFields.put(clazz, fieldMap);
+        }
+        
+        // Find fields common to ALL classes
+        List<com.github.javaparser.ast.body.FieldDeclaration> commonFields = new ArrayList<>();
+        Set<String> processedSignatures = new HashSet<>();
+        
+        // Start with fields from first class
+        var firstClass = classes.iterator().next();
+        Map<String, com.github.javaparser.ast.body.FieldDeclaration> firstClassFields = classToFields.get(firstClass);
+        
+        for (Map.Entry<String, com.github.javaparser.ast.body.FieldDeclaration> entry : firstClassFields.entrySet()) {
+            String signature = entry.getKey();
+            
+            // Check if this field exists in ALL other classes
+            boolean existsInAll = true;
+            for (com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz : classes) {
+                if (clazz == firstClass) {
+                    continue;
+                }
+                
+                if (!classToFields.get(clazz).containsKey(signature)) {
+                    existsInAll = false;
+                    break;
+                }
+            }
+            
+            if (existsInAll && !processedSignatures.contains(signature)) {
+                commonFields.add(entry.getValue());
+                processedSignatures.add(signature);
+            }
+        }
+        
+        return commonFields;
+    }
 }

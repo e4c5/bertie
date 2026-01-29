@@ -56,7 +56,18 @@ public class RefactoringRecommendationGenerator {
     public RefactoringRecommendation generateRecommendation(DuplicateCluster cluster) {
         // Step 1: Aggregate variations
         AggregatedVariations aggregated = variationAggregator.aggregate(cluster);
-        VariationAnalysis analysis = variationAggregator.buildAnalysis(aggregated);
+        
+        // Step 1.5: Detect common fields across all classes in the cluster
+        List<com.github.javaparser.ast.body.FieldDeclaration> commonFields = 
+                variationAggregator.detectCommonFields(cluster);
+        
+        VariationAnalysis analysis = VariationAnalysis.builder()
+                .varyingExpressions(new java.util.ArrayList<>(aggregated.uniqueVariations().values()))
+                .variableReferences(aggregated.variableReferences())
+                .declaredInternalVariables(aggregated.declaredInternalVariables())
+                .duplicatedFields(commonFields)
+                .exprBindings(aggregated.exprBindings())
+                .build();
 
         // Step 2: Calculate truncation
         TruncationResult truncation = truncator.calculateValidStatementCount(cluster, analysis);
