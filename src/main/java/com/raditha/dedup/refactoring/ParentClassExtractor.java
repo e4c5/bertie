@@ -23,10 +23,7 @@ import org.jspecify.annotations.NonNull;
 import sa.com.cloudsolutions.antikythera.evaluator.Reflect;
 import java.nio.file.Path;
 import java.nio.file.Files;
-import java.nio.file.Files;
 import java.util.*;
-import java.util.function.Predicate;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 /**
  * Refactorer that extracts cross-class duplicate methods into a common parent
@@ -38,8 +35,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private String parentClassName;
     private Map<ParameterSpec, String> paramNameOverrides = new HashMap<>();
-    private final Set<String> fieldsToExtract = new HashSet<>();
-    private final Map<String, String> fieldTypes = new HashMap<>();
+    private final Map<String, Type> fieldsToExtract = new HashMap<>();
 
     @Override
     public MethodExtractor.RefactoringResult refactor(
@@ -297,7 +293,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             String targetName = paramNameOverrides.getOrDefault(p, p.getName());
             
             // Skip if this parameter is actually a field we are extracting to the parent
-            if (fieldsToExtract.contains(targetName)) {
+            if (fieldsToExtract.containsKey(targetName)) {
                 return;
             }
 
@@ -318,7 +314,7 @@ public class ParentClassExtractor extends AbstractExtractor {
                 com.raditha.dedup.model.RefactoringRecommendation filteredRec = recommendation;
                 if (!fieldsToExtract.isEmpty()) {
                     List<com.raditha.dedup.model.ParameterSpec> filteredParams = recommendation.getSuggestedParameters().stream()
-                            .filter(p -> !fieldsToExtract.contains(paramNameOverrides.getOrDefault(p, p.getName())))
+                            .filter(p -> !fieldsToExtract.containsKey(paramNameOverrides.getOrDefault(p, p.getName())))
                             .toList();
                     filteredRec = new com.raditha.dedup.model.RefactoringRecommendation(
                             recommendation.getStrategy(),
@@ -526,7 +522,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         
         // For each used field, verify it's present and compatible across all classes
         for (String fieldName : usedFieldNames) {
-            String type = null;
+            Type type = null;
             boolean extractable = true;
 
             for (CompilationUnit involvedCu : involvedCus) {
@@ -553,18 +549,17 @@ public class ParentClassExtractor extends AbstractExtractor {
                     break;
                 }
 
-                String currentType = field.get().getElementType().asString();
+                Type currentType = field.get().getElementType();
                 if (type == null) {
                     type = currentType;
-                } else if (!type.equals(currentType)) {
+                } else if (!type.asString().equals(currentType.asString())) {
                     extractable = false;
                     break;
                 }
             }
 
             if (extractable) {
-                fieldsToExtract.add(fieldName);
-                fieldTypes.put(fieldName, type);
+                fieldsToExtract.put(fieldName, type.clone());
             } else {
                 throw new IllegalStateException(
                         "Skipped: Method uses field '" + fieldName + "' which is not present or compatible in all classes.");
@@ -573,9 +568,11 @@ public class ParentClassExtractor extends AbstractExtractor {
     }
 
     private void addFieldsToParent(ClassOrInterfaceDeclaration parentClass, CompilationUnit sourceCu) {
-        for (String fieldName : fieldsToExtract) {
+        for (Map.Entry<String, Type> entry : fieldsToExtract.entrySet()) {
+            String fieldName = entry.getKey();
+            Type fieldType = entry.getValue();
             if (parentClass.getFieldByName(fieldName).isEmpty()) {
-                com.github.javaparser.ast.body.FieldDeclaration field = parentClass.addField(fieldTypes.get(fieldName), fieldName, Modifier.Keyword.PROTECTED);
+                com.github.javaparser.ast.body.FieldDeclaration field = parentClass.addField(fieldType.clone(), fieldName, Modifier.Keyword.PROTECTED);
                 parentClass.findCompilationUnit().ifPresent(parentCu -> 
                     copyFieldImports(sourceCu, parentCu, field)
                 );
@@ -604,7 +601,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void removeExtractedFields(CompilationUnit cu) {
         findPrimaryClass(cu).ifPresent(classDecl -> {
-            for (String fieldName : fieldsToExtract) {
+            for (String fieldName : fieldsToExtract.keySet()) {
                 classDecl.getFieldByName(fieldName).ifPresent(f -> f.remove());
             }
         });
@@ -645,7 +642,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         recommendation.getSuggestedParameters().forEach(param -> {
             String targetName = paramNameOverrides.getOrDefault(param, param.getName());
             
-            if (fieldsToExtract.contains(targetName)) {
+            if (fieldsToExtract.containsKey(targetName)) {
                 return;
             }
 
