@@ -2,6 +2,7 @@ package com.raditha.dedup.workflow;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -42,7 +43,7 @@ public class RefactoringOrchestrator {
         Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = new HashMap<>();
         List<DuplicateCluster> orphanedClusters = new ArrayList<>();
         
-        groupClusters(report, clustersByClass, orphanedClusters);
+        groupClusters(report, cu, clustersByClass, orphanedClusters);
         
         // Handle orphaned clusters
         for (DuplicateCluster orphan : orphanedClusters) {
@@ -84,7 +85,7 @@ public class RefactoringOrchestrator {
         return totalSession;
     }
 
-    private void groupClusters(DuplicationReport report, 
+    private void groupClusters(DuplicationReport report, CompilationUnit cu,
             Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass,
             List<DuplicateCluster> orphanedClusters) {
         
@@ -96,8 +97,20 @@ public class RefactoringOrchestrator {
                 continue;
             }
             
-            Optional<ClassOrInterfaceDeclaration> classOpt = primary.containingMethod()
-                    .findAncestor(ClassOrInterfaceDeclaration.class);
+            MethodDeclaration method = primary.containingMethod();
+            Optional<ClassOrInterfaceDeclaration> classOpt = method.findAncestor(ClassOrInterfaceDeclaration.class);
+            
+            // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
+            if (classOpt.isEmpty()) {
+                String methodName = method.getNameAsString();
+                classOpt = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                        .filter(c -> c.getMethodsByName(methodName).size() > 0)
+                        .findFirst();
+                
+                if (classOpt.isPresent()) {
+                    logger.debug("Robustly resolved class context for orphaned method: {} -> {}", methodName, classOpt.get().getNameAsString());
+                }
+            }
             
             if (classOpt.isPresent()) {
                 clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
