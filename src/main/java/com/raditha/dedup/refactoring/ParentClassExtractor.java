@@ -59,7 +59,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         this.parentClassName = determineParentClassName();
 
         validateNoInnerClassUsage(primaryCu, methodToExtract);
-        validateNoFieldUsage(primaryCu, methodToExtract);
+        validateNoFieldUsage(methodToExtract);
         validateInheritance();
 
         computeParamNameOverrides(methodToExtract);
@@ -494,7 +494,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
     }
 
-    private void validateNoFieldUsage(CompilationUnit cu, MethodDeclaration method) {
+    private void validateNoFieldUsage(MethodDeclaration method) {
         // Collect field names used in any of the involved classes or parent
         Set<String> usedFieldNames = new HashSet<>();
         Set<String> allClassFieldNames = new HashSet<>();
