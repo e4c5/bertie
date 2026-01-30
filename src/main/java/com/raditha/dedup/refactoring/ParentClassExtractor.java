@@ -55,7 +55,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         this.parentClassName = determineParentClassName();
 
         validateNoInnerClassUsage(primaryCu, methodToExtract);
-        // REMOVED: validateNoFieldUsage - we now support extracting fields to parent class
+        validateNoFieldUsage(primaryCu, methodToExtract);
         validateInheritance();
 
         Optional<ClassOrInterfaceDeclaration> existingParent = findExistingCommonParent();
@@ -69,13 +69,6 @@ public class ParentClassExtractor extends AbstractExtractor {
             Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
             modifiedFiles.put(parentPath, parentCu.toString());
         }
-
-
-        // Extract common fields to parent class
-        List<com.github.javaparser.ast.body.FieldDeclaration> fieldsToExtract = 
-                recommendation.getVariationAnalysis() != null 
-                ? recommendation.getVariationAnalysis().getDuplicatedFields() 
-                : new ArrayList<>();
 
         for (CompilationUnit currentCu : involvedCus) {
             boolean isCurrentCuParent = isPeerParent && currentCu == peerParentCu.get();
@@ -96,11 +89,6 @@ public class ParentClassExtractor extends AbstractExtractor {
                 } else {
                     processChildMethod(methodToRemove, methodToExtract);
                 }
-            }
-
-            // Remove duplicate fields from child classes
-            if (!isCurrentCuParent && !fieldsToExtract.isEmpty()) {
-                removeFieldsFromClass(currentCu, fieldsToExtract);
             }
 
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
@@ -217,20 +205,6 @@ public class ParentClassExtractor extends AbstractExtractor {
                 .setAbstract(true)
                 .setJavadocComment("Common parent class for shared functionality.");
 
-        // Add common fields to parent class
-        List<com.github.javaparser.ast.body.FieldDeclaration> fieldsToExtract = 
-                recommendation.getVariationAnalysis() != null 
-                ? recommendation.getVariationAnalysis().getDuplicatedFields() 
-                : new ArrayList<>();
-        
-        for (com.github.javaparser.ast.body.FieldDeclaration field : fieldsToExtract) {
-            com.github.javaparser.ast.body.FieldDeclaration parentField = field.clone();
-            // Promote to protected so child classes can access
-            parentField.getModifiers().clear();
-            parentField.setModifiers(Modifier.Keyword.PROTECTED);
-            parentClass.addMember(parentField);
-        }
-
         parentClass.addMember(newMethod);
 
         CompilationUnit originalCu = originalMethod.findCompilationUnit()
@@ -324,20 +298,6 @@ public class ParentClassExtractor extends AbstractExtractor {
     private void addMethodToExistingParent(ClassOrInterfaceDeclaration parentClass,
             MethodDeclaration method) {
         MethodDeclaration newMethod = createMethod(method);
-
-        // Add common fields to existing parent
-        List<com.github.javaparser.ast.body.FieldDeclaration> fieldsToExtract = 
-                recommendation.getVariationAnalysis() != null 
-                ? recommendation.getVariationAnalysis().getDuplicatedFields() 
-                : new ArrayList<>();
-        
-        for (com.github.javaparser.ast.body.FieldDeclaration field : fieldsToExtract) {
-            com.github.javaparser.ast.body.FieldDeclaration parentField = field.clone();
-            // Promote to protected so child classes can access
-            parentField.getModifiers().clear();
-            parentField.setModifiers(Modifier.Keyword.PROTECTED);
-            parentClass.addMember(parentField);
-        }
 
         parentClass.addMember(newMethod);
 
@@ -510,44 +470,5 @@ public class ParentClassExtractor extends AbstractExtractor {
             }
         }
         return null;
-    }
-
-    /**
-     * Remove duplicate fields from a child class.
-     * Fields are matched by name and type signature.
-     */
-    private void removeFieldsFromClass(CompilationUnit cu, List<com.github.javaparser.ast.body.FieldDeclaration> fieldsToRemove) {
-        Optional<ClassOrInterfaceDeclaration> classDecl = findPrimaryClass(cu);
-        if (classDecl.isEmpty()) {
-            return;
-        }
-
-        ClassOrInterfaceDeclaration clazz = classDecl.get();
-        
-        // Build set of field signatures to remove
-        Set<String> signaturesToRemove = new HashSet<>();
-        for (com.github.javaparser.ast.body.FieldDeclaration field : fieldsToRemove) {
-            for (com.github.javaparser.ast.body.VariableDeclarator var : field.getVariables()) {
-                String signature = field.getCommonType().asString() + ":" + var.getNameAsString();
-                signaturesToRemove.add(signature);
-            }
-        }
-
-        // Remove matching fields
-        List<com.github.javaparser.ast.body.FieldDeclaration> fieldsToDelete = new ArrayList<>();
-        for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
-            for (com.github.javaparser.ast.body.VariableDeclarator var : field.getVariables()) {
-                String signature = field.getCommonType().asString() + ":" + var.getNameAsString();
-                if (signaturesToRemove.contains(signature)) {
-                    fieldsToDelete.add(field);
-                    break; // Only need to mark field once
-                }
-            }
-        }
-
-        // Remove the fields
-        for (com.github.javaparser.ast.body.FieldDeclaration field : fieldsToDelete) {
-            field.remove();
-        }
     }
 }

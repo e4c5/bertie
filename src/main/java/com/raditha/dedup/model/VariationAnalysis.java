@@ -15,7 +15,6 @@ public class VariationAnalysis {
     private final List<VaryingExpression> varyingExpressions;
     private final Set<VariableReference> variableReferences;
     private final Set<String> declaredInternalVariables; // NEW
-    private final List<com.github.javaparser.ast.body.FieldDeclaration> duplicatedFields; // NEW: Fields common to all classes
 
     // Legacy fields (Token-based)
     private final List<Variation> variations;
@@ -28,8 +27,6 @@ public class VariationAnalysis {
                 : Collections.emptySet();
         this.declaredInternalVariables = builder.declaredInternalVariables != null ? builder.declaredInternalVariables
                 : Collections.emptySet();
-        this.duplicatedFields = builder.duplicatedFields != null ? builder.duplicatedFields
-                : Collections.emptyList();
 
         this.variations = builder.variations != null ? builder.variations : Collections.emptyList();
         this.hasControlFlowDifferences = builder.hasControlFlowDifferences;
@@ -57,10 +54,6 @@ public class VariationAnalysis {
 
     public Set<String> getDeclaredInternalVariables() {
         return declaredInternalVariables;
-    }
-
-    public List<com.github.javaparser.ast.body.FieldDeclaration> getDuplicatedFields() {
-        return duplicatedFields;
     }
 
     public List<Variation> getVariations() {
@@ -93,7 +86,6 @@ public class VariationAnalysis {
         private List<VaryingExpression> varyingExpressions;
         private Set<VariableReference> variableReferences;
         private Set<String> declaredInternalVariables;
-        private List<com.github.javaparser.ast.body.FieldDeclaration> duplicatedFields;
         private List<Variation> variations;
         private boolean hasControlFlowDifferences;
         private Map<Integer, Map<StatementSequence, String>> valueBindings;
@@ -111,11 +103,6 @@ public class VariationAnalysis {
 
         public Builder declaredInternalVariables(Set<String> declaredInternalVariables) {
             this.declaredInternalVariables = declaredInternalVariables;
-            return this;
-        }
-
-        public Builder duplicatedFields(List<com.github.javaparser.ast.body.FieldDeclaration> duplicatedFields) {
-            this.duplicatedFields = duplicatedFields;
             return this;
         }
 
