@@ -2,6 +2,7 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
@@ -215,7 +216,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             findPrimaryClass(seq.compilationUnit()).ifPresent(classDecl -> {
                 var extendedTypes = classDecl.getExtendedTypes();
                 if (!extendedTypes.isEmpty()) {
-                    parentNames.add(extendedTypes.get(0).getNameAsString());
+                    parentNames.add(extendedTypes.getFirst().getNameAsString());
                 } else {
                     parentNames.add("");
                 }
@@ -372,7 +373,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             if (classDecl.isPresent()) {
                 var extendedTypes = classDecl.get().getExtendedTypes();
                 if (!extendedTypes.isEmpty()) {
-                    parentNames.add(extendedTypes.get(0).getNameAsString());
+                    parentNames.add(extendedTypes.getFirst().getNameAsString());
                 } else {
                     return Optional.empty();
                 }
@@ -602,7 +603,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     private void removeExtractedFields(CompilationUnit cu) {
         findPrimaryClass(cu).ifPresent(classDecl -> {
             for (String fieldName : fieldsToExtract.keySet()) {
-                classDecl.getFieldByName(fieldName).ifPresent(f -> f.remove());
+                classDecl.getFieldByName(fieldName).ifPresent(Node::remove);
             }
         });
     }
@@ -634,8 +635,8 @@ public class ParentClassExtractor extends AbstractExtractor {
         Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
                 .filter(seq -> seq.containingMethod().getNameAsString().equals(childMethod.getNameAsString()) &&
                         seq.sourceFilePath().equals(childMethod.findCompilationUnit()
-                                .flatMap(cu -> cu.getStorage())
-                                .map(s -> s.getPath())
+                                .flatMap(CompilationUnit::getStorage)
+                                .map(CompilationUnit.Storage::getPath)
                                 .orElse(null)))
                 .findFirst();
 
