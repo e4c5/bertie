@@ -216,7 +216,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             findPrimaryClass(seq.compilationUnit()).ifPresent(classDecl -> {
                 var extendedTypes = classDecl.getExtendedTypes();
                 if (!extendedTypes.isEmpty()) {
-                    parentNames.add(extendedTypes.getFirst().getNameAsString());
+                    parentNames.add(extendedTypes.get(0).getNameAsString());
                 } else {
                     parentNames.add("");
                 }
@@ -373,7 +373,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             if (classDecl.isPresent()) {
                 var extendedTypes = classDecl.get().getExtendedTypes();
                 if (!extendedTypes.isEmpty()) {
-                    parentNames.add(extendedTypes.getFirst().getNameAsString());
+                    parentNames.add(extendedTypes.get(0).getNameAsString());
                 } else {
                     return Optional.empty();
                 }
