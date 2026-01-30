@@ -32,6 +32,7 @@ import java.util.*;
 public class ParentClassExtractor extends AbstractExtractor {
 
     private String parentClassName;
+    private Map<ParameterSpec, String> paramNameOverrides = new HashMap<>();
 
     @Override
     public MethodExtractor.RefactoringResult refactor(
@@ -58,6 +59,8 @@ public class ParentClassExtractor extends AbstractExtractor {
         validateNoFieldUsage(primaryCu, methodToExtract);
         validateInheritance();
 
+        computeParamNameOverrides(methodToExtract);
+
         Optional<ClassOrInterfaceDeclaration> existingParent = findExistingCommonParent();
         Optional<CompilationUnit> peerParentCu = findPeerParent();
         boolean isPeerParent = peerParentCu.isPresent();
@@ -78,16 +81,18 @@ public class ParentClassExtractor extends AbstractExtractor {
                 addImportIfNeeded(currentCu);
             }
 
-            MethodDeclaration methodToRemove = methodsToRemove.get(currentCu);
-            if (methodToRemove != null) {
-                if (isCurrentCuParent) {
-                    if (methodToRemove.isPrivate()) {
-                        methodToRemove.setModifiers(Modifier.Keyword.PROTECTED);
-                    } else if (methodToRemove.isPublic()) {
-                        methodToRemove.setModifiers(Modifier.Keyword.PUBLIC);
+            List<MethodDeclaration> methods = methodsToRemove.get(currentCu);
+            if (methods != null) {
+                for (MethodDeclaration methodToRemove : methods) {
+                    if (isCurrentCuParent) {
+                        if (methodToRemove.isPrivate()) {
+                            methodToRemove.setModifiers(Modifier.Keyword.PROTECTED);
+                        } else if (methodToRemove.isPublic()) {
+                            methodToRemove.setModifiers(Modifier.Keyword.PUBLIC);
+                        }
+                    } else {
+                        processChildMethod(methodToRemove, methodToExtract);
                     }
-                } else {
-                    processChildMethod(methodToRemove, methodToExtract);
                 }
             }
 
@@ -112,14 +117,22 @@ public class ParentClassExtractor extends AbstractExtractor {
         String parentMethodName = methodToExtract.getNameAsString();
         String childMethodName = methodToRemove.getNameAsString();
 
+        String className = methodToRemove.findAncestor(ClassOrInterfaceDeclaration.class)
+                .map(c -> c.getNameAsString()).orElse("UnknownClass");
+        
         // Check if child method has critical annotations that must be preserved
         boolean hasAnnotations = hasPreservableAnnotations(methodToRemove);
 
-        if (childMethodName.equals(parentMethodName) &&
-                methodToExtract.getParameters().size() == recommendation.getSuggestedParameters().size()
-                        + methodToRemove.getParameters().size() &&
-                !hasAnnotations) {
-            // Only remove if no annotations need preserving
+        boolean signaturesMatch = signaturesMatch(methodToExtract, methodToRemove);
+        long addedParamsCount = recommendation.getSuggestedParameters().stream()
+                .filter(p -> {
+                    String targetName = paramNameOverrides.getOrDefault(p, p.getName());
+                    return methodToExtract.getParameters().stream()
+                            .noneMatch(mp -> mp.getNameAsString().equals(targetName));
+                }).count();
+
+        if (signaturesMatch && addedParamsCount == 0 && !hasAnnotations) {
+            // Only remove if signature matches, no extra params added to parent, and no annotations
             methodToRemove.remove();
         } else {
             // Keep as thin wrapper - either names differ, params differ, or has annotations
@@ -136,6 +149,18 @@ public class ParentClassExtractor extends AbstractExtractor {
             }
             methodToRemove.setBody(body);
         }
+    }
+
+    private boolean signaturesMatch(MethodDeclaration m1, MethodDeclaration m2) {
+        if (!m1.getNameAsString().equals(m2.getNameAsString())) return false;
+        if (m1.getParameters().size() != m2.getParameters().size()) return false;
+        for (int i = 0; i < m1.getParameters().size(); i++) {
+            String t1 = m1.getParameter(i).getType().asString();
+            String t2 = m2.getParameter(i).getType().asString();
+            // Ignoring generics nuances for now, just string compare
+            if (!t1.equals(t2)) return false; 
+        }
+        return true;
     }
 
     /**
@@ -239,7 +264,12 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         recommendation.getSuggestedParameters().forEach(p -> {
             String targetName = paramNameOverrides.getOrDefault(p, p.getName());
-            newMethod.addParameter(p.getType(), targetName);
+            boolean exists = newMethod.getParameters().stream()
+                    .anyMatch(param -> param.getNameAsString().equals(targetName));
+            
+            if (!exists) {
+                newMethod.addParameter(p.getType(), targetName);
+            }
         });
 
         if (newMethod.getBody().isPresent()) {
@@ -428,6 +458,14 @@ public class ParentClassExtractor extends AbstractExtractor {
                 .findFirst();
 
         recommendation.getSuggestedParameters().forEach(param -> {
+            String targetName = paramNameOverrides.getOrDefault(param, param.getName());
+            boolean exists = childMethod.getParameters().stream()
+                    .anyMatch(p -> p.getNameAsString().equals(targetName));
+
+            if (exists) {
+                return;
+            }
+
             Expression val = null;
             if (matchingSeq.isPresent() && param.getStartLine() != null && param.getStartColumn() != null) {
                 // Determine relative coordinates in primary sequence
@@ -453,6 +491,15 @@ public class ParentClassExtractor extends AbstractExtractor {
                 call.addArgument(Reflect.createLiteralExpression(Reflect.getDefault(param.getType().asString())));
             }
         });
+    }
+
+    private void computeParamNameOverrides(MethodDeclaration method) {
+        Set<String> declaredVars = new HashSet<>();
+        method.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .forEach(v -> declaredVars.add(v.getNameAsString())));
+        
+        this.paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
+                declaredVars, recommendation.getSuggestedParameters());
     }
 
     private Expression findLiteralForParameter(MethodDeclaration method, com.raditha.dedup.model.ParameterSpec param) {

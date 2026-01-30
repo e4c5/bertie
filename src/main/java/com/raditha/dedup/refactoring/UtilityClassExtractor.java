@@ -20,6 +20,7 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.MCEWrapper;
 
+import java.util.List;
 import java.nio.file.Path;
 
 /**
@@ -52,9 +53,9 @@ public class UtilityClassExtractor extends AbstractExtractor {
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract);
 
-            MethodDeclaration methodToRemove = methodsToRemove.get(currentCu);
-            if (methodToRemove != null) {
-                methodToRemove.remove();
+            List<MethodDeclaration> methods = methodsToRemove.get(currentCu);
+            if (methods != null) {
+                methods.forEach(MethodDeclaration::remove);
             }
 
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());

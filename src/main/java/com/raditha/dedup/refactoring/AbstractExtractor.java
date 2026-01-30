@@ -31,7 +31,7 @@ public abstract class AbstractExtractor {
     protected Map<Path, String> modifiedFiles;
     protected Set<CompilationUnit> involvedCus;
     protected Map<CompilationUnit, Path> cuToPath;
-    protected Map<CompilationUnit, MethodDeclaration> methodsToRemove;
+    protected Map<CompilationUnit, List<MethodDeclaration>> methodsToRemove;
     protected String packageName;
 
     /**
@@ -86,13 +86,19 @@ public abstract class AbstractExtractor {
     /**
      * Build a mapping from CompilationUnit to the method that should be removed.
      */
-    protected Map<CompilationUnit, MethodDeclaration> buildMethodsToRemoveMap() {
-        Map<CompilationUnit, MethodDeclaration> map = new IdentityHashMap<>();
+    protected Map<CompilationUnit, List<MethodDeclaration>> buildMethodsToRemoveMap() {
+        Map<CompilationUnit, List<MethodDeclaration>> map = new IdentityHashMap<>();
+        
+        java.util.function.BiConsumer<CompilationUnit, MethodDeclaration> add = (cu, method) -> {
+             map.computeIfAbsent(cu, k -> new ArrayList<>()).add(method);
+        };
+
         StatementSequence primary = cluster.primary();
-        map.put(primary.compilationUnit(), primary.containingMethod());
+        add.accept(primary.compilationUnit(), primary.containingMethod());
+
         cluster.duplicates().forEach(pair -> {
-            map.put(pair.seq1().compilationUnit(), pair.seq1().containingMethod());
-            map.put(pair.seq2().compilationUnit(), pair.seq2().containingMethod());
+            add.accept(pair.seq1().compilationUnit(), pair.seq1().containingMethod());
+            add.accept(pair.seq2().compilationUnit(), pair.seq2().containingMethod());
         });
         return map;
     }
