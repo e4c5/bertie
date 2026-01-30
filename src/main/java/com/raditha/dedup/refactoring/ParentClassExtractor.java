@@ -10,6 +10,7 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -37,8 +38,8 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private String parentClassName;
     private Map<ParameterSpec, String> paramNameOverrides = new HashMap<>();
-    private Set<String> fieldsToExtract = new HashSet<>();
-    private Map<String, String> fieldTypes = new HashMap<>();
+    private final Set<String> fieldsToExtract = new HashSet<>();
+    private final Map<String, String> fieldTypes = new HashMap<>();
 
     @Override
     public MethodExtractor.RefactoringResult refactor(
@@ -71,9 +72,10 @@ public class ParentClassExtractor extends AbstractExtractor {
         Optional<CompilationUnit> peerParentCu = findPeerParent();
         boolean isPeerParent = peerParentCu.isPresent();
 
+
         if (existingParent.isPresent()) {
             addMethodToExistingParent(existingParent.get(), methodToExtract);
-            addFieldsToParent(existingParent.get());
+            addFieldsToParent(existingParent.get(), primaryCu);
             
             existingParent.get().findCompilationUnit().ifPresent(parentCu -> {
                 Path parentPath = cluster.primary().sourceFilePath().getParent()
@@ -83,7 +85,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         } else if (!isPeerParent) {
             CompilationUnit parentCu = createParentClass(methodToExtract);
             findPrimaryClass(parentCu).ifPresent(parentClass -> {
-                addFieldsToParent(parentClass);
+                addFieldsToParent(parentClass, primaryCu);
                 Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
                 modifiedFiles.put(parentPath, parentCu.toString());
             });
@@ -135,11 +137,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     private void processChildMethod(MethodDeclaration methodToRemove,
             MethodDeclaration methodToExtract) {
         String parentMethodName = methodToExtract.getNameAsString();
-        String childMethodName = methodToRemove.getNameAsString();
 
-        String className = methodToRemove.findAncestor(ClassOrInterfaceDeclaration.class)
-                .map(c -> c.getNameAsString()).orElse("UnknownClass");
-        
         // Check if child method has critical annotations that must be preserved
         boolean hasAnnotations = hasPreservableAnnotations(methodToRemove);
 
@@ -248,11 +246,13 @@ public class ParentClassExtractor extends AbstractExtractor {
         if (!packageName.isEmpty()) {
             parentCu.setPackageDeclaration(packageName);
         }
-        parentCu.addImport("java.util.function.Predicate");
-        parentCu.addImport("java.util.List");
-        parentCu.addImport("com.raditha.bertie.testbed.cards.model.Card");
 
         MethodDeclaration newMethod = createMethod(originalMethod);
+
+        // Add Predicate import if we introduced it in the transformation
+        if (newMethod.getParameters().stream().anyMatch(p -> p.getType().asString().startsWith("Predicate"))) {
+            parentCu.addImport("java.util.function.Predicate");
+        }
 
         ClassOrInterfaceDeclaration parentClass = parentCu.addClass(parentClassName)
                 .setPublic(true)
@@ -265,7 +265,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         CompilationUnit originalCu = originalMethod.findCompilationUnit()
                 .orElseThrow(() -> new IllegalStateException("Original method not part of a CompilationUnit"));
-        copyNeededImports(originalCu, parentCu, newMethod);
+        copyNeededImports(originalCu, parentCu, originalMethod);
 
         return parentCu;
     }
@@ -427,7 +427,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         CompilationUnit parentCu = parentClass.findCompilationUnit()
                 .orElseThrow(() -> new IllegalStateException("Parent class not part of a CompilationUnit"));
-        method.findCompilationUnit().ifPresent(methodCu -> copyNeededImports(methodCu, parentCu, newMethod));
+        method.findCompilationUnit().ifPresent(methodCu -> copyNeededImports(methodCu, parentCu, method));
     }
 
     private String determineParentClassName() {
@@ -572,11 +572,33 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
     }
 
-    private void addFieldsToParent(ClassOrInterfaceDeclaration parentClass) {
+    private void addFieldsToParent(ClassOrInterfaceDeclaration parentClass, CompilationUnit sourceCu) {
         for (String fieldName : fieldsToExtract) {
             if (parentClass.getFieldByName(fieldName).isEmpty()) {
-                parentClass.addField(fieldTypes.get(fieldName), fieldName, Modifier.Keyword.PROTECTED);
+                com.github.javaparser.ast.body.FieldDeclaration field = parentClass.addField(fieldTypes.get(fieldName), fieldName, Modifier.Keyword.PROTECTED);
+                parentClass.findCompilationUnit().ifPresent(parentCu -> 
+                    copyFieldImports(sourceCu, parentCu, field)
+                );
             }
+        }
+    }
+
+    private void copyFieldImports(CompilationUnit source, CompilationUnit target, com.github.javaparser.ast.body.FieldDeclaration field) {
+        copyImportsForType(source, target, field.getElementType());
+    }
+
+    private void copyImportsForType(CompilationUnit source, CompilationUnit target, Type type) {
+        if (type.isClassOrInterfaceType()) {
+            ClassOrInterfaceType ciType = type.asClassOrInterfaceType();
+            String name = ciType.getNameAsString();
+            source.getImports().stream()
+                .filter(i -> !i.isStatic() && !i.isAsterisk() && i.getNameAsString().endsWith("." + name))
+                .findFirst()
+                .ifPresent(i -> target.addImport(i.getNameAsString()));
+            
+            ciType.getTypeArguments().ifPresent(args -> args.forEach(arg -> copyImportsForType(source, target, arg)));
+        } else if (type.isArrayType()) {
+             copyImportsForType(source, target, type.asArrayType().getComponentType());
         }
     }
 
