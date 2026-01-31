@@ -133,6 +133,11 @@ public class RefactoringRecommendationGenerator {
         boolean isCrossFile = isCrossFileDuplication(cluster);
 
         if (isCrossFile) {
+            boolean allMethodBodies = cluster.allSequences().stream()
+                    .allMatch(this::isMethodBody);
+            if (!allMethodBodies) {
+                return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
             if (usesInstanceState(primarySeq)) {
                 return RefactoringStrategy.EXTRACT_PARENT_CLASS;
             } else {
@@ -160,6 +165,22 @@ public class RefactoringRecommendationGenerator {
         }
 
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
+    }
+
+    private boolean isMethodBody(StatementSequence seq) {
+        var method = seq.containingMethod();
+        if (method == null || method.getBody().isEmpty()) {
+            return false;
+        }
+        var bodyStmts = method.getBody().get().getStatements();
+        var seqStmts = seq.statements();
+        if (bodyStmts.size() != seqStmts.size()) {
+            return false;
+        }
+        if (bodyStmts.isEmpty()) {
+            return true;
+        }
+        return bodyStmts.equals(seqStmts);
     }
 
     private boolean isCrossFileDuplication(DuplicateCluster cluster) {

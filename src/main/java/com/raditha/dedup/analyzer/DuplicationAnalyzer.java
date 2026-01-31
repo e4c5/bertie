@@ -3,6 +3,7 @@ package com.raditha.dedup.analyzer;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
+import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
@@ -488,9 +489,18 @@ public class DuplicationAnalyzer {
             return group;
         }
 
-        // Sort by scope (descending), then statement count, then start line
+        EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
+
+        // Sort by escape risk (ascending), then scope (descending), then statement count, then start line
         List<SimilarityPair> sorted = new ArrayList<>(group);
         sorted.sort((a, b) -> {
+            int escapesA = escapeAnalyzer.analyze(a.seq1()).size() + escapeAnalyzer.analyze(a.seq2()).size();
+            int escapesB = escapeAnalyzer.analyze(b.seq1()).size() + escapeAnalyzer.analyze(b.seq2()).size();
+            int escapeCompare = Integer.compare(escapesA, escapesB);
+            if (escapeCompare != 0) {
+                return escapeCompare;
+            }
+
             int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
             int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
             int scopeCompare = Integer.compare(scopeB, scopeA);

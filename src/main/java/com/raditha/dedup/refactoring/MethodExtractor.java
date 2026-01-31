@@ -113,6 +113,9 @@ public class MethodExtractor extends AbstractExtractor {
             }
         }
 
+        // Ensure helper exists in every containing class for cross-file clusters
+        ensureHelperInContainingTypes(helperMethod);
+
         // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
         return executeReplacements();
     }
@@ -202,6 +205,53 @@ public class MethodExtractor extends AbstractExtractor {
         }
 
         return buildRefactoringResult(modifiedCUs);
+    }
+
+    private void ensureHelperInContainingTypes(MethodDeclaration helperMethod) {
+        if (!isCrossFileCluster()) {
+            return;
+        }
+
+        for (StatementSequence seq : cluster.allSequences()) {
+            MethodDeclaration containingMethod = seq.containingMethod();
+            if (containingMethod == null) {
+                continue;
+            }
+            TypeDeclaration<?> containingType = containingMethod.findAncestor(TypeDeclaration.class)
+                    .orElse(null);
+            if (containingType == null) {
+                continue;
+            }
+
+            boolean alreadyInType = containingType.getMethodsByName(methodNameToUse).stream()
+                    .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                            && m.getType().asString().equals(helperMethod.getType().asString()));
+
+            if (alreadyInType) {
+                MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
+                        cluster.getContainingMethods());
+                if (equivalent == null) {
+                    throw new IllegalStateException(
+                            "Method name '" + methodNameToUse + "' already exists in class " +
+                                    containingType.getNameAsString());
+                }
+                continue;
+            }
+
+            MethodDeclaration clone = helperMethod.clone();
+            clone.setName(methodNameToUse);
+            containingType.addMember(clone);
+        }
+    }
+
+    private boolean isCrossFileCluster() {
+        java.util.Set<String> filePaths = new java.util.HashSet<>();
+        for (StatementSequence seq : cluster.allSequences()) {
+            if (seq.sourceFilePath() != null) {
+                filePaths.add(seq.sourceFilePath().toString());
+            }
+        }
+        return filePaths.size() > 1;
     }
 
     private RefactoringResult buildRefactoringResult(Map<CompilationUnit, Path> modifiedCUs) {
@@ -354,10 +404,25 @@ public class MethodExtractor extends AbstractExtractor {
             boolean isUsed = tempBody.findAll(com.github.javaparser.ast.expr.SimpleName.class).stream()
                     .anyMatch(n -> n.getIdentifier().equals(targetName));
             if (isUsed) {
+                if (referencesDeclaredVariable(sequence, param, declaredVars)) {
+                    continue;
+                }
                 usedParams.add(param);
             }
         }
         return usedParams;
+    }
+
+    private boolean referencesDeclaredVariable(StatementSequence sequence, ParameterSpec param, Set<String> declaredVars) {
+        if (param.getStartLine() == null || param.getStartColumn() == null) {
+            return false;
+        }
+        Expression expr = findNodeByCoordinates(sequence, param.getStartLine(), param.getStartColumn());
+        if (expr == null) {
+            return false;
+        }
+        return expr.findAll(com.github.javaparser.ast.expr.NameExpr.class).stream()
+                .anyMatch(n -> declaredVars.contains(n.getNameAsString()));
     }
 
     private Set<String> getLiveOuts(DataFlowAnalyzer dfa) {
@@ -543,7 +608,9 @@ public class MethodExtractor extends AbstractExtractor {
         List<Statement> stmts = sequence.statements();
         for (int i = 0; i < limit; i++) {
             Statement original = stmts.get(i);
-            Statement stmt = substituteParameters(original.clone());
+            Statement stmt = (effectiveParams == null)
+                    ? substituteParameters(original.clone())
+                    : substituteEffectiveParameters(original.clone());
 
             if (shouldSkipReturnForExternalVars(stmt, hasExternalVars)) {
                 continue;
@@ -1313,6 +1380,27 @@ public class MethodExtractor extends AbstractExtractor {
      */
     private Statement substituteParameters(Statement stmt) {
         return substituteParametersStatic(stmt, recommendation, paramNameOverrides);
+    }
+
+    private Statement substituteEffectiveParameters(Statement stmt) {
+        for (ParameterSpec param : effectiveParams) {
+            String paramName = paramNameOverrides.getOrDefault(param, param.getName());
+
+            if (tryLocationBasedReplace(stmt, param, paramName)) {
+                continue;
+            }
+
+            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
+                String exampleValue = param.getExampleValues().getFirst();
+                for (Expression expr : stmt.findAll(Expression.class)) {
+                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
+                        expr.replace(new NameExpr(paramName));
+                        break;
+                    }
+                }
+            }
+        }
+        return stmt;
     }
 
     /**
