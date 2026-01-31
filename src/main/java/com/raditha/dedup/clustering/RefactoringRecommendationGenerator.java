@@ -201,12 +201,12 @@ public class RefactoringRecommendationGenerator {
         // rather than a Utility class.
         // This matches the original behavior and ensures Service classes
         // are refactored into BaseService hierarchies.
-        CallableDeclaration<?> method = seq.containingCallable();
-        if (method == null) return false;
-        if (method instanceof MethodDeclaration m) {
-            return !m.isStatic();
+        CallableDeclaration<?> callable = seq.containingCallable();
+        if (!(callable instanceof MethodDeclaration m)) {
+            // Only methods are eligible for parent/utility class extraction
+            return false;
         }
-        // Constructors are not static, so they use instance state.
+        return !m.isStatic();
         return true;
     }
 
@@ -295,7 +295,9 @@ public class RefactoringRecommendationGenerator {
      * Get all field names from the containing class.
      */
     private Set<String> getFieldNames(StatementSequence sequence) {
-        var method = sequence.containingCallable();
+        var callable = sequence.containingCallable();
+        if (!(callable instanceof MethodDeclaration method)) {
+            // Only method bodies should be treated as having implicit field access for parameter filtering
         if (method == null) {
             return Collections.emptySet();
         }

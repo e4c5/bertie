@@ -382,7 +382,9 @@ public class ReturnTypeResolver {
 
     @SuppressWarnings("unchecked")
     private Optional<Type> extractGenericTypeFromScope(StatementSequence sequence, String scopeName) {
-        var classDecl = sequence.containingCallable()
+        if (sequence.containingCallable() == null) {
+            return Optional.empty();
+        }
                 .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
         if (classDecl.isEmpty()) {
             return Optional.empty();
