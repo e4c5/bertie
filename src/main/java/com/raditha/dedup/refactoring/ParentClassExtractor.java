@@ -6,8 +6,10 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
@@ -21,9 +23,9 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.SuperExpr;
 import org.jspecify.annotations.NonNull;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.evaluator.Reflect;
 import java.nio.file.Path;
-import java.nio.file.Files;
 import java.util.*;
 
 /**
@@ -89,6 +91,8 @@ public class ParentClassExtractor extends AbstractExtractor {
             });
         } else if (!isPeerParent) {
             CompilationUnit parentCu = createParentClass(methodToExtract);
+            String parentFqn = packageName.isEmpty() ? parentClassName : packageName + "." + parentClassName;
+            AntikytheraRunTime.addCompilationUnit(parentFqn, parentCu);
             findPrimaryClass(parentCu).ifPresent(parentClass -> {
                 addFieldsToParent(parentClass, primaryCu);
                 Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
@@ -375,11 +379,18 @@ public class ParentClassExtractor extends AbstractExtractor {
                 }
             }
 
-            // Check filesystem if not found in involved CUs
-            try {
-                Path parentPath = cluster.primary().sourceFilePath().getParent().resolve(parentName + ".java");
-                if (Files.exists(parentPath)) {
-                    CompilationUnit parentCu = com.github.javaparser.StaticJavaParser.parse(parentPath);
+            String packageName = cluster.primary().compilationUnit().getPackageDeclaration()
+                    .map(p -> p.getNameAsString())
+                    .orElseGet(() -> involvedCus.stream()
+                            .map(cu -> cu.getPackageDeclaration().map(p -> p.getNameAsString()).orElse(""))
+                            .filter(p -> !p.isEmpty())
+                            .findFirst()
+                            .orElse(""));
+            String parentFqn = packageName.isEmpty() ? parentName : packageName + "." + parentName;
+            Map<String, CompilationUnit> resolvedCus = AntikytheraRunTime.getResolvedCompilationUnits();
+            if (resolvedCus.containsKey(parentFqn)) {
+                CompilationUnit parentCu = AntikytheraRunTime.getCompilationUnit(parentFqn);
+                if (parentCu != null) {
                     Optional<ClassOrInterfaceDeclaration> parentDecl = parentCu.findAll(ClassOrInterfaceDeclaration.class)
                             .stream()
                             .filter(c -> c.getNameAsString().equals(parentName))
@@ -388,9 +399,6 @@ public class ParentClassExtractor extends AbstractExtractor {
                         return parentDecl;
                     }
                 }
-            } catch (Exception e) {
-                // Ignore errors reading existing parent
-                System.err.println("Warning: Could not read existing parent class: " + e.getMessage());
             }
         }
 
@@ -495,8 +503,18 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         method.findAll(NameExpr.class).forEach(name -> {
             String identifier = name.getNameAsString();
-            if (allClassFieldNames.contains(identifier) && !isShadowed(name, method)) {
+            if (allClassFieldNames.contains(identifier) && !isShadowed(identifier, method)) {
                 usedFieldNames.add(identifier);
+            }
+        });
+        method.findAll(FieldAccessExpr.class).forEach(fieldAccess -> {
+            if (!(fieldAccess.getScope() instanceof ThisExpr
+                    || fieldAccess.getScope() instanceof SuperExpr)) {
+                return;
+            }
+            String fieldName = fieldAccess.getNameAsString();
+            if (allClassFieldNames.contains(fieldName) && !isShadowed(fieldName, method)) {
+                usedFieldNames.add(fieldName);
             }
         });
 
@@ -595,7 +613,10 @@ public class ParentClassExtractor extends AbstractExtractor {
      * Check if a name expression is shadowed by a local variable or parameter.
      */
     private boolean isShadowed(NameExpr name, MethodDeclaration method) {
-        String identifier = name.getNameAsString();
+        return isShadowed(name.getNameAsString(), method);
+    }
+
+    private boolean isShadowed(String identifier, MethodDeclaration method) {
 
         // Check parameters
         boolean isParam = method.getParameters().stream()

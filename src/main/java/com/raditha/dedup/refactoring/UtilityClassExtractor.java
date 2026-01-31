@@ -16,6 +16,7 @@ import com.raditha.dedup.model.StatementSequence;
 import sa.com.cloudsolutions.antikythera.depsolver.Graph;
 import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
 import sa.com.cloudsolutions.antikythera.depsolver.Resolver;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.MCEWrapper;
@@ -47,6 +48,8 @@ public class UtilityClassExtractor extends AbstractExtractor {
         this.utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
 
         CompilationUnit utilityCu = createUtilityClass(methodToExtract);
+        String utilityFqn = packageName + ".util." + utilityClassName;
+        AntikytheraRunTime.addCompilationUnit(utilityFqn, utilityCu);
         Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
         modifiedFiles.put(utilityPath, utilityCu.toString());
 
