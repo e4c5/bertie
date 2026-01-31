@@ -12,7 +12,6 @@ import com.raditha.dedup.refactoring.RefactoringEngine.RefactoringSession;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,7 +39,7 @@ public class RefactoringOrchestrator {
         RefactoringSession totalSession = new RefactoringSession();
 
         // 1. Group clusters by class
-        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = new HashMap<>();
+        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = new java.util.LinkedHashMap<>();
         List<DuplicateCluster> orphanedClusters = new ArrayList<>();
         
         groupClusters(report, cu, clustersByClass, orphanedClusters);
@@ -51,7 +50,14 @@ public class RefactoringOrchestrator {
             totalSession.addSkipped(orphan, "Could not determine containing class");
         }
 
-        for (Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> entry : clustersByClass.entrySet()) {
+        List<Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>>> orderedEntries =
+                new ArrayList<>(clustersByClass.entrySet());
+        orderedEntries.sort(java.util.Comparator
+                .comparing((Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> e) ->
+                        e.getKey().getNameAsString())
+                .thenComparingInt(e -> e.getKey().getRange().map(r -> r.begin.line).orElse(0)));
+
+        for (Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> entry : orderedEntries) {
             ClassOrInterfaceDeclaration clazz = entry.getKey();
             List<DuplicateCluster> clusters = entry.getValue();
             

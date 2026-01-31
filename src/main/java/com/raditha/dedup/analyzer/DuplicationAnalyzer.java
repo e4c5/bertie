@@ -31,6 +31,15 @@ public class DuplicationAnalyzer {
     private final com.raditha.dedup.normalization.ASTNormalizer astNormalizer; // NEW: AST-based
     private final com.raditha.dedup.similarity.ASTSimilarityCalculator astSimilarityCalculator; // NEW: AST-based
     private final DuplicateClusterer clusterer;
+    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
+            java.util.Comparator
+                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
+                    .thenComparingInt(StatementSequence::startOffset)
+                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final RefactoringRecommendationGenerator recommendationGenerator;
     private final BoundaryRefiner boundaryRefiner;
 
@@ -93,11 +102,15 @@ public class DuplicationAnalyzer {
      */
     public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
         List<StatementSequence> allSequences = new ArrayList<>();
-        Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
+        Map<Path, List<StatementSequence>> fileSequences = new java.util.LinkedHashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
 
         // 1. Extract from all files (Lazily normalized)
-        for (CompilationUnit cu : allCUs.values()) {
+        List<CompilationUnit> sortedCUs = new ArrayList<>(allCUs.values());
+        sortedCUs.sort(java.util.Comparator.comparing(
+                unit -> unit.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null),
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+        for (CompilationUnit cu : sortedCUs) {
             if (processedCUs.add(cu)) {
 
                 Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
@@ -113,6 +126,8 @@ public class DuplicationAnalyzer {
                 allSequences.addAll(sequences);
             }
         }
+
+        allSequences.sort(SEQ_ORDER);
 
         // 2-4. Process sequences through the duplicate detection pipeline
         ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
@@ -295,8 +310,10 @@ public class DuplicationAnalyzer {
 
             // Query and Add
             Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, currentSeq);
+            List<StatementSequence> orderedMatches = new ArrayList<>(potentialMatches);
+            orderedMatches.sort(SEQ_ORDER);
 
-            for (StatementSequence candidateSeq : potentialMatches) {
+            for (StatementSequence candidateSeq : orderedMatches) {
                 // Combined check to reduce continue statements
                 if (currentSeq == candidateSeq ||
                     isPhysicallyOverlapping(currentSeq, candidateSeq) ||
@@ -411,9 +428,19 @@ public class DuplicationAnalyzer {
     private List<SimilarityPair> filterByThreshold(List<SimilarityPair> candidates) {
         return candidates.stream()
                 .filter(pair -> pair.similarity().overallScore() >= DuplicationDetectorSettings.getThreshold())
-                .sorted((a, b) -> Double.compare(
-                        b.similarity().overallScore(),
-                        a.similarity().overallScore()))
+                .sorted((a, b) -> {
+                    int scoreCompare = Double.compare(
+                            b.similarity().overallScore(),
+                            a.similarity().overallScore());
+                    if (scoreCompare != 0) {
+                        return scoreCompare;
+                    }
+                    int seq1Compare = SEQ_ORDER.compare(a.seq1(), b.seq1());
+                    if (seq1Compare != 0) {
+                        return seq1Compare;
+                    }
+                    return SEQ_ORDER.compare(a.seq2(), b.seq2());
+                })
                 .toList();
     }
 
@@ -436,7 +463,7 @@ public class DuplicationAnalyzer {
 
         // Group pairs by their canonical method-pair
         // Pairs can only overlap if they involve the same method-pair
-        Map<MethodPairKey, List<SimilarityPair>> groups = new java.util.HashMap<>();
+        Map<MethodPairKey, List<SimilarityPair>> groups = new java.util.LinkedHashMap<>();
         for (SimilarityPair pair : pairs) {
             MethodPairKey key = makeMethodPairKey(pair);
             groups.computeIfAbsent(key, k -> new ArrayList<>()).add(pair);

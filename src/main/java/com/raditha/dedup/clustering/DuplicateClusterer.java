@@ -12,6 +12,15 @@ import java.util.*;
 public class DuplicateClusterer {
 
     private final double similarityThreshold;
+    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
+            java.util.Comparator
+                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
+                    .thenComparingInt(StatementSequence::startOffset)
+                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
 
     /**
      * Create clusterer with default 75% similarity threshold.
@@ -55,7 +64,10 @@ public class DuplicateClusterer {
         List<DuplicateCluster> clusters = new ArrayList<>();
         int clusterId = 1;
 
-        for (StatementSequence node : adj.keySet()) {
+        List<StatementSequence> orderedNodes = new ArrayList<>(adj.keySet());
+        orderedNodes.sort(SEQ_ORDER);
+
+        for (StatementSequence node : orderedNodes) {
             if (visited.contains(node)) continue;
 
             // BFS for connected component
@@ -80,7 +92,7 @@ public class DuplicateClusterer {
 
             // Find global primary for the component (lowest start line)
             StatementSequence primary = component.stream()
-                .min(Comparator.comparingInt(s -> s.range().startLine()))
+                .min(SEQ_ORDER)
                 .orElseThrow();
             
             // Group pairs relevant to this cluster
