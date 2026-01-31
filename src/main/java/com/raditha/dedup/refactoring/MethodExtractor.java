@@ -113,9 +113,6 @@ public class MethodExtractor extends AbstractExtractor {
             }
         }
 
-        // Ensure helper exists in every containing class for cross-file clusters
-        ensureHelperInContainingTypes(helperMethod);
-
         // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
         return executeReplacements();
     }
@@ -204,10 +201,14 @@ public class MethodExtractor extends AbstractExtractor {
                     "Skipped: Could not substitute calls for extracted method " + methodNameToUse);
         }
 
+        // Ensure helper exists in every containing class for cross-file clusters
+        ensureHelperInContainingTypes(helperMethod, modifiedCUs);
+
         return buildRefactoringResult(modifiedCUs);
     }
 
-    private void ensureHelperInContainingTypes(MethodDeclaration helperMethod) {
+    private void ensureHelperInContainingTypes(MethodDeclaration helperMethod,
+            Map<CompilationUnit, Path> modifiedCUs) {
         if (!isCrossFileCluster()) {
             return;
         }
@@ -240,6 +241,7 @@ public class MethodExtractor extends AbstractExtractor {
                 MethodDeclaration clone = helperMethod.clone();
                 clone.setName(methodNameToUse);
                 containingType.addMember(clone);
+                modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
             }
         }
     }
