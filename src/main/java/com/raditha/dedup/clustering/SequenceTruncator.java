@@ -123,7 +123,8 @@ public class SequenceTruncator {
         List<Statement> stmts = sequence.statements();
         for (int i = 0; i < stmts.size(); i++) {
             Statement stmt = stmts.get(i);
-            if (stmt.isReturnStmt() && i == stmts.size() - 1) {
+            if (stmt.isReturnStmt()) {
+                // Only treat returns nested in control flow as unsafe.
                 continue;
             }
             if (stmt.findFirst(com.github.javaparser.ast.stmt.ReturnStmt.class).isPresent()) {
