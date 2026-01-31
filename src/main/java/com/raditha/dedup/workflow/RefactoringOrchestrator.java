@@ -110,7 +110,7 @@ public class RefactoringOrchestrator {
             if (classOpt.isEmpty()) {
                 String methodName = method.getNameAsString();
                 List<ClassOrInterfaceDeclaration> candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
-                        .filter(c -> c.getMethodsByName(methodName).size() > 0)
+                        .filter(c -> !c.getMethodsByName(methodName).isEmpty())
                         .toList();
                 
                 if (candidates.size() == 1) {

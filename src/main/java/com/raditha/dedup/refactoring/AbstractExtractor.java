@@ -167,12 +167,7 @@ public abstract class AbstractExtractor {
             return requiredImportNames.contains(simpleName) || 
                    requiredImportNames.stream().anyMatch(req -> req.endsWith("." + simpleName));
         }
-
-        if (methodUsesType(method, simpleName)) {
-            return true;
-        }
-        
-        return false;
+        return methodUsesType(method, simpleName);
     }
 
     /**

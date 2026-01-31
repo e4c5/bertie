@@ -235,12 +235,12 @@ public class MethodExtractor extends AbstractExtractor {
                             "Method name '" + methodNameToUse + "' already exists in class " +
                                     containingType.getNameAsString());
                 }
-                continue;
             }
-
-            MethodDeclaration clone = helperMethod.clone();
-            clone.setName(methodNameToUse);
-            containingType.addMember(clone);
+            else {
+                MethodDeclaration clone = helperMethod.clone();
+                clone.setName(methodNameToUse);
+                containingType.addMember(clone);
+            }
         }
     }
 

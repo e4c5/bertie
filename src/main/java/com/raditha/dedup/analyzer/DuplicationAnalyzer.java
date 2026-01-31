@@ -512,9 +512,6 @@ public class DuplicationAnalyzer {
      * Since all pairs in the group have sameMethodPair==true, we only check physical overlap.
      */
     private List<SimilarityPair> removeOverlapsInGroup(List<SimilarityPair> group) {
-        if (group.size() <= 1) {
-            return group;
-        }
 
         EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
         Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
@@ -522,8 +519,8 @@ public class DuplicationAnalyzer {
                 escapeCounts.computeIfAbsent(seq, s -> escapeAnalyzer.analyze(s).size());
 
         // Sort by escape risk (ascending), then scope (descending), then statement count, then start line
-        List<SimilarityPair> sorted = new ArrayList<>(group);
-        sorted.sort((a, b) -> {
+
+        group.sort((a, b) -> {
             int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
             int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
             int escapeCompare = Integer.compare(escapesA, escapesB);
@@ -548,7 +545,7 @@ public class DuplicationAnalyzer {
 
         // Filter overlaps - same logic as original O(N²) but within group
         List<SimilarityPair> filtered = new ArrayList<>();
-        for (SimilarityPair current : sorted) {
+        for (SimilarityPair current : group) {
             boolean overlaps = false;
             
             for (SimilarityPair kept : filtered) {
@@ -567,27 +564,6 @@ public class DuplicationAnalyzer {
         }
         
         return filtered;
-    }
-
-    /**
-     * Check if two pairs involve the same pair of methods.
-     */
-    private boolean sameMethodPair(SimilarityPair pair1, SimilarityPair pair2) {
-        // Get methods for pair1
-        var method1a = pair1.seq1().containingMethod();
-        var method1b = pair1.seq2().containingMethod();
-
-        // Get methods for pair2
-        var method2a = pair2.seq1().containingMethod();
-        var method2b = pair2.seq2().containingMethod();
-
-        if (method1a == null || method1b == null || method2a == null || method2b == null) {
-            return false;
-        }
-
-        // Check if same pair (order doesn't matter)
-        return (method1a.equals(method2a) && method1b.equals(method2b)) ||
-                (method1a.equals(method2b) && method1b.equals(method2a));
     }
 
     /**

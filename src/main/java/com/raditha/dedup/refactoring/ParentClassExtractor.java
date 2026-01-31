@@ -39,6 +39,21 @@ public class ParentClassExtractor extends AbstractExtractor {
     private final Map<String, Type> fieldsToExtract = new HashMap<>();
     private FunctionalPredicateInfo functionalPredicate;
 
+    private MethodDeclaration getMethodToExtract(StatementSequence primary) {
+        MethodDeclaration methodToExtract = primary.containingMethod();
+
+        if (methodToExtract == null) {
+            throw new IllegalArgumentException("No containing method found");
+        }
+
+        Optional<ClassOrInterfaceDeclaration> primaryClass = findPrimaryClass(primary.compilationUnit());
+        if (primaryClass.isEmpty()) {
+            throw new IllegalArgumentException("No containing class found");
+        }
+
+        return methodToExtract;
+    }
+
     @Override
     public MethodExtractor.RefactoringResult refactor(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) {
@@ -47,16 +62,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         StatementSequence primary = cluster.primary();
         CompilationUnit primaryCu = primary.compilationUnit();
-        MethodDeclaration methodToExtract = primary.containingMethod();
-
-        if (methodToExtract == null) {
-            throw new IllegalArgumentException("No containing method found");
-        }
-
-        Optional<ClassOrInterfaceDeclaration> primaryClass = findPrimaryClass(primaryCu);
-        if (primaryClass.isEmpty()) {
-            throw new IllegalArgumentException("No containing class found");
-        }
+        MethodDeclaration methodToExtract = getMethodToExtract(primary);
 
         this.parentClassName = determineParentClassName();
         this.functionalPredicate = buildFunctionalPredicateInfo();
@@ -162,7 +168,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
             methodToRemove.getParameters().forEach(p -> call.addArgument(p.getNameAsExpression()));
             addLiteralArguments(call, methodToRemove);
-            addFunctionalArguments(call, methodToRemove, methodToExtract);
+            addFunctionalArguments(call, methodToRemove);
 
             if (methodToRemove.getType().isVoidType()) {
                 body.addStatement(call);
@@ -494,15 +500,10 @@ public class ParentClassExtractor extends AbstractExtractor {
             }
         });
 
-        if (usedFieldNames.isEmpty()) {
-            return;
-        }
-        
         // For each used field, verify it's present and compatible across all classes
         for (String fieldName : usedFieldNames) {
             Type type = null;
             boolean extractable = true;
-            boolean presentInChild = false;
 
             for (CompilationUnit involvedCu : involvedCus) {
                 Optional<ClassOrInterfaceDeclaration> classDecl = findPrimaryClass(involvedCu);
@@ -539,13 +540,10 @@ public class ParentClassExtractor extends AbstractExtractor {
                     extractable = false;
                     break;
                 }
-                presentInChild = true;
             }
 
-            if (extractable) {
-                if (type != null) {
-                    fieldsToExtract.put(fieldName, type.clone());
-                }
+            if (extractable && type != null) {
+                fieldsToExtract.put(fieldName, type.clone());
             } else {
                 throw new IllegalStateException(
                         "Skipped: Method uses field '" + fieldName + "' which is not present or compatible in all classes.");
@@ -691,17 +689,14 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
         return null;
     }
-    private void addFunctionalArguments(MethodCallExpr call, MethodDeclaration childMethod, MethodDeclaration parentMethod) {
+
+    private void addFunctionalArguments(MethodCallExpr call, MethodDeclaration childMethod) {
         if (!functionalPredicate.enabled) {
             return;
         }
         MethodCallExpr candidate = findPredicateMethodCall(childMethod, functionalPredicate.scopeName);
-        String methodName = null;
-        if (candidate != null) {
-            methodName = candidate.getNameAsString();
-        } else {
-            methodName = resolvePredicateMethodName(childMethod);
-        }
+        String methodName = (candidate != null) ? candidate.getNameAsString() : resolvePredicateMethodName(childMethod);
+
         if (methodName == null) {
             return;
         }
