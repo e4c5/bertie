@@ -31,20 +31,14 @@ public class SafetyValidator {
                     "Variables used are not in scope for extraction"));
         }
 
-        // 3. Check for annotation incompatibilities
-        if (hasIncompatibleAnnotations(cluster)) {
-            issues.add(ValidationIssue.warning(
-                    "Methods have different annotations (@Transactional, @Async, etc.)"));
-        }
-
-        // 4. Check for control flow differences
+        // 3. Check for control flow differences
         SimilarityResult similarity = cluster.duplicates().isEmpty() ? null : cluster.duplicates().get(0).similarity();
         if (similarity != null && similarity.variations().hasControlFlowDifferences()) {
             issues.add(ValidationIssue.error(
                     "Control flow differs between duplicates - cannot safely refactor"));
         }
 
-        // 5. Check parameter count
+        // 4. Check parameter count
         if (recommendation.getSuggestedParameters().size() > 5) {
             issues.add(ValidationIssue.warning(
                     "More than 5 parameters (" + recommendation.getSuggestedParameters().size() +
@@ -141,76 +135,6 @@ public class SafetyValidator {
             )
         );
         return fieldNames;
-    }
-
-    /**
-     * Check for annotation incompatibilities.
-     * 
-     * Verifies that methods containing duplicate sequences have compatible annotations.
-     * Certain annotations like @Transactional, @Async, @Cacheable affect method behavior
-     * and should be consistent across all duplicates.
-     */
-    private boolean hasIncompatibleAnnotations(DuplicateCluster cluster) {
-        // Annotations that affect method behavior and must be consistent
-        Set<String> criticalAnnotations = Set.of(
-            "Transactional",
-            "Async", 
-            "Cacheable",
-            "Scheduled",
-            "Retryable",
-            "Timed"
-        );
-        
-        // Get annotations from primary sequence's containing method
-        Set<String> primaryAnnotations = getMethodAnnotations(cluster.primary());
-        
-        // Check all duplicate pairs
-        for (SimilarityPair pair : cluster.duplicates()) {
-            Set<String> seq1Annotations = getMethodAnnotations(pair.seq1());
-            Set<String> seq2Annotations = getMethodAnnotations(pair.seq2());
-            
-            // Check if critical annotations differ
-            if (hasCriticalAnnotationDifference(primaryAnnotations, seq1Annotations, criticalAnnotations) ||
-                hasCriticalAnnotationDifference(primaryAnnotations, seq2Annotations, criticalAnnotations) ||
-                hasCriticalAnnotationDifference(seq1Annotations, seq2Annotations, criticalAnnotations)) {
-                return true;
-            }
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Get all annotation names from a method containing a sequence.
-     */
-    private Set<String> getMethodAnnotations(StatementSequence sequence) {
-        var method = sequence.containingMethod();
-        if (method == null) {
-            return java.util.Collections.emptySet();
-        }
-        
-        return method.getAnnotations().stream()
-            .map(annotation -> annotation.getNameAsString())
-            .collect(java.util.stream.Collectors.toSet());
-    }
-    
-    /**
-     * Check if two annotation sets differ in critical annotations.
-     */
-    private boolean hasCriticalAnnotationDifference(Set<String> annotations1, 
-                                                    Set<String> annotations2, 
-                                                    Set<String> criticalAnnotations) {
-        for (String critical : criticalAnnotations) {
-            boolean has1 = annotations1.contains(critical);
-            boolean has2 = annotations2.contains(critical);
-            
-            // If one has it and the other doesn't, that's incompatible
-            if (has1 != has2) {
-                return true;
-            }
-        }
-        
-        return false;
     }
 
     /**

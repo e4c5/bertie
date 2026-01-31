@@ -137,7 +137,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             MethodDeclaration methodToExtract) {
         String parentMethodName = methodToExtract.getNameAsString();
 
-        boolean hasAnnotations = hasAnyAnnotation(methodToRemove);
+        boolean hasAnnotations = !methodToRemove.getAnnotations().isEmpty();
 
         boolean signaturesMatch = signaturesMatch(methodToExtract, methodToRemove);
         long addedParamsCount = recommendation.getSuggestedParameters().stream()
@@ -183,14 +183,6 @@ public class ParentClassExtractor extends AbstractExtractor {
             if (!t1.equals(t2)) return false; 
         }
         return true;
-    }
-
-    /**
-     * Check if a method has annotations that should be preserved when refactoring.
-     * These annotations affect method behavior and should not be discarded.
-     */
-    private boolean hasAnyAnnotation(MethodDeclaration method) {
-        return !method.getAnnotations().isEmpty();
     }
 
 
@@ -253,7 +245,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private @NonNull MethodDeclaration createMethod(MethodDeclaration originalMethod) {
         MethodDeclaration newMethod = originalMethod.clone();
-        removeAllAnnotations(newMethod);
+        newMethod.getAnnotations().clear();
         // Clear existing modifiers
         newMethod.getModifiers().clear();
         // Preserve public visibility, otherwise use protected
@@ -337,10 +329,6 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
         
         return newMethod;
-    }
-
-    private void removeAllAnnotations(MethodDeclaration method) {
-        method.getAnnotations().clear();
     }
 
     /**
