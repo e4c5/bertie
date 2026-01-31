@@ -98,49 +98,53 @@ public class RefactoringOrchestrator {
             List<DuplicateCluster> orphanedClusters) {
         
         for (DuplicateCluster cluster : report.clusters()) {
-            // Find the containing class for the primary sequence
-            StatementSequence primary = cluster.primary();
-            if (primary == null || primary.containingCallable() == null) {
-                orphanedClusters.add(cluster);
-                continue;
-            }
-            
-            CallableDeclaration<?> callable = primary.containingCallable();
-            Optional<ClassOrInterfaceDeclaration> classOpt = callable.findAncestor(ClassOrInterfaceDeclaration.class);
-            
-            // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
-            if (classOpt.isEmpty()) {
-                String name = callable.getNameAsString();
-                List<ClassOrInterfaceDeclaration> candidates = new ArrayList<>();
-
-                if (callable instanceof MethodDeclaration) {
-                    candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
-                            .filter(c -> !c.getMethodsByName(name).isEmpty())
-                            .toList();
-                } else if (callable instanceof ConstructorDeclaration) {
-                    // For constructors, the name is the class name
-                    candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
-                            .filter(c -> c.getNameAsString().equals(name))
-                            .toList();
-                }
-                
-                if (candidates.size() == 1) {
-                    classOpt = Optional.of(candidates.get(0));
-                    logger.debug("Robustly resolved class context for orphaned callable: {} -> {}", name, classOpt.get().getNameAsString());
-                } else if (candidates.size() > 1) {
-                    logger.warn("Ambiguous class resolution for callable '{}': {} candidates in CU", name, candidates.size());
-                }
-            }
-            
-            if (classOpt.isPresent()) {
-                clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
-            } else {
-                logger.warn("DEBUG: Cluster orphaned because no ClassOrInterfaceDeclaration ancestor found for callable: {}",
-                    primary.containingCallable().getNameAsString());
-                orphanedClusters.add(cluster);
-            }
+            groupCluster(cu, clustersByClass, orphanedClusters, cluster);
         }
         logger.info("DEBUG: Grouping complete. Clusters by class: {}. Orphaned: {}", clustersByClass.size(), orphanedClusters.size());
+    }
+
+    private static void groupCluster(CompilationUnit cu, Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass, List<DuplicateCluster> orphanedClusters, DuplicateCluster cluster) {
+        // Find the containing class for the primary sequence
+        StatementSequence primary = cluster.primary();
+        if (primary == null || primary.containingCallable() == null) {
+            orphanedClusters.add(cluster);
+            return;
+        }
+
+        CallableDeclaration<?> callable = primary.containingCallable();
+        Optional<ClassOrInterfaceDeclaration> classOpt = callable.findAncestor(ClassOrInterfaceDeclaration.class);
+
+        // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
+        if (classOpt.isEmpty()) {
+            String name = callable.getNameAsString();
+            List<ClassOrInterfaceDeclaration> candidates = new ArrayList<>();
+
+            if (callable instanceof MethodDeclaration) {
+                candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                        .filter(c -> !c.getMethodsByName(name).isEmpty())
+                        .toList();
+            } else if (callable instanceof ConstructorDeclaration) {
+                // For constructors, the name is the class name
+                candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                        .filter(c -> c.getNameAsString().equals(name))
+                        .toList();
+            }
+
+            if (candidates.size() == 1) {
+                classOpt = Optional.of(candidates.get(0));
+                logger.debug("Robustly resolved class context for orphaned callable: {} -> {}", name, classOpt.get().getNameAsString());
+            } else if (candidates.size() > 1) {
+                logger.warn("Ambiguous class resolution for callable '{}': {} candidates in CU", name, candidates.size());
+            }
+        }
+
+        if (classOpt.isPresent()) {
+            clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
+        } else {
+            logger.warn("DEBUG: Cluster orphaned because no ClassOrInterfaceDeclaration ancestor found for callable: {}",
+                primary.containingCallable().getNameAsString());
+            orphanedClusters.add(cluster);
+        }
     }
 
     private void mergeSessions(RefactoringSession target, RefactoringSession source) {
