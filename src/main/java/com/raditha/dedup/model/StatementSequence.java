@@ -14,7 +14,7 @@ import java.util.List;
  * 
  * @param statements       The actual statement nodes from JavaParser AST
  * @param range            Source code range
- * @param startOffset      Statement offset within the containing method
+ * @param startOffset      Statement index within the containing method (0-based)
  * @param containingMethod The method containing these statements
  * @param compilationUnit  The parsed file (from AbstractCompiler)
  * @param sourceFilePath   Path to the source file
@@ -26,6 +26,7 @@ public record StatementSequence(
         MethodDeclaration containingMethod,
         CompilationUnit compilationUnit,
         Path sourceFilePath) {
+
     /**
      * Get method name.
      */

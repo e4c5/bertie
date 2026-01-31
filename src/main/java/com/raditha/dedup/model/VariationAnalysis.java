@@ -72,16 +72,6 @@ public class VariationAnalysis {
         return variations.size();
     }
 
-    public boolean canParameterize() {
-        if (hasControlFlowDifferences)
-            return false;
-        if (variations.size() > 5)
-            return false;
-        return variations.stream().allMatch(Variation::canParameterize);
-    }
-
-    // Builder Class
-
     public static class Builder {
         private List<VaryingExpression> varyingExpressions;
         private Set<VariableReference> variableReferences;

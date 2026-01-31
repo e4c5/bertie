@@ -2,6 +2,7 @@ package com.raditha.dedup.workflow;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -11,7 +12,6 @@ import com.raditha.dedup.refactoring.RefactoringEngine.RefactoringSession;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,10 +39,10 @@ public class RefactoringOrchestrator {
         RefactoringSession totalSession = new RefactoringSession();
 
         // 1. Group clusters by class
-        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = new HashMap<>();
+        Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass = new java.util.LinkedHashMap<>();
         List<DuplicateCluster> orphanedClusters = new ArrayList<>();
         
-        groupClusters(report, clustersByClass, orphanedClusters);
+        groupClusters(report, cu, clustersByClass, orphanedClusters);
         
         // Handle orphaned clusters
         for (DuplicateCluster orphan : orphanedClusters) {
@@ -50,7 +50,14 @@ public class RefactoringOrchestrator {
             totalSession.addSkipped(orphan, "Could not determine containing class");
         }
 
-        for (Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> entry : clustersByClass.entrySet()) {
+        List<Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>>> orderedEntries =
+                new ArrayList<>(clustersByClass.entrySet());
+        orderedEntries.sort(java.util.Comparator
+                .comparing((Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> e) ->
+                        e.getKey().getNameAsString())
+                .thenComparingInt(e -> e.getKey().getRange().map(r -> r.begin.line).orElse(0)));
+
+        for (Map.Entry<ClassOrInterfaceDeclaration, List<DuplicateCluster>> entry : orderedEntries) {
             ClassOrInterfaceDeclaration clazz = entry.getKey();
             List<DuplicateCluster> clusters = entry.getValue();
             
@@ -84,7 +91,7 @@ public class RefactoringOrchestrator {
         return totalSession;
     }
 
-    private void groupClusters(DuplicationReport report, 
+    private void groupClusters(DuplicationReport report, CompilationUnit cu,
             Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass,
             List<DuplicateCluster> orphanedClusters) {
         
@@ -96,8 +103,23 @@ public class RefactoringOrchestrator {
                 continue;
             }
             
-            Optional<ClassOrInterfaceDeclaration> classOpt = primary.containingMethod()
-                    .findAncestor(ClassOrInterfaceDeclaration.class);
+            MethodDeclaration method = primary.containingMethod();
+            Optional<ClassOrInterfaceDeclaration> classOpt = method.findAncestor(ClassOrInterfaceDeclaration.class);
+            
+            // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
+            if (classOpt.isEmpty()) {
+                String methodName = method.getNameAsString();
+                List<ClassOrInterfaceDeclaration> candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                        .filter(c -> !c.getMethodsByName(methodName).isEmpty())
+                        .toList();
+                
+                if (candidates.size() == 1) {
+                    classOpt = Optional.of(candidates.get(0));
+                    logger.debug("Robustly resolved class context for orphaned method: {} -> {}", methodName, classOpt.get().getNameAsString());
+                } else if (candidates.size() > 1) {
+                    logger.warn("Ambiguous class resolution for method '{}': {} candidates in CU", methodName, candidates.size());
+                }
+            }
             
             if (classOpt.isPresent()) {
                 clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);

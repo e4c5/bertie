@@ -4,6 +4,7 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.StatementSequence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,15 @@ import java.util.Map;
 @SuppressWarnings("java:S106")
 public class RefactoringEngine {
     private static final Logger logger = LoggerFactory.getLogger(RefactoringEngine.class);
+    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
+            java.util.Comparator
+                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
+                    .thenComparingInt(StatementSequence::startOffset)
+                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
@@ -73,7 +83,11 @@ public class RefactoringEngine {
                     // Then by similarity score (descending)
                     double sim1 = c1.duplicates().isEmpty() ? 0 : c1.duplicates().get(0).similarity().overallScore();
                     double sim2 = c2.duplicates().isEmpty() ? 0 : c2.duplicates().get(0).similarity().overallScore();
-                    return Double.compare(sim2, sim1);
+                    int simCompare = Double.compare(sim2, sim1);
+                    if (simCompare != 0) {
+                        return simCompare;
+                    }
+                    return comparePrimaryLocation(c1, c2);
                 })
                 .toList();
 
@@ -156,6 +170,21 @@ public class RefactoringEngine {
         // Only print session summary if we processed standard refactoring via CLI
         // Workflows might aggregate sessions differently
         return session;
+    }
+
+    private static int comparePrimaryLocation(DuplicateCluster c1, DuplicateCluster c2) {
+        StatementSequence s1 = c1.primary();
+        StatementSequence s2 = c2.primary();
+        if (s1 == null && s2 == null) {
+            return 0;
+        }
+        if (s1 == null) {
+            return 1;
+        }
+        if (s2 == null) {
+            return -1;
+        }
+        return SEQ_ORDER.compare(s1, s2);
     }
 
     private boolean canRefactor(RefactoringSession session , RefactoringRecommendation recommendation, DuplicateCluster cluster) {

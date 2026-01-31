@@ -3,6 +3,7 @@ package com.raditha.dedup.analyzer;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
+import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
@@ -30,6 +31,15 @@ public class DuplicationAnalyzer {
     private final com.raditha.dedup.normalization.ASTNormalizer astNormalizer; // NEW: AST-based
     private final com.raditha.dedup.similarity.ASTSimilarityCalculator astSimilarityCalculator; // NEW: AST-based
     private final DuplicateClusterer clusterer;
+    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
+            java.util.Comparator
+                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
+                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
+                    .thenComparingInt(StatementSequence::startOffset)
+                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final RefactoringRecommendationGenerator recommendationGenerator;
     private final BoundaryRefiner boundaryRefiner;
 
@@ -92,11 +102,15 @@ public class DuplicationAnalyzer {
      */
     public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
         List<StatementSequence> allSequences = new ArrayList<>();
-        Map<Path, List<StatementSequence>> fileSequences = new java.util.HashMap<>();
+        Map<Path, List<StatementSequence>> fileSequences = new java.util.LinkedHashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
 
         // 1. Extract from all files (Lazily normalized)
-        for (CompilationUnit cu : allCUs.values()) {
+        List<CompilationUnit> sortedCUs = new ArrayList<>(allCUs.values());
+        sortedCUs.sort(java.util.Comparator.comparing(
+                unit -> unit.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null),
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
+        for (CompilationUnit cu : sortedCUs) {
             if (processedCUs.add(cu)) {
 
                 Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
@@ -112,6 +126,8 @@ public class DuplicationAnalyzer {
                 allSequences.addAll(sequences);
             }
         }
+
+        allSequences.sort(SEQ_ORDER);
 
         // 2-4. Process sequences through the duplicate detection pipeline
         ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
@@ -294,8 +310,10 @@ public class DuplicationAnalyzer {
 
             // Query and Add
             Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, currentSeq);
+            List<StatementSequence> orderedMatches = new ArrayList<>(potentialMatches);
+            orderedMatches.sort(SEQ_ORDER);
 
-            for (StatementSequence candidateSeq : potentialMatches) {
+            for (StatementSequence candidateSeq : orderedMatches) {
                 // Combined check to reduce continue statements
                 if (currentSeq == candidateSeq ||
                     isPhysicallyOverlapping(currentSeq, candidateSeq) ||
@@ -410,9 +428,19 @@ public class DuplicationAnalyzer {
     private List<SimilarityPair> filterByThreshold(List<SimilarityPair> candidates) {
         return candidates.stream()
                 .filter(pair -> pair.similarity().overallScore() >= DuplicationDetectorSettings.getThreshold())
-                .sorted((a, b) -> Double.compare(
-                        b.similarity().overallScore(),
-                        a.similarity().overallScore()))
+                .sorted((a, b) -> {
+                    int scoreCompare = Double.compare(
+                            b.similarity().overallScore(),
+                            a.similarity().overallScore());
+                    if (scoreCompare != 0) {
+                        return scoreCompare;
+                    }
+                    int seq1Compare = SEQ_ORDER.compare(a.seq1(), b.seq1());
+                    if (seq1Compare != 0) {
+                        return seq1Compare;
+                    }
+                    return SEQ_ORDER.compare(a.seq2(), b.seq2());
+                })
                 .toList();
     }
 
@@ -435,7 +463,7 @@ public class DuplicationAnalyzer {
 
         // Group pairs by their canonical method-pair
         // Pairs can only overlap if they involve the same method-pair
-        Map<MethodPairKey, List<SimilarityPair>> groups = new java.util.HashMap<>();
+        Map<MethodPairKey, List<SimilarityPair>> groups = new java.util.LinkedHashMap<>();
         for (SimilarityPair pair : pairs) {
             MethodPairKey key = makeMethodPairKey(pair);
             groups.computeIfAbsent(key, k -> new ArrayList<>()).add(pair);
@@ -484,13 +512,22 @@ public class DuplicationAnalyzer {
      * Since all pairs in the group have sameMethodPair==true, we only check physical overlap.
      */
     private List<SimilarityPair> removeOverlapsInGroup(List<SimilarityPair> group) {
-        if (group.size() <= 1) {
-            return group;
-        }
 
-        // Sort by scope (descending), then statement count, then start line
-        List<SimilarityPair> sorted = new ArrayList<>(group);
-        sorted.sort((a, b) -> {
+        EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
+        Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
+        var escapeCount = (java.util.function.ToIntFunction<StatementSequence>) seq ->
+                escapeCounts.computeIfAbsent(seq, s -> escapeAnalyzer.analyze(s).size());
+
+        // Sort by escape risk (ascending), then scope (descending), then statement count, then start line
+
+        group.sort((a, b) -> {
+            int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
+            int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
+            int escapeCompare = Integer.compare(escapesA, escapesB);
+            if (escapeCompare != 0) {
+                return escapeCompare;
+            }
+
             int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
             int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
             int scopeCompare = Integer.compare(scopeB, scopeA);
@@ -508,7 +545,7 @@ public class DuplicationAnalyzer {
 
         // Filter overlaps - same logic as original O(N²) but within group
         List<SimilarityPair> filtered = new ArrayList<>();
-        for (SimilarityPair current : sorted) {
+        for (SimilarityPair current : group) {
             boolean overlaps = false;
             
             for (SimilarityPair kept : filtered) {
@@ -527,27 +564,6 @@ public class DuplicationAnalyzer {
         }
         
         return filtered;
-    }
-
-    /**
-     * Check if two pairs involve the same pair of methods.
-     */
-    private boolean sameMethodPair(SimilarityPair pair1, SimilarityPair pair2) {
-        // Get methods for pair1
-        var method1a = pair1.seq1().containingMethod();
-        var method1b = pair1.seq2().containingMethod();
-
-        // Get methods for pair2
-        var method2a = pair2.seq1().containingMethod();
-        var method2b = pair2.seq2().containingMethod();
-
-        if (method1a == null || method1b == null || method2a == null || method2b == null) {
-            return false;
-        }
-
-        // Check if same pair (order doesn't matter)
-        return (method1a.equals(method2a) && method1b.equals(method2b)) ||
-                (method1a.equals(method2b) && method1b.equals(method2a));
     }
 
     /**

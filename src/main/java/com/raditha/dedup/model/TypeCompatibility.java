@@ -30,12 +30,4 @@ public record TypeCompatibility(
     public int getParameterCount() {
         return parameterTypes != null ? parameterTypes.size() : 0;
     }
-
-    /**
-     * Check if parameter extraction is feasible (type-safe and reasonable parameter
-     * count).
-     */
-    public boolean isFeasible() {
-        return isTypeSafe() && getParameterCount() <= 5;
-    }
 }

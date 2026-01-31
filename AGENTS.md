@@ -7,9 +7,9 @@ Bertie is an intelligent duplicate code detector and refactoring tool for Java (
 ## ⚡ Development Workflow (The Golden Cycle)
 Follow this cycle for *every* code change:
 
-1.  **Reset**: `reset.sh` script in `test-bed`.
+1.  **Reset**: `reset.sh` script in `test-bed` folder.
 2.  **Compile**: `mvn clean compile` in `bertie`.
-3.  **Run**: `./run-bertie.sh refactor --mode batch --config-file src/main/resources/bertie.yml`
+3.  **Run**: `./run-bertie.sh refactor --mode batch --config-file src/main/resources/bertie.yml --verify fast_compile`
 4.  **Verify**:
     -   Check `git diff` in `test-bed`.
     -   Run `mvn test-compile` in `test-bed` (Verification Step 1).

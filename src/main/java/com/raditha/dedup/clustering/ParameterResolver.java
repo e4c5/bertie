@@ -242,11 +242,7 @@ public class ParameterResolver {
     }
 
     private boolean isInternalValue(String val, Set<String> defined, DuplicateCluster cluster, CompilationUnit cu) {
-        if (isDefinedVariable(val, defined)) {
-            return true;
-        }
-
-        if (isStaticClassReference(val, cu)) {
+        if (isDefinedVariable(val, defined) || isStaticClassReference(val, cu)) {
             return true;
         }
 
@@ -259,9 +255,9 @@ public class ParameterResolver {
             return true;
         }
         
-        // Scan for structural containment (field access, method calls)
+        // Scan for direct field access (treat only variable or its field as internal)
         for (String def : defined) {
-            if (val.startsWith(def + ".") || val.contains("(" + def + ")")) {
+            if (val.startsWith(def + ".")) {
                 return true;
             }
         }

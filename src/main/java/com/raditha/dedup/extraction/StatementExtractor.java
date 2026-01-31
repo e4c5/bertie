@@ -277,8 +277,8 @@ public class StatementExtractor {
 
             Range range = BoundaryRefiner.createRange(first, last);
 
-            // Calculate start offset (approximate - could be improved)
-            int startOffset = calculateOffset(first);
+            // Calculate actual statement index within the method (0-based)
+            int startOffset = calculateStatementIndex(first, method);
             
             return new StatementSequence(
                 new ArrayList<>(statements),  // Defensive copy
@@ -291,13 +291,36 @@ public class StatementExtractor {
         }
         
         /**
-         * Calculate approximate character offset for a statement.
-         * This is a simple approximation based on line numbers.
+         * Calculate the actual 0-based index of a statement within its containing method.
+         * This provides semantic correctness over the previous character approximation.
          */
-        private int calculateOffset(Statement stmt) {
-            return stmt.getRange()
-                .map(r -> r.begin.line * 80)  // Approximate: 80 chars per line
-                .orElse(0);
+        private int calculateStatementIndex(Statement targetStmt, MethodDeclaration method) {
+            if (method == null || method.getBody().isEmpty()) {
+                return 0;
+            }
+            
+            List<Statement> methodStmts = method.getBody().get().getStatements();
+            for (int i = 0; i < methodStmts.size(); i++) {
+                if (methodStmts.get(i) == targetStmt) {
+                    return i;
+                }
+            }
+            
+            // If exact match not found, try to find by position range
+            // This handles cases where statements might be wrapped/transformed
+            if (targetStmt.getRange().isPresent()) {
+                com.github.javaparser.Range targetRange = targetStmt.getRange().get();
+                for (int i = 0; i < methodStmts.size(); i++) {
+                    if (methodStmts.get(i).getRange().isPresent()) {
+                        com.github.javaparser.Range stmtRange = methodStmts.get(i).getRange().get();
+                        if (stmtRange.begin.equals(targetRange.begin)) {
+                            return i;
+                        }
+                    }
+                }
+            }
+            
+            return 0; // Fallback
         }
     }
 }

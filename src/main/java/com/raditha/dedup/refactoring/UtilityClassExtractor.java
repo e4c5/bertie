@@ -16,10 +16,12 @@ import com.raditha.dedup.model.StatementSequence;
 import sa.com.cloudsolutions.antikythera.depsolver.Graph;
 import sa.com.cloudsolutions.antikythera.depsolver.GraphNode;
 import sa.com.cloudsolutions.antikythera.depsolver.Resolver;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.MCEWrapper;
 
+import java.util.List;
 import java.nio.file.Path;
 
 /**
@@ -46,15 +48,17 @@ public class UtilityClassExtractor extends AbstractExtractor {
         this.utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
 
         CompilationUnit utilityCu = createUtilityClass(methodToExtract);
+        String utilityFqn = packageName + ".util." + utilityClassName;
+        AntikytheraRunTime.addCompilationUnit(utilityFqn, utilityCu);
         Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
         modifiedFiles.put(utilityPath, utilityCu.toString());
 
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract);
 
-            MethodDeclaration methodToRemove = methodsToRemove.get(currentCu);
-            if (methodToRemove != null) {
-                methodToRemove.remove();
+            List<MethodDeclaration> methods = methodsToRemove.get(currentCu);
+            if (methods != null) {
+                methods.forEach(MethodDeclaration::remove);
             }
 
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
