@@ -26,6 +26,7 @@ import java.util.Set;
 public class SequenceTruncator {
 
     private static final String OBJECT = "Object";
+    private final DataFlowAnalyzer dataFlowAnalyzer = new DataFlowAnalyzer();
 
     /**
      * Calculate the valid statement count for extraction.
@@ -60,6 +61,19 @@ public class SequenceTruncator {
             validStatementCount = structuralLimit;
         }
 
+        // Step 2b: Truncate before any nested return statement (safety rule)
+        int nestedReturnLimit = findNestedReturnLimit(cluster);
+        if (nestedReturnLimit != -1
+                && (validStatementCount == -1 || nestedReturnLimit < validStatementCount)) {
+            validStatementCount = nestedReturnLimit;
+        }
+
+        // Step 2c: Reduce prefix until we have at most 1 live-out variable across all sequences
+        int liveOutLimit = reduceToSingleLiveOut(cluster, validStatementCount == -1 ? minSequenceLength : validStatementCount);
+        if (liveOutLimit != -1 && (validStatementCount == -1 || liveOutLimit < validStatementCount)) {
+            validStatementCount = liveOutLimit;
+        }
+
         // Step 3: Check varying expressions for internal dependencies or unsafe return types
         for (VaryingExpression vae : analysis.getVaryingExpressions()) {
             int stmtIndex = vae.position() >> 16; // Decode statement index
@@ -92,6 +106,54 @@ public class SequenceTruncator {
         }
 
         return new TruncationResult(validStatementCount, primaryReturnVariable);
+    }
+
+    private int findNestedReturnLimit(DuplicateCluster cluster) {
+        int limit = -1;
+        for (StatementSequence seq : cluster.allSequences()) {
+            int idx = firstNestedReturnIndex(seq);
+            if (idx != -1 && (limit == -1 || idx < limit)) {
+                limit = idx;
+            }
+        }
+        return limit;
+    }
+
+    private int firstNestedReturnIndex(StatementSequence sequence) {
+        List<Statement> stmts = sequence.statements();
+        for (int i = 0; i < stmts.size(); i++) {
+            Statement stmt = stmts.get(i);
+            if (stmt.isReturnStmt() && i == stmts.size() - 1) {
+                continue;
+            }
+            if (stmt.findFirst(com.github.javaparser.ast.stmt.ReturnStmt.class).isPresent()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int reduceToSingleLiveOut(DuplicateCluster cluster, int limit) {
+        int minSize = cluster.allSequences().stream()
+                .mapToInt(seq -> seq.statements().size())
+                .min()
+                .orElse(0);
+        int current = Math.min(limit, minSize);
+        while (current > 0) {
+            boolean allSafe = true;
+            for (StatementSequence seq : cluster.allSequences()) {
+                StatementSequence prefix = createPrefixSequence(seq, current);
+                if (dataFlowAnalyzer.findLiveOutVariables(prefix).size() > 1) {
+                    allSafe = false;
+                    break;
+                }
+            }
+            if (allSafe) {
+                return current;
+            }
+            current--;
+        }
+        return -1;
     }
 
     /**

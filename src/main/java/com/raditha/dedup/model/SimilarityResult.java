@@ -24,17 +24,4 @@ public record SimilarityResult(
         VariationAnalysis variations,
         TypeCompatibility typeCompatibility,
         boolean canRefactor) {
-    /**
-     * Check if similarity exceeds a threshold.
-     */
-    public boolean exceedsThreshold(double threshold) {
-        return overallScore >= threshold;
-    }
-
-    /**
-     * Get similarity percentage (0-100).
-     */
-    public double getSimilarityPercentage() {
-        return overallScore * 100.0;
-    }
 }

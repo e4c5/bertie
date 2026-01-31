@@ -22,11 +22,6 @@ public class RefactoringConfidenceCalculator {
         this.truncator = new SequenceTruncator();
     }
 
-    public RefactoringConfidenceCalculator(DataFlowAnalyzer dataFlowAnalyzer, SequenceTruncator truncator) {
-        this.dataFlowAnalyzer = dataFlowAnalyzer;
-        this.truncator = truncator;
-    }
-
     /**
      * Calculate confidence score for a refactoring recommendation.
      * 
