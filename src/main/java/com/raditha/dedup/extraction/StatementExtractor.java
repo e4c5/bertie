@@ -278,42 +278,52 @@ public class StatementExtractor {
          * Calculate the actual 0-based index of a statement within its containing method.
          */
         private int calculateStatementIndex(Statement targetStmt, CallableDeclaration<?> callable) {
-            if (callable == null) {
-                return 0;
-            }
-
-            Optional<BlockStmt> body = Optional.empty();
-            if (callable instanceof MethodDeclaration m) {
-                body = m.getBody();
-            } else if (callable instanceof ConstructorDeclaration c) {
-                body = Optional.of(c.getBody());
-            }
-
+            Optional<BlockStmt> body = getCallableBody(callable);
             if (body.isEmpty() || body.get().getStatements().isEmpty()) {
                 return 0;
             }
-            
+
             List<Statement> methodStmts = body.get().getStatements();
-            for (int i = 0; i < methodStmts.size(); i++) {
-                if (methodStmts.get(i) == targetStmt) {
+            int index = findExactStatementIndex(methodStmts, targetStmt);
+            if (index != -1) {
+                return index;
+            }
+
+            return findRangeStatementIndex(methodStmts, targetStmt);
+        }
+
+        private Optional<BlockStmt> getCallableBody(CallableDeclaration<?> callable) {
+            if (callable instanceof MethodDeclaration m) {
+                return m.getBody();
+            } else if (callable instanceof ConstructorDeclaration c) {
+                return Optional.of(c.getBody());
+            }
+            return Optional.empty();
+        }
+
+        private int findExactStatementIndex(List<Statement> stmts, Statement target) {
+            for (int i = 0; i < stmts.size(); i++) {
+                if (stmts.get(i) == target) {
                     return i;
                 }
             }
-            
-            // If exact match not found, try to find by position range
-            if (targetStmt.getRange().isPresent()) {
-                com.github.javaparser.Range targetRange = targetStmt.getRange().get();
-                for (int i = 0; i < methodStmts.size(); i++) {
-                    if (methodStmts.get(i).getRange().isPresent()) {
-                        com.github.javaparser.Range stmtRange = methodStmts.get(i).getRange().get();
-                        if (stmtRange.begin.equals(targetRange.begin)) {
-                            return i;
-                        }
+            return -1;
+        }
+
+        private int findRangeStatementIndex(List<Statement> stmts, Statement target) {
+            if (target.getRange().isEmpty()) {
+                return 0;
+            }
+            com.github.javaparser.Range targetRange = target.getRange().get();
+            for (int i = 0; i < stmts.size(); i++) {
+                if (stmts.get(i).getRange().isPresent()) {
+                    com.github.javaparser.Range stmtRange = stmts.get(i).getRange().get();
+                    if (stmtRange.begin.equals(targetRange.begin)) {
+                        return i;
                     }
                 }
             }
-            
-            return 0; // Fallback
+            return 0;
         }
     }
 }

@@ -32,7 +32,7 @@ public abstract class AbstractExtractor {
     protected Map<Path, String> modifiedFiles;
     protected Set<CompilationUnit> involvedCus;
     protected Map<CompilationUnit, Path> cuToPath;
-    protected Map<CompilationUnit, List<CallableDeclaration<?>>> methodsToRemove;
+    protected Map<CompilationUnit, List<CallableDeclaration>> methodsToRemove;
     protected String packageName;
 
     /**
@@ -87,10 +87,10 @@ public abstract class AbstractExtractor {
     /**
      * Build a mapping from CompilationUnit to the method that should be removed.
      */
-    protected Map<CompilationUnit, List<CallableDeclaration<?>>> buildMethodsToRemoveMap() {
-        Map<CompilationUnit, List<CallableDeclaration<?>>> map = new IdentityHashMap<>();
+    protected Map<CompilationUnit, List<CallableDeclaration>> buildMethodsToRemoveMap() {
+        Map<CompilationUnit, List<CallableDeclaration>> map = new IdentityHashMap<>();
         
-        java.util.function.BiConsumer<CompilationUnit, CallableDeclaration<?>> add = (cu, method) -> {
+        java.util.function.BiConsumer<CompilationUnit, CallableDeclaration> add = (cu, method) -> {
             if (cu != null && method != null) {
                 map.computeIfAbsent(cu, k -> new ArrayList<>()).add(method);
             }
@@ -128,11 +128,9 @@ public abstract class AbstractExtractor {
         };
         
         // Analyze dependencies for the method
-        if (method instanceof MethodDeclaration m) {
-            analyzer.collectDependencies(Collections.singleton(m));
+        if (method instanceof MethodDeclaration) {
+            analyzer.collectDependencies(Collections.singleton((MethodDeclaration) method));
         }
-        // TODO: Support ConstructorDeclaration in DependencyAnalyzer if needed?
-        // For now only methods are supported by DependencyAnalyzer likely.
 
         return requiredImports;
     }

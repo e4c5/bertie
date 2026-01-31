@@ -63,7 +63,7 @@ public class UtilityClassExtractor extends AbstractExtractor {
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract);
 
-            List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
+            List<CallableDeclaration> methods = methodsToRemove.get(currentCu);
             if (methods != null) {
                 methods.forEach(CallableDeclaration::remove);
             }

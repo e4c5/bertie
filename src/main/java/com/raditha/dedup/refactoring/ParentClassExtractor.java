@@ -118,9 +118,9 @@ public class ParentClassExtractor extends AbstractExtractor {
                 removeExtractedFields(currentCu);
             }
 
-            List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
+            List<CallableDeclaration> methods = methodsToRemove.get(currentCu);
             if (methods != null) {
-                for (CallableDeclaration<?> methodToRemove : methods) {
+                for (CallableDeclaration methodToRemove : methods) {
                     if (!(methodToRemove instanceof MethodDeclaration)) continue;
                     MethodDeclaration mToRemove = (MethodDeclaration) methodToRemove;
 
