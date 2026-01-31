@@ -502,6 +502,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         for (String fieldName : usedFieldNames) {
             Type type = null;
             boolean extractable = true;
+            boolean presentInChild = false;
 
             for (CompilationUnit involvedCu : involvedCus) {
                 Optional<ClassOrInterfaceDeclaration> classDecl = findPrimaryClass(involvedCu);
@@ -521,6 +522,10 @@ public class ParentClassExtractor extends AbstractExtractor {
                     // If not in child, maybe it's already in the parent
                     Optional<ClassOrInterfaceDeclaration> parentRef = findExistingCommonParent();
                     if (parentRef.isPresent() && parentRef.get().getFieldByName(fieldName).isPresent()) {
+                        if (type == null) {
+                            Type parentType = parentRef.get().getFieldByName(fieldName).get().getElementType();
+                            type = parentType;
+                        }
                         continue;
                     }
                     extractable = false;
@@ -534,10 +539,13 @@ public class ParentClassExtractor extends AbstractExtractor {
                     extractable = false;
                     break;
                 }
+                presentInChild = true;
             }
 
             if (extractable) {
-                fieldsToExtract.put(fieldName, type.clone());
+                if (type != null) {
+                    fieldsToExtract.put(fieldName, type.clone());
+                }
             } else {
                 throw new IllegalStateException(
                         "Skipped: Method uses field '" + fieldName + "' which is not present or compatible in all classes.");
