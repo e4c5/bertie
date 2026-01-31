@@ -768,8 +768,9 @@ public class MethodExtractor extends AbstractExtractor {
      * Returns null if argument resolution fails.
      */
     private MethodCallExpr prepareReplacement(StatementSequence sequence) {
-        Optional<BlockStmt> body = sequence.getCallableBody();
-        if (body.isEmpty() || body.get().getStatements().isEmpty()) {
+        CallableDeclaration<?> containingCallable = sequence.containingCallable();
+        Optional<BlockStmt> body = getBody(containingCallable);
+        if (containingCallable == null || body.isEmpty() || body.get().getStatements().isEmpty()) {
             return null;
         }
 
@@ -797,12 +798,11 @@ public class MethodExtractor extends AbstractExtractor {
      */
     private boolean applyReplacement(StatementSequence sequence,
             MethodCallExpr methodCall, String forcedReturnVar, com.github.javaparser.ast.type.Type returnType) {
-
-        Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
-        if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
+        CallableDeclaration<?> containingCallable = sequence.containingCallable();
+        Optional<BlockStmt> bodyOpt = getBody(containingCallable);
+        if (containingCallable == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
             return false;
         }
-
         BlockStmt body = bodyOpt.get();
 
         // Locate the actual block containing the sequence (might be nested)
@@ -828,7 +828,7 @@ public class MethodExtractor extends AbstractExtractor {
         }
 
         applyValueReplacement(sequence, methodCall, forcedReturnVar, returnType, 
-                block, startIdx, originalReturnValues);
+                containingCallable, block, startIdx, originalReturnValues);
 
         return true;
     }
@@ -842,13 +842,14 @@ public class MethodExtractor extends AbstractExtractor {
     private void applyValueReplacement(StatementSequence sequence,
                                       MethodCallExpr methodCall, String forcedReturnVar,
                                       com.github.javaparser.ast.type.Type returnType,
-                                      BlockStmt block, int startIdx, ReturnStmt originalReturnValues) {
+                                      CallableDeclaration<?> containingCallable, BlockStmt block,
+                                      int startIdx, ReturnStmt originalReturnValues) {
         String varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence);
         boolean nextIsReturn = startIdx < block.getStatements().size()
                 && block.getStatements().get(startIdx).isReturnStmt();
 
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-        boolean shouldReturnDirectly = canInlineReturn(sequence.containingCallable(), block, originalReturnValues,
+        boolean shouldReturnDirectly = canInlineReturn(containingCallable, block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
 
         if (!shouldReturnDirectly && varName == null) {
@@ -1027,8 +1028,9 @@ public class MethodExtractor extends AbstractExtractor {
      * Check if the sequence covers the entire body of the containing method.
      */
     private boolean isMethodBody(StatementSequence seq) {
-        Optional<BlockStmt> bodyOpt = seq.getCallableBody();
-        if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
+        CallableDeclaration<?> method = seq.containingCallable();
+        Optional<BlockStmt> bodyOpt = getBody(method);
+        if (method == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
             return false;
         }
         BlockStmt body = bodyOpt.get();
@@ -1117,7 +1119,7 @@ public class MethodExtractor extends AbstractExtractor {
             if (expr.isNameExpr()) {
                 String varName = expr.asNameExpr().getNameAsString();
                 if (isLocalVariable(sequence, varName)) {
-                     com.github.javaparser.ast.type.Type type = resolveVariableInMethod(sequence, varName);
+                     com.github.javaparser.ast.type.Type type = resolveVariableInMethod(sequence.containingCallable(), varName);
                      if (type != null) {
                          return AbstractCompiler.findType(sequence.compilationUnit(), type);
                      }
@@ -1134,17 +1136,14 @@ public class MethodExtractor extends AbstractExtractor {
             return null;
         }
 
-        private com.github.javaparser.ast.type.Type resolveVariableInMethod(StatementSequence sequence, String varName) {
-             Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
-             if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
-                 return null;
-             }
-             CallableDeclaration<?> method = sequence.containingCallable();
-
+        private com.github.javaparser.ast.type.Type resolveVariableInMethod(CallableDeclaration<?> method, String varName) {
+             Optional<BlockStmt> bodyOpt = getBody(method);
+             if (method == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) return null;
+             // Check parameters
              for (Parameter p : method.getParameters()) {
                  if (p.getNameAsString().equals(varName)) return p.getType();
              }
-
+             // Check body
              for (Statement stmt : bodyOpt.get().getStatements()) {
                   if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
                       for (com.github.javaparser.ast.body.VariableDeclarator v : stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()) {
@@ -1238,7 +1237,7 @@ public class MethodExtractor extends AbstractExtractor {
          */
         private boolean isLocalVariable(StatementSequence sequence, String varName) {
             CallableDeclaration<?> containingCallable = sequence.containingCallable();
-            Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
+            Optional<BlockStmt> bodyOpt = getBody(containingCallable);
             if (containingCallable == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                 return false;
             }
@@ -1648,5 +1647,14 @@ public class MethodExtractor extends AbstractExtractor {
                 Files.writeString(file, entry.getValue());
             }
         }
+    }
+
+    private Optional<BlockStmt> getBody(CallableDeclaration<?> callable) {
+        if (callable instanceof MethodDeclaration m) {
+            return m.getBody();
+        } else if (callable instanceof ConstructorDeclaration c) {
+            return Optional.of(c.getBody());
+        }
+        return Optional.empty();
     }
 }

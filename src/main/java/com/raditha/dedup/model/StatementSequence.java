@@ -42,6 +42,9 @@ public record StatementSequence(
      * Helper to get the body of the containing callable.
      */
     public Optional<BlockStmt> getCallableBody() {
+        if (containingCallable == null) {
+            return Optional.empty();
+        }
         if (containingCallable instanceof MethodDeclaration m) {
             return m.getBody();
         } else if (containingCallable instanceof ConstructorDeclaration c) {

@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Paths;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +41,6 @@ class RefactoringRecommendationGeneratorTest {
         when(cluster.allSequences()).thenReturn(List.of(seq1, seq2));
 
         assertNotNull(generator);
-        assertInstanceOf(ConstructorDeclaration.class, seq1.containingCallable());
+        assertTrue(seq1.containingCallable() instanceof ConstructorDeclaration);
     }
 }

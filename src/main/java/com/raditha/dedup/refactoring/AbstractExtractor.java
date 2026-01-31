@@ -128,8 +128,8 @@ public abstract class AbstractExtractor {
         };
         
         // Analyze dependencies for the method
-        if (method instanceof MethodDeclaration md) {
-            analyzer.collectDependencies(Collections.singleton(md));
+        if (method instanceof MethodDeclaration) {
+            analyzer.collectDependencies(Collections.singleton((MethodDeclaration) method));
         }
 
         return requiredImports;
