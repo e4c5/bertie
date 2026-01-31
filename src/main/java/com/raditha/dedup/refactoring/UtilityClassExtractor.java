@@ -3,7 +3,9 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -41,7 +43,12 @@ public class UtilityClassExtractor extends AbstractExtractor {
         initialize(cluster, recommendation);
         StatementSequence primary = cluster.primary();
         Path sourceFile = primary.sourceFilePath();
-        MethodDeclaration methodToExtract = primary.containingMethod();
+        CallableDeclaration<?> callableToExtract = primary.containingCallable();
+
+        if (!(callableToExtract instanceof MethodDeclaration)) {
+            throw new IllegalArgumentException("Utility class extraction is currently only supported for methods.");
+        }
+        MethodDeclaration methodToExtract = (MethodDeclaration) callableToExtract;
 
         validateCanBeStatic(methodToExtract);
 
@@ -56,9 +63,9 @@ public class UtilityClassExtractor extends AbstractExtractor {
         for (CompilationUnit currentCu : involvedCus) {
             updateCallSitesAndImports(currentCu, methodToExtract);
 
-            List<MethodDeclaration> methods = methodsToRemove.get(currentCu);
+            List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
             if (methods != null) {
-                methods.forEach(MethodDeclaration::remove);
+                methods.forEach(CallableDeclaration::remove);
             }
 
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
@@ -70,10 +77,11 @@ public class UtilityClassExtractor extends AbstractExtractor {
                 "Extracted to utility class: " + utilityClassName);
     }
 
-    private void validateCanBeStatic(MethodDeclaration method) {
+    private void validateCanBeStatic(CallableDeclaration<?> method) {
         if (method.isStatic()) {
             return;
         }
+        // Constructors are never static but are not supported here anyway due to check above.
 
         if (!method.findAll(ThisExpr.class).isEmpty()) {
             throw new IllegalArgumentException("Method uses 'this' and cannot be made static.");

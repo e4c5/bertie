@@ -2,6 +2,7 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
@@ -31,7 +32,7 @@ public abstract class AbstractExtractor {
     protected Map<Path, String> modifiedFiles;
     protected Set<CompilationUnit> involvedCus;
     protected Map<CompilationUnit, Path> cuToPath;
-    protected Map<CompilationUnit, List<MethodDeclaration>> methodsToRemove;
+    protected Map<CompilationUnit, List<CallableDeclaration<?>>> methodsToRemove;
     protected String packageName;
 
     /**
@@ -86,21 +87,21 @@ public abstract class AbstractExtractor {
     /**
      * Build a mapping from CompilationUnit to the method that should be removed.
      */
-    protected Map<CompilationUnit, List<MethodDeclaration>> buildMethodsToRemoveMap() {
-        Map<CompilationUnit, List<MethodDeclaration>> map = new IdentityHashMap<>();
+    protected Map<CompilationUnit, List<CallableDeclaration<?>>> buildMethodsToRemoveMap() {
+        Map<CompilationUnit, List<CallableDeclaration<?>>> map = new IdentityHashMap<>();
         
-        java.util.function.BiConsumer<CompilationUnit, MethodDeclaration> add = (cu, method) -> {
+        java.util.function.BiConsumer<CompilationUnit, CallableDeclaration<?>> add = (cu, method) -> {
             if (cu != null && method != null) {
                 map.computeIfAbsent(cu, k -> new ArrayList<>()).add(method);
             }
         };
 
         StatementSequence primary = cluster.primary();
-        add.accept(primary.compilationUnit(), primary.containingMethod());
+        add.accept(primary.compilationUnit(), primary.containingCallable());
 
         cluster.duplicates().forEach(pair -> {
-            add.accept(pair.seq1().compilationUnit(), pair.seq1().containingMethod());
-            add.accept(pair.seq2().compilationUnit(), pair.seq2().containingMethod());
+            add.accept(pair.seq1().compilationUnit(), pair.seq1().containingCallable());
+            add.accept(pair.seq2().compilationUnit(), pair.seq2().containingCallable());
         });
         return map;
     }
@@ -112,7 +113,7 @@ public abstract class AbstractExtractor {
      * @param method The method to analyze
      * @return Set of import names (fully qualified or simple names) needed by the method
      */
-    protected Set<String> collectRequiredImports(MethodDeclaration method) {
+    protected Set<String> collectRequiredImports(CallableDeclaration<?> method) {
         Set<String> requiredImports = new HashSet<>();
     
         // Create a dependency analyzer to collect imports for this method
@@ -127,7 +128,11 @@ public abstract class AbstractExtractor {
         };
         
         // Analyze dependencies for the method
-        analyzer.collectDependencies(Collections.singleton(method));
+        if (method instanceof MethodDeclaration m) {
+            analyzer.collectDependencies(Collections.singleton(m));
+        }
+        // TODO: Support ConstructorDeclaration in DependencyAnalyzer if needed?
+        // For now only methods are supported by DependencyAnalyzer likely.
 
         return requiredImports;
     }
@@ -141,7 +146,7 @@ public abstract class AbstractExtractor {
      * @return true if the import is needed, false otherwise
      */
     protected boolean isImportNeeded(ImportDeclaration imp, Set<String> requiredImportNames,
-            MethodDeclaration method) {
+            CallableDeclaration<?> method) {
         if (requiredImportNames.isEmpty()) {
             // Fallback: if analysis failed, copy all imports to be safe
             return true;
@@ -184,7 +189,7 @@ public abstract class AbstractExtractor {
      * Uses DependencyAnalyzer to intelligently identify only required imports.
      */
     protected void copyNeededImports(CompilationUnit sourceCu, CompilationUnit targetCu,
-            MethodDeclaration method) {
+            CallableDeclaration<?> method) {
         
         // Collect the set of imports required by this method using dependency analysis
         Set<String> requiredImportNames = collectRequiredImports(method);
@@ -220,7 +225,7 @@ public abstract class AbstractExtractor {
         }
     }
 
-    private boolean methodUsesType(MethodDeclaration method, String simpleName) {
+    private boolean methodUsesType(CallableDeclaration<?> method, String simpleName) {
         return method.findAll(com.github.javaparser.ast.type.ClassOrInterfaceType.class).stream()
                 .anyMatch(t -> t.getNameAsString().equals(simpleName));
     }

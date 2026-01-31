@@ -53,7 +53,7 @@ public class SafetyValidator {
      */
     private boolean hasMethodNameConflict(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         StatementSequence primary = cluster.primary();
-        var containingClass = primary.containingMethod() != null ? primary.containingMethod().findAncestor(
+        var containingClass = primary.containingCallable() != null ? primary.containingCallable().findAncestor(
                 com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null) : null;
 
         if (containingClass == null) {
@@ -117,7 +117,7 @@ public class SafetyValidator {
      * Get all field names from the containing class of a sequence.
      */
     private Set<String> getClassFieldNames(StatementSequence sequence) {
-        var method = sequence.containingMethod();
+        var method = sequence.containingCallable();
         if (method == null) {
             return java.util.Collections.emptySet();
         }

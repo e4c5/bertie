@@ -1,6 +1,8 @@
 package com.raditha.dedup.extraction;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.nodeTypes.NodeWithBody;
 import com.github.javaparser.ast.stmt.*;
@@ -12,10 +14,11 @@ import com.raditha.dedup.model.StatementSequence;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Extracts statement sequences from Java source files using sliding window.
- * Focuses on method bodies to find potential code duplicates.
+ * Focuses on method and constructor bodies to find potential code duplicates.
  */
 public class StatementExtractor {
     
@@ -82,14 +85,14 @@ public class StatementExtractor {
         // Normalize path once for all sequences from this file
         Path normalizedSourceFile = sourceFile != null ? sourceFile.toAbsolutePath().normalize() : null;
         
-        // Visit all methods in the compilation unit
+        // Visit all methods and constructors in the compilation unit
         cu.accept(new MethodVisitor(sequences, cu, normalizedSourceFile), null);
         
         return sequences;
     }
     
     /**
-     * Visitor to extract sequences from each method.
+     * Visitor to extract sequences from each method/constructor.
      */
     private class MethodVisitor extends VoidVisitorAdapter<Void> {
         private final List<StatementSequence> sequences;
@@ -105,13 +108,14 @@ public class StatementExtractor {
         @Override
         public void visit(MethodDeclaration method, Void arg) {
             super.visit(method, arg);
-            
             // Skip methods without body (abstract, interface methods)
-            if (method.getBody().isPresent()) {
-                BlockStmt body = method.getBody().get();
-                // Recursively extract from all nested blocks
-                extractFromBlock(body, method);
-            }
+            method.getBody().ifPresent(body -> extractFromBlock(body, method));
+        }
+
+        @Override
+        public void visit(ConstructorDeclaration constructor, Void arg) {
+            super.visit(constructor, arg);
+            extractFromBlock(constructor.getBody(), constructor);
         }
         
         /**
@@ -119,17 +123,17 @@ public class StatementExtractor {
          * This allows detection of duplicates inside try/catch/finally, if/else, loops, etc.
          * 
          * @param block The block to extract from
-         * @param method The containing method
+         * @param callable The containing method or constructor
          */
-        private void extractFromBlock(BlockStmt block, MethodDeclaration method) {
+        private void extractFromBlock(BlockStmt block, CallableDeclaration<?> callable) {
             List<Statement> statements = block.getStatements();
             
             // Extract sliding windows from this block's statements
-            extractSlidingWindows(statements, method);
+            extractSlidingWindows(statements, callable);
             
             // Recursively process nested blocks in each statement
             for (Statement stmt : statements) {
-                processNestedBlocks(stmt, method);
+                processNestedBlocks(stmt, callable);
             }
         }
         
@@ -138,74 +142,65 @@ public class StatementExtractor {
          * Handles all statement types that can contain blocks.
          * 
          * @param stmt The statement to process
-         * @param method The containing method
+         * @param callable The containing method or constructor
          */
-        private void processNestedBlocks(Statement stmt, MethodDeclaration method) {
+        private void processNestedBlocks(Statement stmt, CallableDeclaration<?> callable) {
             if (stmt instanceof TryStmt tryStmt) {
-                processTryBlock(method, tryStmt);
+                processTryBlock(callable, tryStmt);
             } else if (stmt instanceof IfStmt ifStmt) {
-                processIfBlock(method, ifStmt);
+                processIfBlock(callable, ifStmt);
             } else if (stmt instanceof SwitchStmt switchStmt) {
-                processSwitchBlock(method, switchStmt);
+                processSwitchBlock(callable, switchStmt);
             } else if (stmt instanceof NodeWithBody<?> block && block.getBody() instanceof BlockStmt blockStmt) {
-                extractFromBlock(blockStmt, method);
+                extractFromBlock(blockStmt, callable);
             }
         }
 
-        private void processSwitchBlock(MethodDeclaration method, SwitchStmt switchStmt) {
+        private void processSwitchBlock(CallableDeclaration<?> callable, SwitchStmt switchStmt) {
             switchStmt.getEntries().forEach(entry -> {
                 // Extract from each switch case's statements
                 List<Statement> caseStatements = entry.getStatements();
                 if (!caseStatements.isEmpty()) {
-                    extractSlidingWindows(caseStatements, method);
+                    extractSlidingWindows(caseStatements, callable);
                     // Recursively process nested blocks in case statements
-                    caseStatements.forEach(s -> processNestedBlocks(s, method));
+                    caseStatements.forEach(s -> processNestedBlocks(s, callable));
                 }
             });
         }
 
-        private void processTryBlock(MethodDeclaration method, TryStmt tryStmt) {
+        private void processTryBlock(CallableDeclaration<?> callable, TryStmt tryStmt) {
             // Extract from try block
-            extractFromBlock(tryStmt.getTryBlock(), method);
+            extractFromBlock(tryStmt.getTryBlock(), callable);
             // Extract from each catch clause
             tryStmt.getCatchClauses().forEach(catchClause ->
-                extractFromBlock(catchClause.getBody(), method)
+                extractFromBlock(catchClause.getBody(), callable)
             );
             // Extract from finally block if present
             tryStmt.getFinallyBlock().ifPresent(finallyBlock ->
-                extractFromBlock(finallyBlock, method)
+                extractFromBlock(finallyBlock, callable)
             );
         }
 
-        private void processIfBlock(MethodDeclaration method, IfStmt ifStmt) {
+        private void processIfBlock(CallableDeclaration<?> callable, IfStmt ifStmt) {
             // Extract from then branch
             if (ifStmt.getThenStmt() instanceof BlockStmt blockStmt) {
-                extractFromBlock(blockStmt, method);
+                extractFromBlock(blockStmt, callable);
             }
             // Extract from else branch if present
             ifStmt.getElseStmt().ifPresent(elseStmt -> {
                 if (elseStmt instanceof BlockStmt blockStmt) {
-                    extractFromBlock(blockStmt, method);
+                    extractFromBlock(blockStmt, callable);
                 } else if (elseStmt instanceof IfStmt) {
                     // Handle else-if chains
-                    processNestedBlocks(elseStmt, method);
+                    processNestedBlocks(elseStmt, callable);
                 }
             });
         }
 
         /**
          * Extract sliding windows of statements with optimized strategy.
-         * 
-         * Two modes:
-         * 1. maximalOnly=true: Extract only the longest possible sequence at each position.
-         *    This generates O(N) sequences and avoids comparing smaller duplicates 
-         *    that are subsets of larger ones.
-         *    For a method with 100 statements: ~100 sequences
-         * 
-         * 2. maximalOnly=false: Extract limited-size windows (minStatements to minStatements + maxWindowGrowth).
-         *    For a method with 100 statements and maxWindowGrowth=5: ~576 sequences
          */
-        private void extractSlidingWindows(List<Statement> statements, MethodDeclaration method) {
+        private void extractSlidingWindows(List<Statement> statements, CallableDeclaration<?> callable) {
             int totalStatements = statements.size();
             
             // Skip if not enough statements
@@ -214,20 +209,13 @@ public class StatementExtractor {
             }
             
             if (StatementExtractor.this.maximalOnly) {
-                // Strategy 1: Extract only maximal sequences (one per starting position)
-                // This dramatically reduces sequences when you only want the largest duplicates
-                extractMaximalSequences(statements, method, totalStatements);
+                extractMaximalSequences(statements, callable, totalStatements);
             } else {
-                // Strategy 2: Extract limited window sizes for more coverage
-                extractLimitedWindowSizes(statements, method, totalStatements);
+                extractLimitedWindowSizes(statements, callable, totalStatements);
             }
         }
         
-        /**
-         * Extract only maximal (longest possible) sequence at each starting position.
-         * Generates exactly (totalStatements - minStatements + 1) sequences.
-         */
-        private void extractMaximalSequences(List<Statement> statements, MethodDeclaration method, int totalStatements) {
+        private void extractMaximalSequences(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements) {
             // For each starting position, create the longest possible sequence
             for (int start = 0; start <= totalStatements - minStatements; start++) {
                 // Calculate the maximum size we can extract from this position
@@ -239,16 +227,12 @@ public class StatementExtractor {
                 
                 // Only create the largest window from this position
                 List<Statement> window = statements.subList(start, start + maxPossibleSize);
-                StatementSequence sequence = createSequence(window, method);
+                StatementSequence sequence = createSequence(window, callable);
                 sequences.add(sequence);
             }
         }
         
-        /**
-         * Extract windows with limited size variation (original strategy).
-         * Generates multiple window sizes per position for better duplicate detection coverage.
-         */
-        private void extractLimitedWindowSizes(List<Statement> statements, MethodDeclaration method, int totalStatements) {
+        private void extractLimitedWindowSizes(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements) {
             // Limit window size growth to prevent exponential explosion
             final int maxWindowSize = Math.min(
                 minStatements + StatementExtractor.this.maxWindowGrowth,
@@ -261,7 +245,7 @@ public class StatementExtractor {
                     int end = start + windowSize;
                     
                     List<Statement> window = statements.subList(start, end);
-                    StatementSequence sequence = createSequence(window, method);
+                    StatementSequence sequence = createSequence(window, callable);
                     sequences.add(sequence);
                 }
             }
@@ -270,7 +254,7 @@ public class StatementExtractor {
         /**
          * Create a StatementSequence from a list of statements.
          */
-        private StatementSequence createSequence(List<Statement> statements, MethodDeclaration method) {
+        private StatementSequence createSequence(List<Statement> statements, CallableDeclaration<?> callable) {
             // Get range from first to last statement
             Statement first = statements.getFirst();
             Statement last = statements.getLast();
@@ -278,13 +262,13 @@ public class StatementExtractor {
             Range range = BoundaryRefiner.createRange(first, last);
 
             // Calculate actual statement index within the method (0-based)
-            int startOffset = calculateStatementIndex(first, method);
+            int startOffset = calculateStatementIndex(first, callable);
             
             return new StatementSequence(
                 new ArrayList<>(statements),  // Defensive copy
                 range,
                 startOffset,
-                method,
+                callable,
                 cu,
                 sourceFile
             );
@@ -292,14 +276,24 @@ public class StatementExtractor {
         
         /**
          * Calculate the actual 0-based index of a statement within its containing method.
-         * This provides semantic correctness over the previous character approximation.
          */
-        private int calculateStatementIndex(Statement targetStmt, MethodDeclaration method) {
-            if (method == null || method.getBody().isEmpty()) {
+        private int calculateStatementIndex(Statement targetStmt, CallableDeclaration<?> callable) {
+            if (callable == null) {
+                return 0;
+            }
+
+            Optional<BlockStmt> body = Optional.empty();
+            if (callable instanceof MethodDeclaration m) {
+                body = m.getBody();
+            } else if (callable instanceof ConstructorDeclaration c) {
+                body = Optional.of(c.getBody());
+            }
+
+            if (body.isEmpty() || body.get().getStatements().isEmpty()) {
                 return 0;
             }
             
-            List<Statement> methodStmts = method.getBody().get().getStatements();
+            List<Statement> methodStmts = body.get().getStatements();
             for (int i = 0; i < methodStmts.size(); i++) {
                 if (methodStmts.get(i) == targetStmt) {
                     return i;
@@ -307,7 +301,6 @@ public class StatementExtractor {
             }
             
             // If exact match not found, try to find by position range
-            // This handles cases where statements might be wrapped/transformed
             if (targetStmt.getRange().isPresent()) {
                 com.github.javaparser.Range targetRange = targetStmt.getRange().get();
                 for (int i = 0; i < methodStmts.size(); i++) {

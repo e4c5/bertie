@@ -348,8 +348,8 @@ public class DuplicationAnalyzer {
             return false;
         }
 
-        var m1 = s1.containingMethod();
-        var m2 = s2.containingMethod();
+        var m1 = s1.containingCallable();
+        var m2 = s2.containingCallable();
 
         if (m1 != null && m2 != null) {
             // Same method -> check if line ranges overlap
@@ -463,9 +463,9 @@ public class DuplicationAnalyzer {
 
         // Group pairs by their canonical method-pair
         // Pairs can only overlap if they involve the same method-pair
-        Map<MethodPairKey, List<SimilarityPair>> groups = new java.util.LinkedHashMap<>();
+        Map<CallablePairKey, List<SimilarityPair>> groups = new java.util.LinkedHashMap<>();
         for (SimilarityPair pair : pairs) {
-            MethodPairKey key = makeMethodPairKey(pair);
+            CallablePairKey key = makeCallablePairKey(pair);
             groups.computeIfAbsent(key, k -> new ArrayList<>()).add(pair);
         }
 
@@ -482,9 +482,9 @@ public class DuplicationAnalyzer {
      * Create canonical method-pair key (order-independent).
      * (methodA, methodB) should equal (methodB, methodA)
      */
-    private MethodPairKey makeMethodPairKey(SimilarityPair pair) {
-        var m1 = pair.seq1().containingMethod();
-        var m2 = pair.seq2().containingMethod();
+    private CallablePairKey makeCallablePairKey(SimilarityPair pair) {
+        var m1 = pair.seq1().containingCallable();
+        var m2 = pair.seq2().containingCallable();
         
         // Canonical ordering: use identity hash codes for stable comparison
         int h1 = System.identityHashCode(m1);
@@ -492,9 +492,9 @@ public class DuplicationAnalyzer {
         
         // Always put smaller hash first for canonical ordering
         if (h1 <= h2) {
-            return new MethodPairKey(m1, m2);
+            return new CallablePairKey(m1, m2);
         } else {
-            return new MethodPairKey(m2, m1);
+            return new CallablePairKey(m2, m1);
         }
     }
 
@@ -502,9 +502,9 @@ public class DuplicationAnalyzer {
      * Canonical method-pair key for grouping.
      * Ensures (m1, m2) == (m2, m1) via constructor ordering.
      */
-    private record MethodPairKey(
-        com.github.javaparser.ast.body.MethodDeclaration method1,
-        com.github.javaparser.ast.body.MethodDeclaration method2
+    private record CallablePairKey(
+        com.github.javaparser.ast.body.CallableDeclaration<?> method1,
+        com.github.javaparser.ast.body.CallableDeclaration<?> method2
     ) {}
 
     /**

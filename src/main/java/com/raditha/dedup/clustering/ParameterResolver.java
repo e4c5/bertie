@@ -3,6 +3,7 @@ package com.raditha.dedup.clustering;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.stmt.Statement;
@@ -70,7 +71,7 @@ public class ParameterResolver {
                  
              effectiveSequence = new StatementSequence(
                  prefixStmts, prefixRange, cluster.primary().startOffset(),
-                 cluster.primary().containingMethod(), cluster.primary().compilationUnit(),
+                 cluster.primary().containingCallable(), cluster.primary().compilationUnit(),
                  cluster.primary().sourceFilePath());
         }
 
@@ -188,13 +189,20 @@ public class ParameterResolver {
     }
 
     private boolean isContainingMethodStatic(StatementSequence sequence) {
-        var methodOpt = sequence.containingMethod();
-        return methodOpt != null && methodOpt.isStatic();
+        var methodOpt = sequence.containingCallable();
+        if (methodOpt == null) return false;
+
+        // Check if it's a MethodDeclaration and is static
+        if (methodOpt instanceof MethodDeclaration m) {
+            return m.isStatic();
+        }
+        // Constructors are never static
+        return false;
     }
 
     private Map<String, FieldInfo> getFieldInfoMap(StatementSequence sequence) {
         Map<String, FieldInfo> classFields = new HashMap<>();
-        var methodOpt = sequence.containingMethod();
+        var methodOpt = sequence.containingCallable();
         if (methodOpt != null) {
             var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
             classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {

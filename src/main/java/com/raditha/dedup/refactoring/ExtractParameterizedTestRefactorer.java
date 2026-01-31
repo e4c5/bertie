@@ -3,10 +3,13 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -70,7 +73,7 @@ public class ExtractParameterizedTestRefactorer {
 
         // Create the parameterized test method
         // Use the first consistent instance as the template to ensure body matches parameters
-        MethodDeclaration checkMethod = testInstances.get(0).method;
+        CallableDeclaration<?> checkMethod = testInstances.get(0).method;
 
         MethodDeclaration parameterizedMethod = createParameterizedMethod(
                 checkMethod,
@@ -113,7 +116,7 @@ public class ExtractParameterizedTestRefactorer {
     private List<TestInstance> extractTestInstances(DuplicateCluster cluster) {
         return cluster.allSequences().stream()
             .map(seq -> new TestInstance(
-                seq.containingMethod(),
+                seq.containingCallable(),
                 extractLiterals(seq.statements())))
             .toList();
     }
@@ -194,7 +197,7 @@ public class ExtractParameterizedTestRefactorer {
      * Create the parameterized test method.
      */
     private MethodDeclaration createParameterizedMethod(
-            MethodDeclaration originalMethod,
+            CallableDeclaration<?> originalMethod,
             String methodName,
             List<ParameterInfo> parameters,
             List<TestInstance> instances) {
@@ -218,8 +221,15 @@ public class ExtractParameterizedTestRefactorer {
         }
 
         // Copy and parameterize the method body
-        if (originalMethod.getBody().isPresent()) {
-            com.github.javaparser.ast.stmt.BlockStmt newBody = originalMethod.getBody().get().clone();
+        Optional<BlockStmt> bodyOpt = Optional.empty();
+        if (originalMethod instanceof MethodDeclaration m) {
+            bodyOpt = m.getBody();
+        } else if (originalMethod instanceof ConstructorDeclaration c) {
+            bodyOpt = Optional.of(c.getBody());
+        }
+
+        if (bodyOpt.isPresent()) {
+            com.github.javaparser.ast.stmt.BlockStmt newBody = bodyOpt.get().clone();
             
             // Logic to replace literals with parameter names
             // We search for the sequence of literals that matches the *template instance's* values
@@ -307,7 +317,11 @@ public class ExtractParameterizedTestRefactorer {
      */
     private void removeOriginalTests(ClassOrInterfaceDeclaration testClass, List<TestInstance> instances) {
         for (TestInstance instance : instances) {
-            testClass.remove(instance.method);
+            if (instance.method instanceof MethodDeclaration m) {
+                testClass.remove(m);
+            } else if (instance.method instanceof ConstructorDeclaration c) {
+                testClass.remove(c);
+            }
         }
     }
 
@@ -330,7 +344,7 @@ public class ExtractParameterizedTestRefactorer {
     /**
      * Test instance with method and extracted literals.
      */
-    private record TestInstance(MethodDeclaration method, List<LiteralValue> literals) {
+    private record TestInstance(CallableDeclaration<?> method, List<LiteralValue> literals) {
     }
 
     /**
