@@ -154,7 +154,7 @@ public class SequenceTruncator {
             }
             current--;
         }
-        return -1;
+        return 0;
     }
 
     /**

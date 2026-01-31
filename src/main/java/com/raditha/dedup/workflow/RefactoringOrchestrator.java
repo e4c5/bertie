@@ -103,12 +103,15 @@ public class RefactoringOrchestrator {
             // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
             if (classOpt.isEmpty()) {
                 String methodName = method.getNameAsString();
-                classOpt = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                List<ClassOrInterfaceDeclaration> candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
                         .filter(c -> c.getMethodsByName(methodName).size() > 0)
-                        .findFirst();
+                        .toList();
                 
-                if (classOpt.isPresent()) {
+                if (candidates.size() == 1) {
+                    classOpt = Optional.of(candidates.get(0));
                     logger.debug("Robustly resolved class context for orphaned method: {} -> {}", methodName, classOpt.get().getNameAsString());
+                } else if (candidates.size() > 1) {
+                    logger.warn("Ambiguous class resolution for method '{}': {} candidates in CU", methodName, candidates.size());
                 }
             }
             

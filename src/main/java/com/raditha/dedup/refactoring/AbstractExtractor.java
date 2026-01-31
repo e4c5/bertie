@@ -90,7 +90,9 @@ public abstract class AbstractExtractor {
         Map<CompilationUnit, List<MethodDeclaration>> map = new IdentityHashMap<>();
         
         java.util.function.BiConsumer<CompilationUnit, MethodDeclaration> add = (cu, method) -> {
-             map.computeIfAbsent(cu, k -> new ArrayList<>()).add(method);
+            if (cu != null && method != null) {
+                map.computeIfAbsent(cu, k -> new ArrayList<>()).add(method);
+            }
         };
 
         StatementSequence primary = cluster.primary();
