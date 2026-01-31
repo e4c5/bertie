@@ -41,6 +41,7 @@ class ConstructorExtractionTest {
             if (seq.containingCallable() instanceof ConstructorDeclaration) {
                 // Name should be class name
                 assertEquals("ConstructorDuplicates", seq.getMethodName());
+                assertTrue(seq.getCallableBody().isPresent(), "Constructor sequence should have a body");
             }
         });
     }

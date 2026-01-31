@@ -132,4 +132,72 @@ class ConstructorRefactoringTest {
         assertTrue(ctor2.getBody().getStatements().get(0).toString().contains("helperMethod()"));
     }
 
+    @Test
+    void testRefactorWithExistingMethodCollision() {
+        String code = """
+                class TestClass {
+                    public TestClass() {
+                        int a = 1;
+                        int b = 2;
+                        System.out.println(a + b);
+                    }
+
+                    // Existing method with same signature as proposed helper
+                    private void helperMethod() {
+                        System.out.println("Different body");
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration classDecl = cu.getClassByName("TestClass").orElseThrow();
+        ConstructorDeclaration ctor1 = classDecl.getConstructors().get(0);
+
+        List<Statement> stmts1 = ctor1.getBody().getStatements();
+        StatementSequence seq1 = new StatementSequence(
+                stmts1,
+                new Range(3, 25, 5, 34),
+                0,
+                ctor1,
+                cu,
+                sourcePath
+        );
+
+        DuplicateCluster cluster = mock(DuplicateCluster.class);
+        when(cluster.primary()).thenReturn(seq1);
+        when(cluster.allSequences()).thenReturn(List.of(seq1));
+        when(cluster.duplicates()).thenReturn(Collections.emptyList()); // No duplicates for simplicity
+        when(cluster.getContainingMethods()).thenReturn(Collections.emptySet());
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_HELPER_METHOD,
+                "helperMethod",
+                Collections.emptyList(),
+                StaticJavaParser.parseType("void"),
+                "TestClass",
+                1.0,
+                3,
+                null
+        );
+
+        // Execute Refactoring
+        // MethodExtractor logic:
+        // 1. Create helperMethod (void, no params).
+        // 2. findEquivalentHelper? No, different body.
+        // 3. ensureHelperMethodAttached -> check exists? Yes (by name/sig).
+        // 4. If exists, do NOT add member.
+        // 5. proceed to replace code in ctor1 with call to helperMethod().
+
+        MethodExtractor.RefactoringResult result = extractor.refactor(cluster, recommendation);
+
+        assertNotNull(result);
+
+        // Verify class methods count. Should be 1 (the original one), NOT 2 (duplicate).
+        List<MethodDeclaration> methods = classDecl.getMethods();
+        assertEquals(1, methods.size(), "Should verify method count is 1 (idempotency check worked)");
+        assertEquals("helperMethod", methods.get(0).getNameAsString());
+
+        // Verify constructor calls the method
+        assertTrue(ctor1.getBody().getStatements().get(0).toString().contains("helperMethod()"));
+    }
 }
