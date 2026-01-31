@@ -131,4 +131,5 @@ class ConstructorRefactoringTest {
         assertEquals(1, ctor2.getBody().getStatements().size());
         assertTrue(ctor2.getBody().getStatements().get(0).toString().contains("helperMethod()"));
     }
+
 }

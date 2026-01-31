@@ -118,7 +118,12 @@ public class MethodExtractor extends AbstractExtractor {
         MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
                 cluster.getContainingMethods());
         if (equivalent == null) {
-            containingType.addMember(helperMethod);
+            boolean exists = containingType.getMethodsByName(helperMethod.getNameAsString()).stream()
+                    .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                            && m.getType().asString().equals(helperMethod.getType().asString()));
+            if (!exists) {
+                containingType.addMember(helperMethod);
+            }
         } else {
             methodNameToUse = equivalent.getNameAsString();
         }
