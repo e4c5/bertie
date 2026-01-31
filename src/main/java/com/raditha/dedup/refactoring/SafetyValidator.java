@@ -19,8 +19,8 @@ public class SafetyValidator {
     public ValidationResult validate(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         List<ValidationIssue> issues = new ArrayList<>();
 
-        // 1. Check for method name conflicts
-        if (hasMethodNameConflict(cluster, recommendation)) {
+        // 1. Check for method name conflicts (only for same-class extractions)
+        if (shouldCheckMethodNameConflict(recommendation) && hasMethodNameConflict(cluster, recommendation)) {
             issues.add(ValidationIssue.error(
                     "Method name '" + recommendation.getSuggestedMethodName() + "' already exists in class"));
         }
@@ -69,6 +69,13 @@ public class SafetyValidator {
         // Check if method with same name exists
         return containingClass.getMethods().stream()
                 .anyMatch(m -> m.getNameAsString().equals(recommendation.getSuggestedMethodName()));
+    }
+
+    private boolean shouldCheckMethodNameConflict(RefactoringRecommendation recommendation) {
+        return switch (recommendation.getStrategy()) {
+            case EXTRACT_HELPER_METHOD, EXTRACT_TO_PARAMETERIZED_TEST -> true;
+            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, MANUAL_REVIEW_REQUIRED -> false;
+        };
     }
 
     /**

@@ -138,13 +138,15 @@ public abstract class AbstractExtractor {
      * @param requiredImportNames Set of import names that are required
      * @return true if the import is needed, false otherwise
      */
-    protected boolean isImportNeeded(ImportDeclaration imp, Set<String> requiredImportNames) {
+    protected boolean isImportNeeded(ImportDeclaration imp, Set<String> requiredImportNames,
+            MethodDeclaration method) {
         if (requiredImportNames.isEmpty()) {
             // Fallback: if analysis failed, copy all imports to be safe
             return true;
         }
         
         String importName = imp.getNameAsString();
+        String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
         
         // Check exact match
         if (requiredImportNames.contains(importName)) {
@@ -160,9 +162,12 @@ public abstract class AbstractExtractor {
         
         // For static imports, check both the full path and the simple name
         if (imp.isStatic()) {
-            String simpleName = importName.substring(importName.lastIndexOf('.') + 1);
             return requiredImportNames.contains(simpleName) || 
                    requiredImportNames.stream().anyMatch(req -> req.endsWith("." + simpleName));
+        }
+
+        if (methodUsesType(method, simpleName)) {
+            return true;
         }
         
         return false;
@@ -205,7 +210,7 @@ public abstract class AbstractExtractor {
             }
             
             // Check if this import is needed
-            if (isImportNeeded(imp, requiredImportNames)) {
+            if (isImportNeeded(imp, requiredImportNames, method)) {
                 // Avoid duplicate imports
                 boolean isDuplicate = addedImports.stream()
                         .anyMatch(existing -> existing.getNameAsString().equals(importName));
@@ -216,6 +221,11 @@ public abstract class AbstractExtractor {
                 }
             }
         }
+    }
+
+    private boolean methodUsesType(MethodDeclaration method, String simpleName) {
+        return method.findAll(com.github.javaparser.ast.type.ClassOrInterfaceType.class).stream()
+                .anyMatch(t -> t.getNameAsString().equals(simpleName));
     }
 
     /**

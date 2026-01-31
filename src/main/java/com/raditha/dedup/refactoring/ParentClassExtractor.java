@@ -37,6 +37,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     private String parentClassName;
     private Map<ParameterSpec, String> paramNameOverrides = new HashMap<>();
     private final Map<String, Type> fieldsToExtract = new HashMap<>();
+    private FunctionalPredicateInfo functionalPredicate;
 
     @Override
     public MethodExtractor.RefactoringResult refactor(
@@ -58,6 +59,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
 
         this.parentClassName = determineParentClassName();
+        this.functionalPredicate = buildFunctionalPredicateInfo();
 
         validateNoInnerClassUsage(primaryCu, methodToExtract);
         validateNoFieldUsage(methodToExtract);
@@ -135,8 +137,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             MethodDeclaration methodToExtract) {
         String parentMethodName = methodToExtract.getNameAsString();
 
-        // Check if child method has critical annotations that must be preserved
-        boolean hasAnnotations = hasPreservableAnnotations(methodToRemove);
+        boolean hasAnnotations = hasAnyAnnotation(methodToRemove);
 
         boolean signaturesMatch = signaturesMatch(methodToExtract, methodToRemove);
         long addedParamsCount = recommendation.getSuggestedParameters().stream()
@@ -146,16 +147,16 @@ public class ParentClassExtractor extends AbstractExtractor {
                             .noneMatch(mp -> mp.getNameAsString().equals(targetName));
                 }).count();
 
-        boolean isFunctional = parentMethodName.equals("countFaceCards") || parentMethodName.equals("countRedCards");
+        boolean isFunctional = functionalPredicate.enabled;
 
         if (signaturesMatch && addedParamsCount == 0 && !hasAnnotations && !isFunctional) {
-            // Only remove if signature matches, no extra params added to parent, and no annotations
+            // Only remove if signature matches, no extra params added, and no annotations to preserve
             methodToRemove.remove();
         } else {
             // Keep as thin wrapper - either names differ, params differ, or has annotations
             BlockStmt body = new BlockStmt();
-            if (parentMethodName.equals("countFaceCards") || parentMethodName.equals("countRedCards")) {
-                 parentMethodName = "countCards";
+            if (functionalPredicate.enabled) {
+                 parentMethodName = functionalPredicate.parentMethodName;
             }
             MethodCallExpr call = new MethodCallExpr(new SuperExpr(), parentMethodName);
 
@@ -188,27 +189,10 @@ public class ParentClassExtractor extends AbstractExtractor {
      * Check if a method has annotations that should be preserved when refactoring.
      * These annotations affect method behavior and should not be discarded.
      */
-    private boolean hasPreservableAnnotations(MethodDeclaration method) {
-        // Annotations that affect method behavior and must be preserved
-        Set<String> preservableAnnotations = Set.of(
-            "Transactional",
-            "Async",
-            "Cacheable",
-            "Scheduled",
-            "Retryable",
-            "Timed",
-            "Override",
-            "RequestMapping",
-            "GetMapping",
-            "PostMapping",
-            "PutMapping",
-            "DeleteMapping",
-            "PatchMapping"
-        );
-
-        return method.getAnnotations().stream()
-            .anyMatch(annotation -> preservableAnnotations.contains(annotation.getNameAsString()));
+    private boolean hasAnyAnnotation(MethodDeclaration method) {
+        return !method.getAnnotations().isEmpty();
     }
+
 
     private void validateInheritance() {
         Set<String> parentNames = new HashSet<>();
@@ -269,6 +253,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private @NonNull MethodDeclaration createMethod(MethodDeclaration originalMethod) {
         MethodDeclaration newMethod = originalMethod.clone();
+        removeAllAnnotations(newMethod);
         // Clear existing modifiers
         newMethod.getModifiers().clear();
         // Preserve public visibility, otherwise use protected
@@ -335,23 +320,27 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         }
         
-        // Add Predicate parameter if needed (heuristic based on common patterns)
-        // This is a simplified implementation for the specific use case
-        if (newMethod.getNameAsString().equals("countFaceCards") || newMethod.getNameAsString().equals("countRedCards")) {
-             newMethod.setName("countCards");
-             newMethod.addParameter("Predicate<Card>", "filter");
-             
-             // Replace specific check with filter.test(card)
-             newMethod.findAll(MethodCallExpr.class).stream()
-                 .filter(mce -> mce.getNameAsString().equals("isFaceCard") || mce.getNameAsString().equals("isRed"))
-                 .forEach(mce -> {
-                     MethodCallExpr filterTest = new MethodCallExpr(new NameExpr("filter"), "test");
-                     filterTest.addArgument(mce.getScope().get());
-                     mce.replace(filterTest);
-                 });
+        if (functionalPredicate.enabled) {
+            newMethod.setName(functionalPredicate.parentMethodName);
+            newMethod.addParameter(functionalPredicate.parameterType, functionalPredicate.parameterName);
+            
+            // Replace specific check with filter.test(target)
+            newMethod.findAll(MethodCallExpr.class).stream()
+                .filter(mce -> functionalPredicate.methodNames.contains(mce.getNameAsString()))
+                .filter(mce -> mce.getScope().isPresent())
+                .filter(mce -> functionalPredicate.scopeName.equals(mce.getScope().get().toString()))
+                .forEach(mce -> {
+                    MethodCallExpr filterTest = new MethodCallExpr(new NameExpr(functionalPredicate.parameterName), "test");
+                    filterTest.addArgument(mce.getScope().get());
+                    mce.replace(filterTest);
+                });
         }
         
         return newMethod;
+    }
+
+    private void removeAllAnnotations(MethodDeclaration method) {
+        method.getAnnotations().clear();
     }
 
     /**
@@ -707,23 +696,165 @@ public class ParentClassExtractor extends AbstractExtractor {
         return null;
     }
     private void addFunctionalArguments(MethodCallExpr call, MethodDeclaration childMethod, MethodDeclaration parentMethod) {
-        // Simple heuristic: if parent is "countCards" and child is "countRedCards" or "countFaceCards"
-        // we deduce the predicate.
-        String parentName = parentMethod.getNameAsString();
-        String childName = childMethod.getNameAsString();
-        
-        if ((parentName.equals("countCards") || parentName.equals("countFaceCards") || parentName.equals("countRedCards")) 
-                && (childName.equals("countRedCards") || childName.equals("countFaceCards"))) {
-             if (childName.equals("countRedCards")) {
-                 call.addArgument("Card::isRed");
-             } else {
-                 call.addArgument("Card::isFaceCard"); 
-             }
+        if (!functionalPredicate.enabled) {
+            return;
         }
+        MethodCallExpr candidate = findPredicateMethodCall(childMethod, functionalPredicate.scopeName);
+        String methodName = null;
+        if (candidate != null) {
+            methodName = candidate.getNameAsString();
+        } else {
+            methodName = resolvePredicateMethodName(childMethod);
+        }
+        if (methodName == null) {
+            return;
+        }
+        String lambdaParam = "item";
+        String lambdaSource = lambdaParam + " -> " + lambdaParam + "." + methodName + "()";
+        call.addArgument(com.github.javaparser.StaticJavaParser.parseExpression(lambdaSource));
     }
 
     private boolean methodExists(ClassOrInterfaceDeclaration clazz, MethodDeclaration method) {
         return clazz.getMethods().stream()
                 .anyMatch(m -> signaturesMatch(m, method));
+    }
+
+    private FunctionalPredicateInfo buildFunctionalPredicateInfo() {
+        if (recommendation.getVariationAnalysis() == null) {
+            return FunctionalPredicateInfo.disabled();
+        }
+        List<com.raditha.dedup.model.VaryingExpression> variations =
+                recommendation.getVariationAnalysis().getVaryingExpressions();
+        com.raditha.dedup.model.VaryingExpression variation = null;
+        for (com.raditha.dedup.model.VaryingExpression candidate : variations) {
+            if (!(candidate.expr1() instanceof MethodCallExpr mc1)
+                    || !(candidate.expr2() instanceof MethodCallExpr mc2)) {
+                continue;
+            }
+            if (!mc1.getArguments().isEmpty() || !mc2.getArguments().isEmpty()) {
+                continue;
+            }
+            if (candidate.type() != null
+                    && (!candidate.type().isPrimitive() || !"boolean".equals(candidate.type().describe()))) {
+                continue;
+            }
+            if (mc1.getScope().isEmpty()) {
+                continue;
+            }
+            variation = candidate;
+            break;
+        }
+        if (variation == null) {
+            return FunctionalPredicateInfo.disabled();
+        }
+
+        MethodCallExpr m1 = (MethodCallExpr) variation.expr1();
+        String scopeName = m1.getScope().get().toString();
+        Set<String> methodNames = new HashSet<>();
+        for (MethodDeclaration method : cluster.getContainingMethods()) {
+            MethodCallExpr call = findPredicateMethodCall(method, scopeName);
+            if (call == null) {
+                return FunctionalPredicateInfo.disabled();
+            }
+            methodNames.add(call.getNameAsString());
+        }
+
+        String paramType = "Predicate<" + resolveScopeType(scopeName, cluster.primary().containingMethod()) + ">";
+        String parentName = computeFunctionalParentName();
+
+        return new FunctionalPredicateInfo(true, methodNames, scopeName, "filter", paramType, parentName);
+    }
+
+    private MethodCallExpr findPredicateMethodCall(MethodDeclaration method, String scopeName) {
+        for (MethodCallExpr call : method.findAll(MethodCallExpr.class)) {
+            if (!call.getArguments().isEmpty() || call.getScope().isEmpty()) {
+                continue;
+            }
+            if (scopeName != null && !scopeName.equals(call.getScope().get().toString())) {
+                continue;
+            }
+            return call;
+        }
+        return null;
+    }
+
+    private String resolvePredicateMethodName(MethodDeclaration method) {
+        for (MethodCallExpr call : method.findAll(MethodCallExpr.class)) {
+            if (functionalPredicate.methodNames.contains(call.getNameAsString())) {
+                return call.getNameAsString();
+            }
+        }
+        return functionalPredicate.methodNames.stream().findFirst().orElse(null);
+    }
+
+    private String resolveScopeType(String scopeName, MethodDeclaration method) {
+        for (com.github.javaparser.ast.body.Parameter param : method.getParameters()) {
+            if (param.getNameAsString().equals(scopeName)) {
+                return param.getType().asString();
+            }
+        }
+        for (com.github.javaparser.ast.body.VariableDeclarator vd : method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)) {
+            if (vd.getNameAsString().equals(scopeName)) {
+                return vd.getType().asString();
+            }
+        }
+        for (com.github.javaparser.ast.stmt.ForEachStmt foreach : method.findAll(com.github.javaparser.ast.stmt.ForEachStmt.class)) {
+            if (foreach.getVariable().getVariable(0).getNameAsString().equals(scopeName)) {
+                return foreach.getVariable().getElementType().asString();
+            }
+        }
+        return "Object";
+    }
+
+    private String computeFunctionalParentName() {
+        Set<String> names = new HashSet<>();
+        for (MethodDeclaration method : cluster.getContainingMethods()) {
+            names.add(method.getNameAsString());
+        }
+        if (names.isEmpty()) {
+            return fallbackFunctionalName();
+        }
+        String prefix = findCommonPrefix(names);
+        String suffix = findCommonSuffix(names);
+        int minLen = names.stream().mapToInt(String::length).min().orElse(0);
+        if (prefix.length() >= 3 && suffix.length() >= 3 && prefix.length() + suffix.length() <= minLen) {
+            return prefix + suffix;
+        }
+        return fallbackFunctionalName();
+    }
+
+    private String fallbackFunctionalName() {
+        String suggested = recommendation.getSuggestedMethodName();
+        if (suggested != null && !suggested.isEmpty()) {
+            return suggested;
+        }
+        MethodDeclaration method = cluster.primary().containingMethod();
+        return method != null ? method.getNameAsString() : "extractedMethod";
+    }
+
+    private String findCommonPrefix(Set<String> names) {
+        Iterator<String> iterator = names.iterator();
+        String reference = iterator.next();
+        int end = reference.length();
+        for (String name : names) {
+            int i = 0;
+            while (i < end && i < name.length() && reference.charAt(i) == name.charAt(i)) {
+                i++;
+            }
+            end = Math.min(end, i);
+        }
+        return reference.substring(0, end);
+    }
+
+    private record FunctionalPredicateInfo(
+            boolean enabled,
+            Set<String> methodNames,
+            String scopeName,
+            String parameterName,
+            String parameterType,
+            String parentMethodName) {
+        static FunctionalPredicateInfo disabled() {
+            return new FunctionalPredicateInfo(false, Set.of(), "", "", "", "");
+        }
     }
 }

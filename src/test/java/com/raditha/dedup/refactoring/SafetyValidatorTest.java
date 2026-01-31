@@ -28,6 +28,7 @@ class SafetyValidatorTest {
         
         when(recommendation.getSuggestedMethodName()).thenReturn("newMethod");
         when(recommendation.getSuggestedParameters()).thenReturn(List.of());
+        when(recommendation.getStrategy()).thenReturn(RefactoringStrategy.EXTRACT_HELPER_METHOD);
         when(cluster.duplicates()).thenReturn(List.of());
     }
 
