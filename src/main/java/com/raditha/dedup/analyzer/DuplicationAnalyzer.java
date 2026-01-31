@@ -490,12 +490,15 @@ public class DuplicationAnalyzer {
         }
 
         EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
+        Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
+        var escapeCount = (java.util.function.ToIntFunction<StatementSequence>) seq ->
+                escapeCounts.computeIfAbsent(seq, s -> escapeAnalyzer.analyze(s).size());
 
         // Sort by escape risk (ascending), then scope (descending), then statement count, then start line
         List<SimilarityPair> sorted = new ArrayList<>(group);
         sorted.sort((a, b) -> {
-            int escapesA = escapeAnalyzer.analyze(a.seq1()).size() + escapeAnalyzer.analyze(a.seq2()).size();
-            int escapesB = escapeAnalyzer.analyze(b.seq1()).size() + escapeAnalyzer.analyze(b.seq2()).size();
+            int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
+            int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
             int escapeCompare = Integer.compare(escapesA, escapesB);
             if (escapeCompare != 0) {
                 return escapeCompare;
