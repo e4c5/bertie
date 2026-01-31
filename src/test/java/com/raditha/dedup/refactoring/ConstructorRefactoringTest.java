@@ -192,12 +192,16 @@ class ConstructorRefactoringTest {
 
         assertNotNull(result);
 
-        // Verify class methods count. Should be 1 (the original one), NOT 2 (duplicate).
+        // Verify class methods count. Should be 2 (original + renamed new one).
         List<MethodDeclaration> methods = classDecl.getMethods();
-        assertEquals(1, methods.size(), "Should verify method count is 1 (idempotency check worked)");
-        assertEquals("helperMethod", methods.get(0).getNameAsString());
+        assertEquals(2, methods.size(), "Should verify method count is 2 (original + renamed new helper)");
 
-        // Verify constructor calls the method
-        assertTrue(ctor1.getBody().getStatements().get(0).toString().contains("helperMethod()"));
+        // Verify both methods exist
+        assertTrue(methods.stream().anyMatch(m -> m.getNameAsString().equals("helperMethod")), "Original method should exist");
+        assertTrue(methods.stream().anyMatch(m -> m.getNameAsString().equals("helperMethod1")), "New renamed method should exist");
+
+        // Verify constructor calls the NEW renamed method
+        assertTrue(ctor1.getBody().getStatements().get(0).toString().contains("helperMethod1()"),
+                "Constructor should call the renamed helper method");
     }
 }

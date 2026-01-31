@@ -118,10 +118,23 @@ public class MethodExtractor extends AbstractExtractor {
         MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
                 cluster.getContainingMethods());
         if (equivalent == null) {
-            boolean exists = containingType.getMethodsByName(helperMethod.getNameAsString()).stream()
+            boolean signatureCollision = containingType.getMethodsByName(helperMethod.getNameAsString()).stream()
                     .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
                             && m.getType().asString().equals(helperMethod.getType().asString()));
-            if (!exists) {
+
+            if (signatureCollision) {
+                String baseName = helperMethod.getNameAsString();
+                String newName = baseName;
+                int counter = 1;
+                while (containingType.getMethodsByName(newName).stream()
+                        .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                                && m.getType().asString().equals(helperMethod.getType().asString()))) {
+                    newName = baseName + counter++;
+                }
+                helperMethod.setName(newName);
+                methodNameToUse = newName;
+                containingType.addMember(helperMethod);
+            } else {
                 containingType.addMember(helperMethod);
             }
         } else {
