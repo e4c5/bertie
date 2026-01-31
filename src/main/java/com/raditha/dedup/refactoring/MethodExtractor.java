@@ -74,57 +74,73 @@ public class MethodExtractor extends AbstractExtractor {
         methodNameToUse = findReusableMethod();
 
         // Add new helper if no reuse target was found
-        if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-            CallableDeclaration<?> containingCallable = cluster.primary().containingCallable();
-            if (containingCallable == null) {
-                throw new IllegalStateException("No containing method found for primary sequence");
-            }
-            
-            // FIXED: If the containingCallable is detached from the AST (e.g., after previous
-            // refactorings modified the file), re-resolve it from the live CompilationUnit
-            if (containingCallable.getParentNode().isEmpty()) {
-                String callableName = containingCallable.getNameAsString();
-                logger.debug("Refreshing detached containingCallable: {}", callableName);
-                
-                // Look up the method/constructor in the current CompilationUnit
-                CompilationUnit cu = cluster.primary().compilationUnit();
-                if (cu != null) {
-                    if (containingCallable instanceof MethodDeclaration) {
-                        containingCallable = cu.findAll(MethodDeclaration.class).stream()
-                                .filter(m -> m.getNameAsString().equals(callableName))
-                                .findFirst()
-                                .orElse(null);
-                    } else if (containingCallable instanceof ConstructorDeclaration) {
-                        containingCallable = cu.findAll(ConstructorDeclaration.class).stream()
-                                .filter(c -> c.getNameAsString().equals(callableName))
-                                .findFirst()
-                                .orElse(null);
-                    }
-                }
-                
-                if (containingCallable == null || containingCallable.getParentNode().isEmpty()) {
-                    // Method was already refactored by a previous cluster (e.g., merged into parameterized test)
-                    // This is expected behavior, not an error - skip gracefully
-                    return new RefactoringResult(Map.of(), recommendation.getStrategy(),
-                            "Skipped: method '" + callableName + "' was already refactored by a previous cluster");
-                }
-            }
-            
-            TypeDeclaration<?> containingType = containingCallable
-                    .findAncestor(TypeDeclaration.class)
-                    .orElseThrow(() -> new IllegalStateException("No containing type found"));
-
-            MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
-                    cluster.getContainingMethods());
-            if (equivalent == null) {
-                containingType.addMember(helperMethod);
-            } else {
-                methodNameToUse = equivalent.getNameAsString();
-            }
+        Optional<RefactoringResult> skipResult = ensureHelperMethodAttached(helperMethod);
+        if (skipResult.isPresent()) {
+            return skipResult.get();
         }
 
         // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
         return executeReplacements();
+    }
+
+    private Optional<RefactoringResult> ensureHelperMethodAttached(MethodDeclaration helperMethod) {
+        if (!methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+            return Optional.empty();
+        }
+
+        CallableDeclaration<?> containingCallable = cluster.primary().containingCallable();
+        if (containingCallable == null) {
+            throw new IllegalStateException("No containing method found for primary sequence");
+        }
+
+        // FIXED: If the containingCallable is detached from the AST (e.g., after previous
+        // refactorings modified the file), re-resolve it from the live CompilationUnit
+        if (containingCallable.getParentNode().isEmpty()) {
+            String callableName = containingCallable.getNameAsString();
+            logger.debug("Refreshing detached containingCallable: {}", callableName);
+
+            // Look up the method/constructor in the current CompilationUnit
+            CompilationUnit cu = cluster.primary().compilationUnit();
+            containingCallable = refreshCallable(containingCallable, cu, callableName);
+
+            if (containingCallable == null || containingCallable.getParentNode().isEmpty()) {
+                // Method was already refactored by a previous cluster (e.g., merged into parameterized test)
+                // This is expected behavior, not an error - skip gracefully
+                return Optional.of(new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                        "Skipped: method '" + callableName + "' was already refactored by a previous cluster"));
+            }
+        }
+
+        TypeDeclaration<?> containingType = containingCallable
+                .findAncestor(TypeDeclaration.class)
+                .orElseThrow(() -> new IllegalStateException("No containing type found"));
+
+        MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
+                cluster.getContainingMethods());
+        if (equivalent == null) {
+            containingType.addMember(helperMethod);
+        } else {
+            methodNameToUse = equivalent.getNameAsString();
+        }
+
+        return Optional.empty();
+    }
+
+    private CallableDeclaration<?> refreshCallable(CallableDeclaration<?> containingCallable, CompilationUnit cu, String callableName) {
+        if (cu != null) {
+            if (containingCallable instanceof MethodDeclaration) {
+                return cu.findAll(MethodDeclaration.class).stream()
+                        .filter(m -> m.getNameAsString().equals(callableName))
+                        .findFirst()
+                        .orElse(null);
+            } else if (containingCallable instanceof ConstructorDeclaration) {
+                return cu.findAll(ConstructorDeclaration.class).stream()
+                        .filter(c -> c.getNameAsString().equals(callableName))
+                        .findFirst()
+                        .orElse(null);
+            }
+        }
+        return null;
     }
 
     /**
@@ -136,17 +152,16 @@ public class MethodExtractor extends AbstractExtractor {
 
         for (StatementSequence seq : cluster.allSequences()) {
             CallableDeclaration<?> m = seq.containingCallable();
-            if (m instanceof MethodDeclaration method && isMethodBody(seq)) {
-                 if (method.getParameters().size() == effectiveParams.size() &&
-                         method.getType().equals(helperMethod.getType())) {
+            if (m instanceof MethodDeclaration method && isMethodBody(seq) &&
+                    method.getParameters().size() == effectiveParams.size() &&
+                    method.getType().equals(helperMethod.getType())) {
 
-                     String candNorm = normalizeMethodBody(method);
-                     String helperNorm = normalizeMethodBody(helperMethod);
-                     if (candNorm != null && candNorm.equals(helperNorm)) {
+                String candNorm = normalizeMethodBody(method);
+                String helperNorm = normalizeMethodBody(helperMethod);
+                if (candNorm != null && candNorm.equals(helperNorm)) {
 
-                         return method.getNameAsString();
-                     }
-                 }
+                    return method.getNameAsString();
+                }
             }
         }
         return recommendation.getSuggestedMethodName();
