@@ -209,7 +209,7 @@ public class StatementExtractor {
          */
         private void extractSlidingWindows(List<Statement> statements, CallableDeclaration<?> callable) {
             int totalStatements = statements.size();
-            int effectiveMin = (callable instanceof ConstructorDeclaration) ? 3 : minStatements;
+            int effectiveMin = minStatements;
 
             // SPECIAL CASE: Always extract the full body as a sequence if it meets min requirements
             // This is critical for constructor/method reuse even when one body is longer than another.
