@@ -41,7 +41,7 @@ class RefactoringBugReproductionTest {
         Settings.setProperty("duplication_detector", config);
         
         // Pass empty map to constructor as we are analyzing single files
-        analyzer = new DuplicationAnalyzer(java.util.Collections.emptyMap());
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test

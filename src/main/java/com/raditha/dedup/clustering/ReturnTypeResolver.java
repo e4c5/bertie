@@ -26,11 +26,9 @@ public class ReturnTypeResolver extends AbstractResolver {
 
     /**
      * Creates a new return type resolver with default analyzers.
-     *
-     * @param allCUs Map of all compilation units for type resolution
      */
-    public ReturnTypeResolver(Map<String, CompilationUnit> allCUs) {
-        this(new DataFlowAnalyzer(), new SequenceTruncator(), allCUs);
+    public ReturnTypeResolver() {
+        this(new DataFlowAnalyzer(), new SequenceTruncator());
     }
 
     /**
@@ -38,11 +36,9 @@ public class ReturnTypeResolver extends AbstractResolver {
      *
      * @param dataFlowAnalyzer The data flow analyzer
      * @param truncator        The sequence truncator
-     * @param allCUs           Map of all compilation units
      */
-    public ReturnTypeResolver(DataFlowAnalyzer dataFlowAnalyzer, SequenceTruncator truncator,
-                               Map<String, CompilationUnit> allCUs) {
-        super(allCUs, dataFlowAnalyzer);
+    public ReturnTypeResolver(DataFlowAnalyzer dataFlowAnalyzer, SequenceTruncator truncator) {
+        super(dataFlowAnalyzer);
         this.truncator = truncator;
     }
 

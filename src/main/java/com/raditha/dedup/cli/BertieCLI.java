@@ -259,37 +259,10 @@ public class BertieCLI implements Callable<Integer> {
 
     private List<DuplicationReport> performAnalysis() {
         // Get compilation units and filter criteria
-        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-        System.out.println("DEBUG: allCUs detected " + allCUs.size() + " files.");
+        // Note: AntikytheraRunTime.getResolvedCompilationUnits() is now called internally by DuplicationAnalyzer
 
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(allCUs);
-
-        // Filter map based on target class
-        String targetClass = DuplicationDetectorSettings.getTargetClass();
-
-        Map<String, CompilationUnit> targetCUs = new java.util.HashMap<>(allCUs);
-        if (targetClass != null && !targetClass.isEmpty()) {
-            String[] targets = java.util.Arrays.stream(targetClass.split(","))
-                    .map(String::trim)
-                    .filter(t -> !t.isEmpty())
-                    .toArray(String[]::new);
-            
-            if (targets.length > 0) {
-                System.out.println("DEBUG: Samples of allCUs keys:");
-                allCUs.keySet().stream().limit(5).forEach(k -> System.out.println("  - " + k));
-                targetCUs.entrySet().removeIf(entry -> {
-                    for (String t : targets) {
-                        if (entry.getKey().startsWith(t)) {
-                            return false; // Keep it
-                        }
-                    }
-                    return true; // Remove it
-                });
-            }
-            System.out.println("DEBUG: Retained " + targetCUs.size() + " files for analysis.");
-        }
-
-        return analyzer.analyzeProject(targetCUs);
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
+        return analyzer.analyzeProject();
     }
 
     private void runAnalysis() throws IOException {
@@ -368,7 +341,7 @@ public class BertieCLI implements Callable<Integer> {
         // Initialize Orchestrator (requires analyzer with full project context)
         // We re-initialize analyzer here to ensure we have access to all CUs for re-analysis
         Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-        DuplicationAnalyzer analyzer = new DuplicationAnalyzer(allCUs);
+        DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
         com.raditha.dedup.workflow.RefactoringOrchestrator orchestrator = 
                 new com.raditha.dedup.workflow.RefactoringOrchestrator(analyzer, engine);
 

@@ -9,6 +9,7 @@ import com.raditha.dedup.filter.PreFilterChain;
 import com.raditha.dedup.clustering.DuplicateClusterer;
 import com.raditha.dedup.clustering.RefactoringRecommendationGenerator;
 import com.raditha.dedup.model.*;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -37,13 +38,6 @@ public class DuplicationAnalyzer {
      * Create analyzer with default configuration.
      */
     public DuplicationAnalyzer() {
-        this(Collections.emptyMap());
-    }
-
-    /**
-     * Create analyzer with compilation units for cross-file analysis.
-     */
-    public DuplicationAnalyzer(Map<String, CompilationUnit> allCUs) {
         this.extractor = new StatementExtractor(
                 DuplicationDetectorSettings.getMinLines(),
                 DuplicationDetectorSettings.getMaxWindowGrowth(),
@@ -52,7 +46,7 @@ public class DuplicationAnalyzer {
         this.astNormalizer = new com.raditha.dedup.normalization.ASTNormalizer(); // NEW
         this.astSimilarityCalculator = new com.raditha.dedup.similarity.ASTSimilarityCalculator(); // NEW
         this.clusterer = new DuplicateClusterer(DuplicationDetectorSettings.getThreshold());
-        this.recommendationGenerator = new RefactoringRecommendationGenerator(allCUs);
+        this.recommendationGenerator = new RefactoringRecommendationGenerator();
         this.boundaryRefiner = new BoundaryRefiner(
                 new DataFlowAnalyzer(),
                 DuplicationDetectorSettings.getMinLines(),
@@ -87,16 +81,42 @@ public class DuplicationAnalyzer {
      * Analyze the entire project for duplicates, enabling cross-file detection.
      * Uses LSH to scale to large codebases.
      *
-     * @param allCUs Map of class name to CompilationUnit
      * @return List of reports, one per file involved in duplicates
      */
-    public List<DuplicationReport> analyzeProject(Map<String, CompilationUnit> allCUs) {
+    public List<DuplicationReport> analyzeProject() {
+        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
+
+        // Filter map based on target class
+        String targetClass = DuplicationDetectorSettings.getTargetClass();
+        Map<String, CompilationUnit> targetCUs;
+
+        if (targetClass != null && !targetClass.isEmpty()) {
+            targetCUs = new java.util.HashMap<>(allCUs);
+            String[] targets = java.util.Arrays.stream(targetClass.split(","))
+                    .map(String::trim)
+                    .filter(t -> !t.isEmpty())
+                    .toArray(String[]::new);
+
+            if (targets.length > 0) {
+                targetCUs.entrySet().removeIf(entry -> {
+                    for (String t : targets) {
+                        if (entry.getKey().startsWith(t)) {
+                            return false; // Keep it
+                        }
+                    }
+                    return true; // Remove it
+                });
+            }
+        } else {
+             targetCUs = allCUs;
+        }
+
         List<StatementSequence> allSequences = new ArrayList<>();
         Map<Path, List<StatementSequence>> fileSequences = new java.util.LinkedHashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
 
         // 1. Extract from all files (Lazily normalized)
-        List<CompilationUnit> sortedCUs = new ArrayList<>(allCUs.values());
+        List<CompilationUnit> sortedCUs = new ArrayList<>(targetCUs.values());
         sortedCUs.sort(java.util.Comparator.comparing(
                 unit -> unit.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null),
                 java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
