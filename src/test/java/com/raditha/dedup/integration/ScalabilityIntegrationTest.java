@@ -4,39 +4,15 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import sa.com.cloudsolutions.antikythera.configuration.Settings;
 
-import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScalabilityIntegrationTest {
-
-    @BeforeAll
-    static void setupClass() throws IOException {
-        File configFile = new File("src/test/resources/analyzer-tests.yml");
-        if (configFile.exists()) {
-            Settings.loadConfigMap(configFile);
-        } else {
-            // Initialize with empty defaults if file not found to avoid NPE in Settings.getProperty
-            // Though Settings.loadConfigMap(null) might fail, we can manually set props if needed.
-            // But better to ensure the file exists or load minimal config.
-
-            // If Settings.props is null, getProperty throws NPE.
-            // We need to ensure Settings.props is initialized.
-            // Settings.loadConfigMap(File) initializes it.
-            // If file missing, we can try to force init or throw.
-             throw new IOException("Config file not found: " + configFile.getAbsolutePath());
-        }
-    }
 
     @Test
     void comparePerformance() {
@@ -56,15 +32,15 @@ class ScalabilityIntegrationTest {
         com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(5, 75, null);
         // Explicitly disable LSH for brute-force measurement
         @SuppressWarnings("unchecked")
-        Map<String, Object> cliConfig = (Map<String, Object>)
-            Settings.getProperty("duplication_detector_cli");
+        java.util.Map<String, Object> cliConfig = (java.util.Map<String, Object>) 
+            sa.com.cloudsolutions.antikythera.configuration.Settings.getProperty("duplication_detector_cli");
         if (cliConfig == null) {
-            cliConfig = new HashMap<>();
+            cliConfig = new java.util.HashMap<>();
         } else {
-            cliConfig = new HashMap<>(cliConfig);
+            cliConfig = new java.util.HashMap<>(cliConfig);
         }
         cliConfig.put("enable_lsh", false);
-        Settings.setProperty("duplication_detector_cli", cliConfig);
+        sa.com.cloudsolutions.antikythera.configuration.Settings.setProperty("duplication_detector_cli", cliConfig);
         
         DuplicationAnalyzer analyzerBF = new DuplicationAnalyzer(Collections.emptyMap());
 
@@ -78,9 +54,9 @@ class ScalabilityIntegrationTest {
         // 3. Measure LSH (LSH enabled)
         com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(5, 75, null);
         // Explicitly enable LSH
-        cliConfig = new HashMap<>(cliConfig);
+        cliConfig = new java.util.HashMap<>(cliConfig);
         cliConfig.put("enable_lsh", true);
-        Settings.setProperty("duplication_detector_cli", cliConfig);
+        sa.com.cloudsolutions.antikythera.configuration.Settings.setProperty("duplication_detector_cli", cliConfig);
         
         DuplicationAnalyzer analyzerLSH = new DuplicationAnalyzer(Collections.emptyMap());
 
