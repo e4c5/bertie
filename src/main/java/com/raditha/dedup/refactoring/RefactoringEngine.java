@@ -448,16 +448,19 @@ public class RefactoringEngine {
     public record RefactoringResult(DuplicateCluster cluster, RefactoringStatus status, String message) {
         /**
          * Details of the operation (alias for message).
-         */
+          * Convenience accessor for {@link #message()} on successful operations.
+          * Intended to be used when {@link #status()} is {@link RefactoringStatus#SUCCESS}.
         public String details() { return message; }
 
         /**
-         * Reason for skipping (alias for message).
+         * Convenience accessor for {@link #message()} on skipped operations,
+         * intended to be used when {@link #status()} is {@link RefactoringStatus#SKIPPED}.
          */
         public String reason() { return message; }
 
         /**
-         * Error message (alias for message).
+         * Convenience accessor for {@link #message()} on failed operations,
+         * intended to be used when {@link #status()} is {@link RefactoringStatus#FAILED}.
          */
         public String error() { return message; }
     }

@@ -48,7 +48,13 @@ public class JavadocAuditor {
                         System.out.println("MISSING_CONSTRUCTOR_DOC: " + path + " : " + c.getNameAsString() + ".<init>");
                     }
                 });
-            });
+
+                c.getFields().forEach(f -> {
+                    if (f.isPublic() && !f.getJavadoc().isPresent()) {
+                        f.getVariables().forEach(v ->
+                                System.out.println("MISSING_FIELD_DOC: " + path + " : " + c.getNameAsString() + "." + v.getNameAsString()));
+                    }
+                });
 
             cu.findAll(EnumDeclaration.class).forEach(e -> {
                  if (e.isPublic() && !e.getJavadoc().isPresent()) {
