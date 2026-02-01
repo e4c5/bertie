@@ -1,5 +1,6 @@
 package com.raditha.dedup.analysis;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.BlockStmt;
@@ -119,7 +120,7 @@ class DataFlowAnalyzerTest {
                                 Paths.get("Test.java"));
 
                 // Expect FALSE because multiple variables (result1,2,3) are live-out
-                assertFalse(analyzer.isSafeToExtract(sequenceCalls, "void"),
+                assertFalse(analyzer.isSafeToExtract(sequenceCalls, StaticJavaParser.parseType("void")),
                                 "Should be unsafe to extract block with multiple live-out variables");
 
                 // 2. Safe Block: Setup (no live-out variables)
@@ -133,7 +134,7 @@ class DataFlowAnalyzerTest {
                                 cu,
                                 Paths.get("Test.java"));
 
-                assertTrue(analyzer.isSafeToExtract(sequenceSetup, "void"),
+                assertTrue(analyzer.isSafeToExtract(sequenceSetup, StaticJavaParser.parseType("void")),
                                 "Should be safe to extract block with NO live-out variables");
         }
 
@@ -180,7 +181,7 @@ class DataFlowAnalyzerTest {
                 // AND it is the best candidate (tempUser shouldn't be live out because usage is
                 // enclosed in sequence)
                 // expected matches variable type
-                String returnVar = analyzer.findReturnVariable(sequence, "User");
+                String returnVar = analyzer.findReturnVariable(sequence, StaticJavaParser.parseType("User"));
                 assertEquals("finalUser", returnVar,
                                 "Should maintain finalUser as candidate due to return statement usage");
         }
@@ -212,7 +213,7 @@ class DataFlowAnalyzerTest {
                 // Expected: 'user' is defined, matches type User, but NOT live-out (not used
                 // after).
                 // Fallback logic should pick it up if we ask for "User".
-                String returnVar = analyzer.findReturnVariable(sequence, "User");
+                String returnVar = analyzer.findReturnVariable(sequence, StaticJavaParser.parseType("User"));
                 assertEquals("user", returnVar, "Should find 'user' via fallback mechanism");
         }
 
@@ -320,7 +321,7 @@ class DataFlowAnalyzerTest {
                                         sourceFilePath);
                 }
 
-                String bestVar = analyzer.findReturnVariable(sequence, "Object"); // Type match for 'o'
+                String bestVar = analyzer.findReturnVariable(sequence, StaticJavaParser.parseType("Object")); // Type match for 'o'
                 assertEquals("o", bestVar, "Should prefer Object 'o' over primitive 'x'");
         }
 

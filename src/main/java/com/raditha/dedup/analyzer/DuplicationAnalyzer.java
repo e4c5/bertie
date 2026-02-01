@@ -3,7 +3,6 @@ package com.raditha.dedup.analyzer;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
-import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
@@ -31,15 +30,6 @@ public class DuplicationAnalyzer {
     private final com.raditha.dedup.normalization.ASTNormalizer astNormalizer; // NEW: AST-based
     private final com.raditha.dedup.similarity.ASTSimilarityCalculator astSimilarityCalculator; // NEW: AST-based
     private final DuplicateClusterer clusterer;
-    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
-            java.util.Comparator
-                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
-                    .thenComparingInt(StatementSequence::startOffset)
-                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final RefactoringRecommendationGenerator recommendationGenerator;
     private final BoundaryRefiner boundaryRefiner;
 
@@ -127,7 +117,7 @@ public class DuplicationAnalyzer {
             }
         }
 
-        allSequences.sort(SEQ_ORDER);
+        allSequences.sort(StatementSequenceComparator.INSTANCE);
 
         // 2-4. Process sequences through the duplicate detection pipeline
         ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
@@ -274,15 +264,14 @@ public class DuplicationAnalyzer {
     private List<SimilarityPair> findCandidates(List<StatementSequence> sequences) {
         if (DuplicationDetectorSettings.getEnableLSH()) {
             return findCandidatesLSH(sequences);
-        } else {
-            // Brute force fallback - requires full normalization
-            List<NormalizedSequence> normalizedSequences = sequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())))
-                .toList();
-            return findCandidatesBruteForce(normalizedSequences);
         }
+        // Brute force fallback - requires full normalization
+        List<NormalizedSequence> normalizedSequences = sequences.stream()
+            .map(seq -> new NormalizedSequence(
+                    seq,
+                    astNormalizer.normalize(seq.statements())))
+            .toList();
+        return findCandidatesBruteForce(normalizedSequences);
     }
 
     /**
@@ -311,7 +300,7 @@ public class DuplicationAnalyzer {
             // Query and Add
             Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, currentSeq);
             List<StatementSequence> orderedMatches = new ArrayList<>(potentialMatches);
-            orderedMatches.sort(SEQ_ORDER);
+            orderedMatches.sort(StatementSequenceComparator.INSTANCE);
 
             for (StatementSequence candidateSeq : orderedMatches) {
                 // Combined check to reduce continue statements
@@ -341,28 +330,23 @@ public class DuplicationAnalyzer {
      * robustness check: returns true if sequences are in the same method
      * or if method is null (e.g. static block) and they are in same file
      */
-    private boolean isPhysicallyOverlapping(StatementSequence s1, StatementSequence s2) {
-        // Different files -> cannot overlap
-        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null
-                && !s1.sourceFilePath().equals(s2.sourceFilePath())) {
+    boolean isPhysicallyOverlapping(StatementSequence s1, StatementSequence s2) {
+        Path p1 = s1.sourceFilePath();
+        Path p2 = s2.sourceFilePath();
+
+        // Must be in the same file to overlap
+        if (p1 == null || !p1.equals(p2)) {
             return false;
         }
 
+        // If both are within methods/constructors, they must be the SAME one
         var m1 = s1.containingCallable();
         var m2 = s2.containingCallable();
-
-        if (m1 != null && m2 != null) {
-            // Same method -> check if line ranges overlap
-            return m1.equals(m2) && rangesOverlap(s1.range(), s2.range());
+        if (m1 != null && m2 != null && !m1.equals(m2)) {
+            return false;
         }
 
-        // If one or both methods are null (e.g. static initializer logic),
-        // check if they are in the same file and their ranges overlap
-        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null) {
-            return s1.sourceFilePath().equals(s2.sourceFilePath()) && rangesOverlap(s1.range(), s2.range());
-        }
-
-        return false;
+        return rangesOverlap(s1.range(), s2.range());
     }
 
 
@@ -429,11 +413,11 @@ public class DuplicationAnalyzer {
                     if (scoreCompare != 0) {
                         return scoreCompare;
                     }
-                    int seq1Compare = SEQ_ORDER.compare(a.seq1(), b.seq1());
+                    int seq1Compare = StatementSequenceComparator.INSTANCE.compare(a.seq1(), b.seq1());
                     if (seq1Compare != 0) {
                         return seq1Compare;
                     }
-                    return SEQ_ORDER.compare(a.seq2(), b.seq2());
+                    return StatementSequenceComparator.INSTANCE.compare(a.seq2(), b.seq2());
                 })
                 .toList();
     }
@@ -506,12 +490,7 @@ public class DuplicationAnalyzer {
      * Since all pairs in the group have sameMethodPair==true, we only check physical overlap.
      */
     private List<SimilarityPair> removeOverlapsInGroup(List<SimilarityPair> group) {
-        final EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
-        final Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
-        final java.util.function.ToIntFunction<StatementSequence> escapeCount = seq ->
-                escapeCounts.computeIfAbsent(seq, s -> escapeAnalyzer.analyze(s).size());
-
-        group.sort(createSimilarityPairComparator(escapeCount));
+        group.sort(new RefactoringPriorityComparator());
 
         List<SimilarityPair> filtered = new ArrayList<>();
         for (SimilarityPair current : group) {
@@ -520,35 +499,6 @@ public class DuplicationAnalyzer {
             }
         }
         return filtered;
-    }
-
-    private java.util.Comparator<SimilarityPair> createSimilarityPairComparator(
-            java.util.function.ToIntFunction<StatementSequence> escapeCount) {
-        return (a, b) -> {
-            // Priority 0: Fewest Escapes
-            int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
-            int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
-            int escapeCompare = Integer.compare(escapesA, escapesB);
-            if (escapeCompare != 0) return escapeCompare;
-
-            // Priority 1: Full Body Match
-            boolean bodyA = isFullBody(a.seq1());
-            boolean bodyB = isFullBody(b.seq1());
-            if (bodyA != bodyB) return bodyA ? -1 : 1;
-
-            // Priority 2: Broadest Scope
-            int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
-            int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
-            int scopeCompare = Integer.compare(scopeB, scopeA);
-            if (scopeCompare != 0) return scopeCompare;
-
-            // Priority 3: Largest Size
-            int sizeCompare = Integer.compare(b.seq1().statements().size(), a.seq1().statements().size());
-            if (sizeCompare != 0) return sizeCompare;
-
-            // Priority 4: Earliest Appearance
-            return Integer.compare(a.seq1().range().startLine(), b.seq1().range().startLine());
-        };
     }
 
     private boolean noneOverlap(SimilarityPair current, List<SimilarityPair> filtered) {
@@ -568,15 +518,6 @@ public class DuplicationAnalyzer {
         // Ranges overlap if one starts before the other ends
         return range1.startLine() <= range2.endLine() &&
                 range2.startLine() <= range1.endLine();
-    }
-
-    /**
-     * Check if a sequence corresponds to the full body of its containing method/constructor.
-     */
-    private boolean isFullBody(StatementSequence seq) {
-        return seq.getCallableBody()
-                .map(body -> body.getStatements().size() == seq.statements().size())
-                .orElse(false);
     }
 
 }

@@ -4,6 +4,7 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.StatementSequenceComparator;
 import com.raditha.dedup.model.StatementSequence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,15 +22,6 @@ import java.util.Map;
 @SuppressWarnings("java:S106")
 public class RefactoringEngine {
     private static final Logger logger = LoggerFactory.getLogger(RefactoringEngine.class);
-    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
-            java.util.Comparator
-                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
-                    .thenComparingInt(StatementSequence::startOffset)
-                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
@@ -55,10 +47,17 @@ public class RefactoringEngine {
      */
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
             com.raditha.dedup.cli.VerifyMode verificationLevel) {
+        this(mode, new SafetyValidator(), new RefactoringVerifier(projectRoot, verificationLevel), new DiffGenerator());
+    }
+
+    /**
+     * Package-private constructor for unit testing.
+     */
+    RefactoringEngine(RefactoringMode mode, SafetyValidator validator, RefactoringVerifier verifier, DiffGenerator diffGenerator) {
         this.mode = mode;
-        this.validator = new SafetyValidator();
-        this.verifier = new RefactoringVerifier(projectRoot, verificationLevel);
-        this.diffGenerator = new DiffGenerator();
+        this.validator = validator;
+        this.verifier = verifier;
+        this.diffGenerator = diffGenerator;
     }
 
     /**
@@ -71,37 +70,9 @@ public class RefactoringEngine {
         System.out.println("Clusters to process: " + report.clusters().size());
         System.out.println();
 
-        // Sort clusters by importance: larger statement count first (to handle inclusion), then LOC reduction
+        // Sort clusters by importance
         List<DuplicateCluster> sortedClusters = report.clusters().stream()
-                .sorted((c1, c2) -> {
-                    // First by Strategy Priority (Parameterized Test > Helper Method)
-                    // This prevents creating unused helper methods when a parameterized test would consume the duplicates
-                    int p1 = getStrategyPriority(c1.recommendation());
-                    int p2 = getStrategyPriority(c2.recommendation());
-                    int priorityCompare = Integer.compare(p2, p1);
-                    if (priorityCompare != 0) return priorityCompare;
-
-                    // Then by LOC reduction (descending)
-                    int locCompare = Integer.compare(c2.estimatedLOCReduction(), c1.estimatedLOCReduction());
-                    if (locCompare != 0)
-                        return locCompare;
-
-                    // Then by Statement Count (descending) - Secondary to total savings
-                    // Check primary sequence size
-                    int size1 = c1.primary() != null ? c1.primary().statements().size() : 0;
-                    int size2 = c2.primary() != null ? c2.primary().statements().size() : 0;
-                    int sizeCompare = Integer.compare(size2, size1);
-                    if (sizeCompare != 0) return sizeCompare;
-
-                    // Then by similarity score (descending)
-                    double sim1 = c1.duplicates().isEmpty() ? 0 : c1.duplicates().get(0).similarity().overallScore();
-                    double sim2 = c2.duplicates().isEmpty() ? 0 : c2.duplicates().get(0).similarity().overallScore();
-                    int simCompare = Double.compare(sim2, sim1);
-                    if (simCompare != 0) {
-                        return simCompare;
-                    }
-                    return comparePrimaryLocation(c1, c2);
-                })
+                .sorted(new ClusterComparator())
                 .toList();
 
         return processClusters(sortedClusters);
@@ -115,64 +86,7 @@ public class RefactoringEngine {
         RefactoringSession session = new RefactoringSession();
 
         for (int i = 0; i < clusters.size(); i++) {
-            DuplicateCluster cluster = clusters.get(i);
-            RefactoringRecommendation recommendation = cluster.recommendation();
-            if(! canRefactor(session, recommendation, cluster))
-            {
-                continue;
-            }
-            try {
-                MethodExtractor.RefactoringResult result = applyRefactoring(cluster, recommendation);
-
-                if (mode == RefactoringMode.DRY_RUN) {
-                    // Collect diff for summary report
-                    collectDryRunDiff(recommendation, result, i + 1);
-                    System.out.println("  ✓ Dry-run: Changes not applied");
-                    session.addSkipped(cluster, "Dry-run mode");
-                    continue;
-                }
-
-                // Create backups before writing (for all modified files)
-                for (Path file : result.modifiedFiles().keySet()) {
-                    verifier.createBackup(file);
-                }
-
-                if (result.description() != null && result.description().startsWith("Skipped")) {
-                    System.out.println("  ⊘ " + result.description());
-                    session.addSkipped(cluster, result.description());
-                    verifier.clearBackups();
-                    continue;
-                }
-
-                // Write refactored code to all files
-                result.apply();
-                System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
-
-
-                // Verify compilation
-                RefactoringVerifier.VerificationResult verify = verifier.verify();
-                if (verify.isSuccess()) {
-                    System.out.println("  ✓ Verification passed");
-                    session.addSuccess(cluster, result.description());
-                    verifier.clearBackups();
-                } else {
-                    System.out.println("  ❌ Verification failed:");
-                    verify.errors().forEach(e -> System.out.println("     - " + e));
-                    // Rollback
-                    verifier.rollback();
-                    session.addFailed(cluster, String.join("; ", verify.errors()));
-                }
-            } catch (InterruptedException ie) {
-                throw ie;
-            }
-            catch (Exception t) {
-                logger.error("  ❌ Refactoring failed: {}", t.getMessage());
-                // Ensure checking if rollback is needed in case files offered partial writes
-                // (unlikely based on implementation but safe)
-                verifier.rollback();
-                session.addFailed(cluster, "Exception: " + t.getClass().getSimpleName() + ": " + t.getMessage());
-            }
-
+            processCluster(clusters.get(i), session, i);
         }
 
         // Show dry-run diff report if in dry-run mode
@@ -185,7 +99,75 @@ public class RefactoringEngine {
         return session;
     }
 
-    private static int comparePrimaryLocation(DuplicateCluster c1, DuplicateCluster c2) {
+    /**
+     * Process a single cluster.
+     */
+    private void processCluster(DuplicateCluster cluster, RefactoringSession session, int index) throws IOException, InterruptedException {
+        RefactoringRecommendation recommendation = cluster.recommendation();
+        if (!canRefactor(session, recommendation, cluster)) {
+            return;
+        }
+        try {
+            MethodExtractor.RefactoringResult result = applyRefactoring(cluster, recommendation);
+
+            if (mode == RefactoringMode.DRY_RUN) {
+                // Collect diff for summary report
+                collectDryRunDiff(recommendation, result, index + 1);
+                System.out.println("  ✓ Dry-run: Changes not applied");
+                session.addSkipped(cluster, "Dry-run mode");
+                return;
+            }
+
+            // Create backups before writing (for all modified files)
+            for (Path file : result.modifiedFiles().keySet()) {
+                verifier.createBackup(file);
+            }
+
+            if (result.description() != null && result.description().startsWith("Skipped")) {
+                System.out.println("  ⊘ " + result.description());
+                session.addSkipped(cluster, result.description());
+                verifier.clearBackups();
+                return;
+            }
+
+            // Write refactored code to all files
+            result.apply();
+            System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
+
+            // Verify compilation
+            RefactoringVerifier.VerificationResult verify = verifier.verify();
+            if (verify.isSuccess()) {
+                System.out.println("  ✓ Verification passed");
+                session.addSuccess(cluster, result.description());
+                verifier.clearBackups();
+            } else {
+                System.out.println("  ❌ Verification failed:");
+                verify.errors().forEach(e -> System.out.println("     - " + e));
+                // Rollback
+                verifier.rollback();
+                session.addFailed(cluster, String.join("; ", verify.errors()));
+            }
+        } catch (InterruptedException ie) {
+            throw ie;
+        } catch (Exception t) {
+            logger.error("  ❌ Refactoring failed: {}", t.getMessage());
+            // Ensure checking if rollback is needed in case files offered partial writes
+            // (unlikely based on implementation but safe)
+            verifier.rollback();
+            session.addFailed(cluster, "Exception: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+        }
+    }
+
+    static int comparePrimaryLocation(DuplicateCluster c1, DuplicateCluster c2) {
+        if (c1 == null && c2 == null) {
+            return 0;
+        }
+        if (c1 == null) {
+            return 1;
+        }
+        if (c2 == null) {
+            return -1;
+        }
         StatementSequence s1 = c1.primary();
         StatementSequence s2 = c2.primary();
         if (s1 == null && s2 == null) {
@@ -197,10 +179,10 @@ public class RefactoringEngine {
         if (s2 == null) {
             return -1;
         }
-        return SEQ_ORDER.compare(s1, s2);
+        return StatementSequenceComparator.INSTANCE.compare(s1, s2);
     }
 
-    private boolean canRefactor(RefactoringSession session , RefactoringRecommendation recommendation, DuplicateCluster cluster) {
+    boolean canRefactor(RefactoringSession session , RefactoringRecommendation recommendation, DuplicateCluster cluster) {
 
         if (recommendation == null) {
             session.addSkipped(cluster, "No recommendation generated");
@@ -243,7 +225,7 @@ public class RefactoringEngine {
     /**
      * Apply the refactoring for a given cluster.
      */
-    private MethodExtractor.RefactoringResult applyRefactoring(
+    MethodExtractor.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD -> {
@@ -276,7 +258,7 @@ public class RefactoringEngine {
     /**
      * Show diff and ask user for confirmation (interactive mode).
      */
-    private boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
+    boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         System.out.println("%n  === PROPOSED REFACTORING ===");
         System.out.println("  Strategy: " + recommendation.getStrategy());
         System.out.println("  Method: " + recommendation.generateMethodSignature());
@@ -318,7 +300,7 @@ public class RefactoringEngine {
     /**
      * Collect diff for dry-run summary report.
      */
-    private void collectDryRunDiff(RefactoringRecommendation recommendation,
+    void collectDryRunDiff(RefactoringRecommendation recommendation,
                                    MethodExtractor.RefactoringResult result, int clusterNum) {
         try {
             StringBuilder entry = new StringBuilder();
@@ -344,7 +326,7 @@ public class RefactoringEngine {
     /**
      * Print dry-run summary report with all diffs.
      */
-    private void printDryRunReport() {
+    void printDryRunReport() {
         System.out.println("%n" + "=".repeat(80));
         System.out.println("DRY-RUN SUMMARY REPORT");
         System.out.println("=".repeat(80));
@@ -462,7 +444,7 @@ public class RefactoringEngine {
         public String error() { return message; }
     }
 
-    private int getStrategyPriority(RefactoringRecommendation recommendation) {
+    static int getStrategyPriority(RefactoringRecommendation recommendation) {
         if (recommendation == null) return 0;
         return switch (recommendation.getStrategy()) {
             case EXTRACT_TO_PARAMETERIZED_TEST -> 100;
@@ -471,5 +453,43 @@ public class RefactoringEngine {
             case EXTRACT_HELPER_METHOD -> 50;
             default -> 0;
         };
+    }
+
+    /**
+     * Comparator for selecting the most beneficial clusters first.
+     */
+    private static class ClusterComparator implements java.util.Comparator<DuplicateCluster> {
+        @Override
+        public int compare(DuplicateCluster c1, DuplicateCluster c2) {
+            // First by Strategy Priority (Parameterized Test > Helper Method)
+            // This prevents creating unused helper methods when a parameterized test would consume the duplicates
+            int p1 = getStrategyPriority(c1.recommendation());
+            int p2 = getStrategyPriority(c2.recommendation());
+            int priorityCompare = Integer.compare(p2, p1);
+            if (priorityCompare != 0)
+                return priorityCompare;
+
+            // Then by LOC reduction (descending)
+            int locCompare = Integer.compare(c2.estimatedLOCReduction(), c1.estimatedLOCReduction());
+            if (locCompare != 0)
+                return locCompare;
+
+            // Then by Statement Count (descending) - Secondary to total savings
+            // Check primary sequence size
+            int size1 = c1.primary() != null ? c1.primary().statements().size() : 0;
+            int size2 = c2.primary() != null ? c2.primary().statements().size() : 0;
+            int sizeCompare = Integer.compare(size2, size1);
+            if (sizeCompare != 0)
+                return sizeCompare;
+
+            // Then by similarity score (descending)
+            double sim1 = c1.duplicates().isEmpty() ? 0 : c1.duplicates().get(0).similarity().overallScore();
+            double sim2 = c2.duplicates().isEmpty() ? 0 : c2.duplicates().get(0).similarity().overallScore();
+            int simCompare = Double.compare(sim2, sim1);
+            if (simCompare != 0) {
+                return simCompare;
+            }
+            return comparePrimaryLocation(c1, c2);
+        }
     }
 }

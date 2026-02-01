@@ -4,7 +4,6 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
-import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.StatementSequence;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class ClusteringOptimizationVerificationTest {
 
     private ReturnTypeResolver returnTypeResolver;
-    private ParameterResolver parameterResolver;
 
     @BeforeAll
     static void setupClass() throws java.io.IOException {
@@ -37,7 +35,6 @@ class ClusteringOptimizationVerificationTest {
     @BeforeEach
     void setUp() {
         returnTypeResolver = new ReturnTypeResolver(Collections.emptyMap());
-        parameterResolver = new ParameterResolver(Collections.emptyMap());
     }
 
     @Test
@@ -58,10 +55,10 @@ class ClusteringOptimizationVerificationTest {
         List<Statement> stmts = method.getBody().get().getStatements();
         StatementSequence sequence = new StatementSequence(stmts, null, 0, method, cu, Paths.get("Test.java"));
 
-        assertEquals("double", returnTypeResolver.findTypeInContext(sequence, "local"));
-        assertEquals("int", returnTypeResolver.findTypeInContext(sequence, "param"));
-        assertEquals("String", returnTypeResolver.findTypeInContext(sequence, "field"));
-        assertEquals("boolean", returnTypeResolver.findTypeInContext(sequence, "inLambda"));
+        assertEquals("double", returnTypeResolver.findTypeInContext(sequence, "local").asString());
+        assertEquals("int", returnTypeResolver.findTypeInContext(sequence, "param").asString());
+        assertEquals("String", returnTypeResolver.findTypeInContext(sequence, "field").asString());
+        assertEquals("boolean", returnTypeResolver.findTypeInContext(sequence, "inLambda").asString());
     }
 
     @Test
@@ -94,6 +91,6 @@ class ClusteringOptimizationVerificationTest {
         StatementSequence sequence2 = new StatementSequence(method2.getBody().get().getStatements(), null, 0, method2, cu2, Paths.get("Test.java"));
         
         // findTypeInContext should handle 'var' by looking at initializer
-        assertEquals("String", returnTypeResolver.findTypeInContext(sequence2, "x"));
+        assertEquals("String", returnTypeResolver.findTypeInContext(sequence2, "x").asString());
     }
 }
