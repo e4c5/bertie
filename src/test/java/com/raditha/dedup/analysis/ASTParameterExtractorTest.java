@@ -55,7 +55,8 @@ class ASTParameterExtractorTest {
 
         // Should have created parameter for string literal
         assertTrue(plan.parameters().stream()
-                .anyMatch(p -> p.getExampleValues().contains("\"Alice\"")));
+                .anyMatch(p -> p.getExampleValues().stream()
+                        .anyMatch(e -> e.isStringLiteralExpr() && e.asStringLiteralExpr().getValue().equals("Alice"))));
     }
 
     @Test
@@ -127,6 +128,7 @@ class ASTParameterExtractorTest {
 
         // Should have parameter for varying literal
         assertTrue(plan.parameters().stream()
-                .anyMatch(p -> p.getExampleValues().contains("\"Alice\"")));
+                .anyMatch(p -> p.getExampleValues().stream()
+                        .anyMatch(e -> e.isStringLiteralExpr() && e.asStringLiteralExpr().getValue().equals("Alice"))));
     }
 }
