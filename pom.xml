@@ -31,6 +31,12 @@
          <version>${antikythera.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- Picocli for command-line parsing -->
         <dependency>
             <groupId>info.picocli</groupId>
