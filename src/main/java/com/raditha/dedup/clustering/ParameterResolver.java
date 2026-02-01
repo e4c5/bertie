@@ -96,11 +96,8 @@ public class ParameterResolver {
                  cluster.primary().sourceFilePath());
         }
 
-
-
         DataFlowAnalyzer.SequenceAnalysis primaryAnalysis = dataFlowAnalyzer.analyzeSequenceVariables(effectiveSequence);
 
-        
         ExtractionPlan extractionPlan = extractor.extractParameters(analysis);
         List<ParameterSpec> parameters = new ArrayList<>(extractionPlan.parameters());
 
@@ -118,12 +115,8 @@ public class ParameterResolver {
         parameters.addAll(capturedParams);
 
         parameters = filterInternalParameters(parameters, cluster, primaryAnalysis);
-        
 
-
-        parameters = refineParameterTypes(parameters, cluster);
-
-        return parameters;
+        return refineParameterTypes(parameters, cluster);
     }
 
     private void addArgumentsAsParameters(ExtractionPlan extractionPlan, List<ParameterSpec> parameters) {

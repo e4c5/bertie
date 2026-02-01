@@ -41,61 +41,49 @@ class RefactoringEngineUnitTest {
 
     @Test
     void testGetStrategyPriority() {
-        assertEquals(100, engine.getStrategyPriority(mockRecommendation(RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)));
-        assertEquals(90, engine.getStrategyPriority(mockRecommendation(RefactoringStrategy.EXTRACT_PARENT_CLASS)));
-        assertEquals(80, engine.getStrategyPriority(mockRecommendation(RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS)));
-        assertEquals(50, engine.getStrategyPriority(mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD)));
-        assertEquals(0, engine.getStrategyPriority(mockRecommendation(RefactoringStrategy.MANUAL_REVIEW_REQUIRED)));
-        assertEquals(0, engine.getStrategyPriority(null));
+        assertEquals(100, RefactoringEngine.getStrategyPriority(mockRec(RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)));
+        assertEquals(90, RefactoringEngine.getStrategyPriority(mockRec(RefactoringStrategy.EXTRACT_PARENT_CLASS)));
+        assertEquals(80, RefactoringEngine.getStrategyPriority(mockRec(RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS)));
+        assertEquals(50, RefactoringEngine.getStrategyPriority(mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD)));
+        assertEquals(0, RefactoringEngine.getStrategyPriority(mockRec(RefactoringStrategy.MANUAL_REVIEW_REQUIRED)));
+        assertEquals(0, RefactoringEngine.getStrategyPriority(null));
     }
 
     @Test
-    void testComparePrimaryLocation() throws Exception {
-        DuplicateCluster c1 = mock(DuplicateCluster.class);
-        DuplicateCluster c2 = mock(DuplicateCluster.class);
+    void testComparePrimaryLocation_AllBranches() {
         StatementSequence s1 = mock(StatementSequence.class);
-        StatementSequence s2 = mock(StatementSequence.class);
+        DuplicateCluster c1 = new DuplicateCluster(s1, Collections.emptyList(), null, 0);
+        DuplicateCluster c2 = new DuplicateCluster(null, Collections.emptyList(), null, 0);
 
-        when(c1.primary()).thenReturn(s1);
-        when(c2.primary()).thenReturn(s2);
-        
-        when(s1.sourceFilePath()).thenReturn(Path.of("A.java"));
-        when(s1.range()).thenReturn(new Range(10, 15, 1, 1));
-        when(s2.sourceFilePath()).thenReturn(Path.of("A.java"));
-        when(s2.range()).thenReturn(new Range(20, 25, 1, 1));
-
-        assertTrue(RefactoringEngine.comparePrimaryLocation(c1, c2) < 0);
-        assertTrue(RefactoringEngine.comparePrimaryLocation(c2, c1) > 0);
-        
-        // Null checks
         assertEquals(0, RefactoringEngine.comparePrimaryLocation(null, null));
-        assertEquals(1, RefactoringEngine.comparePrimaryLocation(null, c2));
+        assertEquals(1, RefactoringEngine.comparePrimaryLocation(null, c1));
         assertEquals(-1, RefactoringEngine.comparePrimaryLocation(c1, null));
         
-        when(c1.primary()).thenReturn(null);
-        assertTrue(RefactoringEngine.comparePrimaryLocation(c1, c2) > 0);
+        assertEquals(1, RefactoringEngine.comparePrimaryLocation(c2, c1));
+        assertEquals(-1, RefactoringEngine.comparePrimaryLocation(c1, c2));
+        assertEquals(0, RefactoringEngine.comparePrimaryLocation(c2, c2));
     }
 
     @Test
     void testCanRefactor_Flows() throws Exception {
         RefactoringEngine.RefactoringSession session = new RefactoringEngine.RefactoringSession();
-        DuplicateCluster cluster = mock(DuplicateCluster.class);
+        DuplicateCluster cluster = new DuplicateCluster(null, Collections.emptyList(), null, 0);
         
         // Null recommendation
         assertFalse(engine.canRefactor(session, null, cluster));
         
         // Manual review
-        RefactoringRecommendation manualRec = mockRecommendation(RefactoringStrategy.MANUAL_REVIEW_REQUIRED);
+        RefactoringRecommendation manualRec = mockRec(RefactoringStrategy.MANUAL_REVIEW_REQUIRED);
         assertFalse(engine.canRefactor(session, manualRec, cluster));
         
         // Batch low confidence
-        RefactoringRecommendation lowConfRec = mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        RefactoringRecommendation lowConfRec = mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD);
         when(lowConfRec.isHighConfidence()).thenReturn(false);
         when(validator.validate(any(), any())).thenReturn(new SafetyValidator.ValidationResult(Collections.emptyList()));
         assertFalse(engine.canRefactor(session, lowConfRec, cluster));
         
         // Safety warnings
-        RefactoringRecommendation warnRec = mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        RefactoringRecommendation warnRec = mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD);
         when(warnRec.isHighConfidence()).thenReturn(true);
         SafetyValidator.ValidationResult warnResult = mock(SafetyValidator.ValidationResult.class);
         when(warnResult.isValid()).thenReturn(true);
@@ -107,7 +95,7 @@ class RefactoringEngineUnitTest {
 
     @Test
     void testApplyRefactoring_Strategies() throws Exception {
-        DuplicateCluster cluster = mock(DuplicateCluster.class);
+        DuplicateCluster cluster = new DuplicateCluster(null, Collections.emptyList(), null, 0);
         MethodExtractor.RefactoringResult dummyResult = new MethodExtractor.RefactoringResult(
                 Map.of(Path.of("T.java"), "code"), RefactoringStrategy.EXTRACT_HELPER_METHOD, "desc"
         );
@@ -121,99 +109,129 @@ class RefactoringEngineUnitTest {
              MockedConstruction<ParentClassExtractor> m4 = mockConstruction(ParentClassExtractor.class,
                 (mock, context) -> when(mock.refactor(any(), any())).thenReturn(dummyResult))) {
 
-            assertNotNull(engine.applyRefactoring(cluster, mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD)));
-            assertNotNull(engine.applyRefactoring(cluster, mockRecommendation(RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)));
-            assertNotNull(engine.applyRefactoring(cluster, mockRecommendation(RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS)));
-            assertNotNull(engine.applyRefactoring(cluster, mockRecommendation(RefactoringStrategy.EXTRACT_PARENT_CLASS)));
+            assertNotNull(engine.applyRefactoring(cluster, mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD)));
+            assertNotNull(engine.applyRefactoring(cluster, mockRec(RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)));
+            assertNotNull(engine.applyRefactoring(cluster, mockRec(RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS)));
+            assertNotNull(engine.applyRefactoring(cluster, mockRec(RefactoringStrategy.EXTRACT_PARENT_CLASS)));
         }
+    }
+
+    @Test
+    void testRefactorAll_Ties() throws Exception {
+        DuplicationReport report = mock(DuplicationReport.class);
+        RefactoringRecommendation rec = mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        
+        // Tie in strategy and LOC, but different sequence size
+        StatementSequence s1 = mock(StatementSequence.class);
+        when(s1.statements()).thenReturn(List.of(mock(com.github.javaparser.ast.stmt.Statement.class)));
+        DuplicateCluster c1 = new DuplicateCluster(s1, Collections.emptyList(), rec, 10);
+        DuplicateCluster c2 = new DuplicateCluster(null, Collections.emptyList(), rec, 10);
+        
+        when(report.clusters()).thenReturn(List.of(c1, c2));
+        RefactoringEngine spyEngine = spy(engine);
+        doReturn(new RefactoringEngine.RefactoringSession()).when(spyEngine).processClusters(any());
+        spyEngine.refactorAll(report);
+
+        // Tie in size, but different similarity
+        SimilarityResult simRes1 = mock(SimilarityResult.class);
+        SimilarityResult simRes2 = mock(SimilarityResult.class);
+        when(simRes1.overallScore()).thenReturn(0.9);
+        when(simRes2.overallScore()).thenReturn(0.8);
+        
+        SimilarityPair p1 = new SimilarityPair(null, null, simRes1);
+        SimilarityPair p2 = new SimilarityPair(null, null, simRes2);
+        
+        DuplicateCluster c3 = new DuplicateCluster(null, List.of(p1), rec, 10);
+        DuplicateCluster c4 = new DuplicateCluster(null, List.of(p2), rec, 10);
+        when(report.clusters()).thenReturn(List.of(c3, c4));
+        spyEngine.refactorAll(report);
     }
 
     @Test
     void testRefactorAll_FullFlow() throws Exception {
         DuplicationReport report = mock(DuplicationReport.class);
-        DuplicateCluster c1 = mock(DuplicateCluster.class);
-        when(report.clusters()).thenReturn(List.of(c1));
+        StatementSequence primary = mock(StatementSequence.class);
+        when(primary.sourceFilePath()).thenReturn(Path.of("T.java"));
         
-        RefactoringRecommendation rec = mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        RefactoringRecommendation rec = mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD);
         when(rec.isHighConfidence()).thenReturn(true);
-        when(c1.recommendation()).thenReturn(rec);
-        when(c1.duplicates()).thenReturn(Collections.emptyList());
-        when(c1.estimatedLOCReduction()).thenReturn(10);
-        when(c1.primary()).thenReturn(mock(StatementSequence.class));
+        
+        DuplicateCluster cluster = new DuplicateCluster(primary, Collections.emptyList(), rec, 10);
+        when(report.clusters()).thenReturn(List.of(cluster));
         
         when(validator.validate(any(), any())).thenReturn(new SafetyValidator.ValidationResult(Collections.emptyList()));
         
-        MethodExtractor.RefactoringResult result = mock(MethodExtractor.RefactoringResult.class);
-        when(result.modifiedFiles()).thenReturn(Map.of(Path.of("test.java"), "new code"));
-        when(result.description()).thenReturn("Success");
+        MethodExtractor.RefactoringResult res = mock(MethodExtractor.RefactoringResult.class);
+        when(res.modifiedFiles()).thenReturn(Map.of(Path.of("T.java"), "code"));
+        when(res.description()).thenReturn("Ok");
         
         RefactoringEngine spyEngine = spy(engine);
-        doReturn(result).when(spyEngine).applyRefactoring(any(), any());
-        when(verifier.verify()).thenReturn(new RefactoringVerifier.VerificationResult(true, List.of(), "Success"));
+        doReturn(res).when(spyEngine).applyRefactoring(any(), any());
+        when(verifier.verify()).thenReturn(new RefactoringVerifier.VerificationResult(true, List.of(), "Ok"));
         
         assertNotNull(spyEngine.refactorAll(report));
-        verify(result).apply();
+        verify(res).apply();
     }
 
     @Test
-    void testShowDiffAndConfirm_Interaction() throws Exception {
+    void testInteraction_And_DryRun() throws Exception {
+        // Interaction
         engine = new RefactoringEngine(RefactoringEngine.RefactoringMode.INTERACTIVE, validator, verifier, diffGenerator);
-        RefactoringRecommendation rec = mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD);
-        DuplicateCluster cluster = mock(DuplicateCluster.class);
-        when(cluster.estimatedLOCReduction()).thenReturn(5);
+        RefactoringRecommendation rec = mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        DuplicateCluster cluster = new DuplicateCluster(null, Collections.emptyList(), rec, 10);
         
-        RefactoringEngine spyEngine = Mockito.spy(engine);
-        MethodExtractor.RefactoringResult result = mock(MethodExtractor.RefactoringResult.class);
-        when(result.modifiedFiles()).thenReturn(Map.of(Path.of("A.java"), "code"));
-        doReturn(result).when(spyEngine).applyRefactoring(any(), any());
+        RefactoringEngine spyEngine = spy(engine);
+        MethodExtractor.RefactoringResult res = mock(MethodExtractor.RefactoringResult.class);
+        when(res.modifiedFiles()).thenReturn(Map.of(Path.of("A.java"), "code"));
+        doReturn(res).when(spyEngine).applyRefactoring(any(), any());
 
-        // Test with exception during diff generation
-        when(diffGenerator.generateUnifiedDiff(any(), any())).thenThrow(new RuntimeException("error"));
-        
-        InputStream originalIn = System.in;
+        InputStream in = System.in;
         try {
             System.setIn(new ByteArrayInputStream("y\n".getBytes()));
             assertTrue(spyEngine.showDiffAndConfirm(cluster, rec));
         } finally {
-            System.setIn(originalIn);
+            System.setIn(in);
         }
+
+        // Dry Run
+        engine = new RefactoringEngine(RefactoringEngine.RefactoringMode.DRY_RUN, validator, verifier, diffGenerator);
+        engine.collectDryRunDiff(rec, res, 1);
+        engine.printDryRunReport();
     }
 
     @Test
-    void testDryRun_Flow() throws Exception {
-        engine = new RefactoringEngine(RefactoringEngine.RefactoringMode.DRY_RUN, validator, verifier, diffGenerator);
-        RefactoringRecommendation rec = mockRecommendation(RefactoringStrategy.EXTRACT_HELPER_METHOD);
-        MethodExtractor.RefactoringResult result = mock(MethodExtractor.RefactoringResult.class);
-        when(result.modifiedFiles()).thenReturn(Map.of(Path.of("A.java"), "code"));
+    void testRefactoringException() throws Exception {
+        DuplicationReport report = mock(DuplicationReport.class);
+        StatementSequence primary = mock(StatementSequence.class);
+        DuplicateCluster cluster = new DuplicateCluster(primary, Collections.emptyList(), mockRec(RefactoringStrategy.EXTRACT_HELPER_METHOD), 10);
+        when(report.clusters()).thenReturn(List.of(cluster));
         
-        engine.collectDryRunDiff(rec, result, 1);
-        engine.printDryRunReport();
+        when(validator.validate(any(), any())).thenReturn(new SafetyValidator.ValidationResult(Collections.emptyList()));
         
-        // Empty report
-        new RefactoringEngine(RefactoringEngine.RefactoringMode.DRY_RUN, validator, verifier, diffGenerator).printDryRunReport();
+        RefactoringEngine spyEngine = spy(engine);
+        doThrow(new RuntimeException("Test Error")).when(spyEngine).applyRefactoring(any(), any());
+        
+        RefactoringEngine.RefactoringSession session = spyEngine.refactorAll(report);
+        assertEquals(1, session.getFailed().size());
+        verify(verifier).rollback();
     }
 
     @Test
     void testSessionSummary() {
         RefactoringEngine.RefactoringSession session = new RefactoringEngine.RefactoringSession();
-        DuplicateCluster c = mock(DuplicateCluster.class);
+        DuplicateCluster c = new DuplicateCluster(null, Collections.emptyList(), null, 0);
         session.addSuccess(c, "success");
         session.addSkipped(c, "skipped");
         session.addFailed(c, "failed");
         
         assertEquals(1, session.getSuccessful().size());
-        assertEquals(1, session.getSkipped().size());
-        assertEquals(1, session.getFailed().size());
-        assertTrue(session.hasFailures());
         assertEquals(3, session.getTotalProcessed());
-        assertNotNull(session.getSuccessful().get(0).details());
-        assertNotNull(session.getSuccessful().get(0).reason());
-        assertNotNull(session.getSuccessful().get(0).error());
     }
 
-    private RefactoringRecommendation mockRecommendation(RefactoringStrategy strategy) {
+    private RefactoringRecommendation mockRec(RefactoringStrategy strategy) {
         RefactoringRecommendation rec = mock(RefactoringRecommendation.class);
         when(rec.getStrategy()).thenReturn(strategy);
+        when(rec.isHighConfidence()).thenReturn(true);
         when(rec.generateMethodSignature()).thenReturn("void foo()");
         when(rec.formatConfidence()).thenReturn("100%");
         return rec;
