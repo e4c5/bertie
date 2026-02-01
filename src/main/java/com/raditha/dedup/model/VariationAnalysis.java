@@ -159,17 +159,7 @@ public class VariationAnalysis {
             return this;
         }
 
-
-         /**
-          * Sets whether there are control flow differences between the sequences.
-          *
-          * @param hasControlFlowDifferences true if control flow differs, false otherwise
-          * @return this builder for chaining
-          */
-         public Builder hasControlFlowDifferences(boolean hasControlFlowDifferences) {
-             this.hasControlFlowDifferences = hasControlFlowDifferences;
-             return this;
-         }
+        /**
          * Sets the expression bindings.
          */
         public Builder exprBindings(Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
