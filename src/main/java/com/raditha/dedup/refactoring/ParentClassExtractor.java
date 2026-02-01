@@ -294,7 +294,9 @@ public class ParentClassExtractor extends AbstractExtractor {
         } else if (originalMethod instanceof ConstructorDeclaration cd) {
             newMethod = new MethodDeclaration();
             newMethod.setName(recommendation.getSuggestedMethodName());
-            newMethod.setParameters(new NodeList<>(cd.getParameters()));
+            NodeList<com.github.javaparser.ast.body.Parameter> clonedParams = new NodeList<>();
+            cd.getParameters().forEach(p -> clonedParams.add(p.clone()));
+            newMethod.setParameters(clonedParams);
             newMethod.setBody(cd.getBody().clone());
             newMethod.setType("void");
         }
