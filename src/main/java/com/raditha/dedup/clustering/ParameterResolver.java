@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
@@ -115,7 +116,7 @@ public class ParameterResolver extends AbstractResolver {
                 parameters.add(new ParameterSpec(
                         arg.name(),
                         paramType,
-                        List.of(arg.name()),
+                        List.of(new NameExpr(arg.name())),
                         -1,
                         null, null
                 ));
@@ -146,7 +147,7 @@ public class ParameterResolver extends AbstractResolver {
                 Type type = findTypeInContext(sequence, varName);
                 if (!type.isVoidType()) {
                     capturedParams.add(new ParameterSpec(varName, type,
-                            List.of(varName), null, null, null));
+                            List.of(new NameExpr(varName)), null, null, null));
                 }
             }
         }
@@ -181,7 +182,7 @@ public class ParameterResolver extends AbstractResolver {
         if (fi != null) {
             if (!containingMethodIsStatic && fi.isStatic) {
                 capturedParams.add(new ParameterSpec(varName, fi.type,
-                        List.of(varName), null, null, null));
+                        List.of(new NameExpr(varName)), null, null, null));
             }
             return true;
         }
@@ -236,8 +237,8 @@ public class ParameterResolver extends AbstractResolver {
             return true;
         }
 
-        for (String val : p.getExampleValues()) {
-            if (isInternalValue(val, defined, cluster, cu)) {
+        for (Expression val : p.getExampleValues()) {
+            if (isInternalValue(val.toString(), defined, cluster, cu)) {
                 return true;
             }
         }
@@ -338,12 +339,21 @@ public class ParameterResolver extends AbstractResolver {
 
     private ParameterSpec refineSingleParameter(ParameterSpec p, DuplicateCluster cluster) {
         if (OBJECT.equals(p.getType().asString()) && !p.getExampleValues().isEmpty()) {
-            String val = p.getExampleValues().get(0);
+            Expression valExpr = p.getExampleValues().get(0);
             Type inferred = null;
-            try {
-                inferred = findTypeInContext(cluster.primary(), val);
-            } catch (Exception e) {
-                // ignore
+
+            if (valExpr.isLiteralExpr()) {
+                inferred = inferTypeFromExpression(valExpr);
+            } else {
+                String val = valExpr.toString();
+                if (valExpr.isNameExpr()) {
+                    val = valExpr.asNameExpr().getNameAsString();
+                }
+                try {
+                    inferred = findTypeInContext(cluster.primary(), val);
+                } catch (Exception e) {
+                    // ignore
+                }
             }
 
             if (inferred != null && !inferred.asString().equals(OBJECT)) {

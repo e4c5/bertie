@@ -37,9 +37,9 @@ public class ASTParameterExtractor {
             Type type = convertToJavaParserType(variation.type());
 
             // Get example values
-            List<String> examples = List.of(
-                    variation.expr1().toString(),
-                    variation.expr2().toString());
+            List<Expression> examples = List.of(
+                    variation.expr1().clone(),
+                    variation.expr2().clone());
 
             // Get location if available
             Integer line = variation.expr1().getRange().map(r -> r.begin.line).orElse(null);

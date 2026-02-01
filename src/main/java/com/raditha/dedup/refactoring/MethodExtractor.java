@@ -1013,13 +1013,11 @@ public class MethodExtractor extends AbstractExtractor {
         }
         if (varName == null) {
             List<String> typedCandidates = new ArrayList<>();
+            com.github.javaparser.ast.type.Type suggestedType = recommendation.getSuggestedReturnType();
             for (Statement stmt : sequence.statements()) {
                 stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
                     vde.getVariables().forEach(v -> {
-                        if (v.getType().asString()
-                                .equals(recommendation.getSuggestedReturnType() != null
-                                        ? recommendation.getSuggestedReturnType().asString()
-                                        : "")) {
+                        if (suggestedType != null && v.getType().equals(suggestedType)) {
                             typedCandidates.add(v.getNameAsString());
                         }
                     });
@@ -1529,9 +1527,9 @@ public class MethodExtractor extends AbstractExtractor {
             }
 
             if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
+                Expression exampleValue = param.getExampleValues().getFirst();
                 for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
+                    if (expr.equals(exampleValue) && expr.getParentNode().isPresent()) {
                         expr.replace(new NameExpr(paramName));
                         break;
                     }
@@ -1562,9 +1560,9 @@ public class MethodExtractor extends AbstractExtractor {
             // the node isn't in this statement (which is fine).
             // We should NOT fallback to value replacement in that case, as it risks replacing invariants.
             if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
+                Expression exampleValue = param.getExampleValues().getFirst();
                 for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
+                    if (expr.equals(exampleValue) && expr.getParentNode().isPresent()) {
                         expr.replace(new NameExpr(paramName));
                         break; // Replace first occurrence only to avoid over-substitution
                     }
@@ -1610,10 +1608,10 @@ public class MethodExtractor extends AbstractExtractor {
             MethodDeclaration newHelper, Set<MethodDeclaration> excludedMethods) {
         boolean newIsStatic = newHelper.getModifiers().stream()
                 .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-        String newReturnType = newHelper.getType().asString();
-        List<String> newParamTypes = new java.util.ArrayList<>();
+        com.github.javaparser.ast.type.Type newReturnType = newHelper.getType();
+        List<com.github.javaparser.ast.type.Type> newParamTypes = new java.util.ArrayList<>();
         for (Parameter p : newHelper.getParameters()) {
-            newParamTypes.add(p.getType().asString());
+            newParamTypes.add(p.getType());
         }
         String newBodyNorm = normalizeMethodBody(newHelper);
 
@@ -1628,7 +1626,7 @@ public class MethodExtractor extends AbstractExtractor {
                     .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
             if (candIsStatic != newIsStatic)
                 continue;
-            if (!candidate.getType().asString().equals(newReturnType))
+            if (!candidate.getType().equals(newReturnType))
                 continue;
             if (candidate.getParameters().size() != newParamTypes.size())
                 continue;
@@ -1651,10 +1649,10 @@ public class MethodExtractor extends AbstractExtractor {
         return null;
     }
 
-    private static boolean isParamsMatch(MethodDeclaration candidate, List<String> newParamTypes) {
+    private static boolean isParamsMatch(MethodDeclaration candidate, List<com.github.javaparser.ast.type.Type> newParamTypes) {
         boolean paramsMatch = true;
         for (int i = 0; i < candidate.getParameters().size(); i++) {
-            String ct = candidate.getParameter(i).getType().asString();
+            com.github.javaparser.ast.type.Type ct = candidate.getParameter(i).getType();
             if (!ct.equals(newParamTypes.get(i))) {
                 paramsMatch = false;
                 break;

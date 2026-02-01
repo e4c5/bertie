@@ -15,23 +15,22 @@ import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 public class ParameterSpec {
     private final String name;
     private final com.github.javaparser.ast.type.Type type;
-    private final List<String> exampleValues;
+    private final List<Expression> exampleValues;
     private final Integer variationIndex;
     private final Integer startLine;
     private final Integer startColumn;
-    private List<Expression> parsedExamples;
 
     /**
      * Creates a new parameter specification.
      *
      * @param name           Parameter name
      * @param type           Parameter type
-     * @param exampleValues  List of example values (as strings)
+     * @param exampleValues  List of example values (as Expressions)
      * @param variationIndex Index of the variation this maps to (optional)
      * @param startLine      Start line of the original expression
      * @param startColumn    Start column of the original expression
      */
-    public ParameterSpec(String name, com.github.javaparser.ast.type.Type type, List<String> exampleValues,
+    public ParameterSpec(String name, com.github.javaparser.ast.type.Type type, List<Expression> exampleValues,
             Integer variationIndex, Integer startLine, Integer startColumn) {
         this.name = name;
         this.type = type;
@@ -71,7 +70,7 @@ public class ParameterSpec {
      *
      * @return list of example values
      */
-    public List<String> getExampleValues() {
+    public List<Expression> getExampleValues() {
         return exampleValues;
     }
 
@@ -123,7 +122,7 @@ public class ParameterSpec {
             return false;
 
         // 1. Check against examples using AST equality (structural match)
-        for (Expression example : getParsedExamples()) {
+        for (Expression example : exampleValues) {
             if (example.equals(expr)) {
                 return true;
             }
@@ -140,21 +139,5 @@ public class ParameterSpec {
         }
 
         return false;
-    }
-
-    private synchronized List<Expression> getParsedExamples() {
-        if (parsedExamples == null) {
-            parsedExamples = new ArrayList<>();
-            if (exampleValues != null) {
-                for (String ex : exampleValues) {
-                    try {
-                        parsedExamples.add(StaticJavaParser.parseExpression(ex));
-                    } catch (Exception e) {
-                        // ignore unparseable examples
-                    }
-                }
-            }
-        }
-        return parsedExamples;
     }
 }
