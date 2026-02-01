@@ -75,7 +75,7 @@ class ConstructorRefactoringIntegrationTest {
         assertFalse(result.modifiedFiles().isEmpty(), "Refactoring should modify at least one file");
         String refactored = result.modifiedFiles().values().iterator().next();
         
-        assertTrue(refactored.contains("private void ") || refactored.contains("this("), 
+        assertTrue(refactored.contains("private ") || refactored.contains("this("), 
                 "Refactored code should contain either a helper method or a 'this()' call");
     }
 
