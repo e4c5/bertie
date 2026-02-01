@@ -413,10 +413,6 @@ public class DuplicationAnalyzer {
                 nodes2,
                 DuplicationDetectorSettings.getWeights());
 
-        if (similarity.overallScore() > 0.5) {
-            System.out.println("DEBUG: analyzePair " + norm1.sequence().getMethodName() + ":" + size1 + " vs " + norm2.sequence().getMethodName() + ":" + size2 + " score=" + similarity.overallScore());
-        }
-
         return new SimilarityPair(norm1.sequence(), norm2.sequence(), similarity);
     }
 

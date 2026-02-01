@@ -91,7 +91,13 @@ public class ParentClassExtractor extends AbstractExtractor {
             CompilationUnit parentCu = createParentClass(callableToExtract);
             String parentFqn = packageName.isEmpty() ? parentClassName : packageName + "." + parentClassName;
             AntikytheraRunTime.addCompilationUnit(parentFqn, parentCu);
-            findPrimaryClass(parentCu).ifPresent(parentClass -> {
+            
+            // Register the type wrapper so AbstractCompiler can find it
+             findPrimaryClass(parentCu).ifPresent(parentClass -> {
+                sa.com.cloudsolutions.antikythera.generator.TypeWrapper wrapper = 
+                    new sa.com.cloudsolutions.antikythera.generator.TypeWrapper(parentClass);
+                AntikytheraRunTime.addType(parentFqn, wrapper);
+                
                 addFieldsToParent(parentClass, primaryCu);
                 Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
                 modifiedFiles.put(parentPath, parentCu.toString());
