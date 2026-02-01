@@ -17,6 +17,9 @@ public class RefactoringConfidenceCalculator {
     private final DataFlowAnalyzer dataFlowAnalyzer;
     private final SequenceTruncator truncator;
 
+    /**
+     * Creates a new confidence calculator with default analyzers.
+     */
     public RefactoringConfidenceCalculator() {
         this.dataFlowAnalyzer = new DataFlowAnalyzer();
         this.truncator = new SequenceTruncator();

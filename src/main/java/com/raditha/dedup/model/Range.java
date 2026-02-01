@@ -53,6 +53,9 @@ public record Range(
         return "L" + startLine + "-" + endLine;
     }
 
+    /**
+     * Returns string representation.
+     */
     @Override
     public String toString() {
         return toDisplayString();

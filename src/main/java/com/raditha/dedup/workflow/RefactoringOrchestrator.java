@@ -28,6 +28,12 @@ public class RefactoringOrchestrator {
 
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RefactoringOrchestrator.class);
 
+    /**
+     * Creates a new orchestrator.
+     *
+     * @param analyzer the duplication analyzer for workflows
+     * @param engine   the refactoring engine for workflows
+     */
     public RefactoringOrchestrator(DuplicationAnalyzer analyzer, RefactoringEngine engine) {
         this.workflowFactory = new WorkflowFactory(analyzer, engine);
     }

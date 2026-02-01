@@ -15,6 +15,10 @@ public record SimilarityWeights(
         double structuralWeight) {
     /**
      * Validate weights sum to 1.0.
+     *
+     * @param lcsWeight         Weight for LCS score
+     * @param levenshteinWeight Weight for Levenshtein score
+     * @param structuralWeight  Weight for structural score
      */
     public SimilarityWeights {
         double sum = lcsWeight + levenshteinWeight + structuralWeight;

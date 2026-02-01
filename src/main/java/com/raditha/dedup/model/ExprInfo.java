@@ -15,6 +15,12 @@ public record ExprInfo(
         Integer startColumn,
         String text) {
 
+    /**
+     * Creates ExprInfo from an AST expression.
+     *
+     * @param e The expression
+     * @return ExprInfo
+     */
     public static ExprInfo fromExpression(Expression e) {
         Integer line = null;
         Integer col = null;
@@ -25,6 +31,12 @@ public record ExprInfo(
         return new ExprInfo(e, line, col, e != null ? e.toString() : null);
     }
 
+    /**
+     * Creates ExprInfo from raw text (when AST is unavailable).
+     *
+     * @param text The expression text
+     * @return ExprInfo
+     */
     public static ExprInfo fromText(String text) {
         return new ExprInfo(null, null, null, text);
     }

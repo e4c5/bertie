@@ -16,6 +16,9 @@ public class ASTSimilarityCalculator {
     private final ASTLevenshteinSimilarity levenshtein;
     private final ASTStructuralSimilarity structural;
 
+    /**
+     * Initializes the calculator with default similarity component instances.
+     */
     public ASTSimilarityCalculator() {
         this.lcs = new ASTLCSSimilarity();
         this.levenshtein = new ASTLevenshteinSimilarity();

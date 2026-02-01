@@ -37,11 +37,24 @@ public class ParameterResolver {
     private final ReturnTypeResolver typeResolver;
     private final Map<String, CompilationUnit> allCUs;
 
+    /**
+     * Creates a new parameter resolver with default analyzers.
+     *
+     * @param allCUs Map of all compilation units for type resolution
+     */
     public ParameterResolver(Map<String, CompilationUnit> allCUs) {
         this(new ASTParameterExtractor(), new DataFlowAnalyzer(), 
              new ReturnTypeResolver(allCUs), allCUs);
     }
 
+    /**
+     * Creates a new parameter resolver with specific components.
+     *
+     * @param extractor         The parameter extractor
+     * @param dataFlowAnalyzer  The data flow analyzer
+     * @param typeResolver      The return type resolver
+     * @param allCUs           Map of all compilation units
+     */
     public ParameterResolver(ASTParameterExtractor extractor, DataFlowAnalyzer dataFlowAnalyzer,
                              ReturnTypeResolver typeResolver, Map<String, CompilationUnit> allCUs) {
         this.extractor = extractor;
@@ -50,6 +63,14 @@ public class ParameterResolver {
         this.allCUs = allCUs;
     }
 
+    /**
+     * Resolves and filters parameters for the extracted method.
+     *
+     * @param analysis            The variation analysis result
+     * @param cluster             The duplicate cluster
+     * @param validStatementCount The valid statement count if truncated (-1 if not)
+     * @return List of refined parameter specifications
+     */
     public List<ParameterSpec> resolveParameters(
             VariationAnalysis analysis,
             DuplicateCluster cluster,

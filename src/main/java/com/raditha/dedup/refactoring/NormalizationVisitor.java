@@ -14,6 +14,9 @@ import java.util.Map;
  */
 public class NormalizationVisitor extends ModifierVisitor<Map<String, String>> {
 
+    /**
+     * Rename parameters according to map.
+     */
     @Override
     public Visitable visit(Parameter n, Map<String, String> arg) {
         String name = n.getNameAsString();
@@ -23,6 +26,9 @@ public class NormalizationVisitor extends ModifierVisitor<Map<String, String>> {
         return super.visit(n, arg);
     }
 
+    /**
+     * Rename variables according to map.
+     */
     @Override
     public Visitable visit(VariableDeclarator n, Map<String, String> arg) {
         String name = n.getNameAsString();
@@ -32,6 +38,9 @@ public class NormalizationVisitor extends ModifierVisitor<Map<String, String>> {
         return super.visit(n, arg);
     }
 
+    /**
+     * Rename variable references (names) according to map.
+     */
     @Override
     public Visitable visit(NameExpr n, Map<String, String> arg) {
         String name = n.getNameAsString();

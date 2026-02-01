@@ -32,10 +32,21 @@ public class RefactoringVerifier {
     private String cachedClasspath;
     private String cachedSourcepath;
 
+    /**
+     * Creates a new verifier with default compile-only mode.
+     *
+     * @param projectRoot The root directory of the project
+     */
     public RefactoringVerifier(Path projectRoot) {
         this(projectRoot, VerifyMode.COMPILE);
     }
 
+    /**
+     * Creates a new verifier with specified verification level.
+     *
+     * @param projectRoot The root directory of the project
+     * @param level       The level of verification
+     */
     public RefactoringVerifier(Path projectRoot, VerifyMode level) {
         this.projectRoot = projectRoot;
         this.verificationLevel = level;
@@ -371,6 +382,11 @@ public class RefactoringVerifier {
      * Result of verification.
      */
     public record VerificationResult(boolean success, List<String> errors, String message) {
+        /**
+         * Checks if the verification was successful.
+         *
+         * @return true if successful
+         */
         public boolean isSuccess() {
             return success;
         }

@@ -86,6 +86,11 @@ public class PreFilterChain {
     public record FilterStats(
             double maxSizeDifference,
             Double minStructuralJaccard) {
+        /**
+         * Returns a string representation of the filter statistics.
+         *
+         * @return String description of filter stats
+         */
         @Override
         public String toString() {
             if (minStructuralJaccard != null) {

@@ -57,6 +57,12 @@ public record StatementSequence(
         return statements != null ? statements.size() : 0;
     }
 
+    /**
+     * Checks equality based on location (file, range, offset).
+     *
+     * @param o Object to compare
+     * @return true if locations match
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o)
@@ -69,6 +75,11 @@ public record StatementSequence(
                 java.util.Objects.equals(sourceFilePath, that.sourceFilePath);
     }
 
+    /**
+     * Generates hash code based on location.
+     *
+     * @return hash code
+     */
     @Override
     public int hashCode() {
         return java.util.Objects.hash(range, startOffset, sourceFilePath);

@@ -21,6 +21,16 @@ public class ParameterSpec {
     private final Integer startColumn;
     private List<Expression> parsedExamples;
 
+    /**
+     * Creates a new parameter specification.
+     *
+     * @param name           Parameter name
+     * @param type           Parameter type
+     * @param exampleValues  List of example values (as strings)
+     * @param variationIndex Index of the variation this maps to (optional)
+     * @param startLine      Start line of the original expression
+     * @param startColumn    Start column of the original expression
+     */
     public ParameterSpec(String name, com.github.javaparser.ast.type.Type type, List<String> exampleValues,
             Integer variationIndex, Integer startLine, Integer startColumn) {
         this.name = name;
@@ -38,26 +48,56 @@ public class ParameterSpec {
         this(name, type, List.of(), null, null, null);
     }
 
+    /**
+     * Gets the parameter name.
+     *
+     * @return parameter name
+     */
     public String getName() {
         return name;
     }
 
+    /**
+     * Gets the parameter type.
+     *
+     * @return parameter type
+     */
     public com.github.javaparser.ast.type.Type getType() {
         return type;
     }
 
+    /**
+     * Gets example values.
+     *
+     * @return list of example values
+     */
     public List<String> getExampleValues() {
         return exampleValues;
     }
 
+    /**
+     * Gets the variation index.
+     *
+     * @return variation index or null
+     */
     public Integer getVariationIndex() {
         return variationIndex;
     }
 
+    /**
+     * Gets the start line number.
+     *
+     * @return start line or null
+     */
     public Integer getStartLine() {
         return startLine;
     }
 
+    /**
+     * Gets the start column number.
+     *
+     * @return start column or null
+     */
     public Integer getStartColumn() {
         return startColumn;
     }

@@ -13,6 +13,12 @@ public class WorkflowFactory {
     private final DuplicationAnalyzer analyzer;
     private final RefactoringEngine engine;
 
+    /**
+     * Creates a new WorkflowFactory.
+     *
+     * @param analyzer the duplication analyzer to use in workflows
+     * @param engine   the refactoring engine to use in workflows
+     */
     public WorkflowFactory(DuplicationAnalyzer analyzer, RefactoringEngine engine) {
         this.analyzer = analyzer;
         this.engine = engine;

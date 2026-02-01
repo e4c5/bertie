@@ -379,6 +379,9 @@ public class ExtractParameterizedTestRefactorer {
         return rawValue;
     }
 
+    /**
+     * Container for refactoring results.
+     */
     public record RefactoringResult(Path sourceFile, String refactoredCode) {
     }
 }
