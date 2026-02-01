@@ -454,7 +454,10 @@ public class ASTVariationAnalyzer {
         }
 
         /**
-         * Checks assignability.
+         * Checks assignability for this fallback type.
+         * <p>
+         * In this minimal implementation, a type is considered assignable only if
+         * its description exactly matches this type's description.
          */
         @Override
         public boolean isAssignableBy(ResolvedType other) {
