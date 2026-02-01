@@ -138,11 +138,11 @@ public class BoundaryRefiner {
         }
 
         // Get the parent block to access preceding statements
-        if (sequence.containingMethod() == null || sequence.containingMethod().getBody().isEmpty()) {
+        if (sequence.containingCallable() == null || sequence.getCallableBody().isEmpty()) {
             return sequence;
         }
 
-        BlockStmt block = sequence.containingMethod().getBody().get();
+        BlockStmt block = sequence.getCallableBody().get();
         NodeList<Statement> allStmts = block.getStatements();
 
         // Find index of first statements
@@ -362,7 +362,7 @@ public class BoundaryRefiner {
                 new ArrayList<>(trimmed),
                 newRange,
                 original.startOffset(),
-                original.containingMethod(),
+                original.containingCallable(),
                 original.compilationUnit(),
                 original.sourceFilePath());
     }

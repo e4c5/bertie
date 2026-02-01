@@ -3,12 +3,15 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
+import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.ReferenceType;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
@@ -27,6 +30,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -39,8 +43,21 @@ public class MethodExtractor extends AbstractExtractor {
     private Map<ParameterSpec, ASTNodePath> precomputedPaths;
     private List<ParameterSpec> effectiveParams;
     private Map<ParameterSpec, String> paramNameOverrides;
-    private HelperMethodResult helperResult;
+    private TargetCallable targetCallable;
     private String methodNameToUse;
+    private HelperMethodResult helperResult;
+
+    private record TargetCallable(String name, boolean isConstructor, CallableDeclaration<?> node) {
+        public static TargetCallable method(MethodDeclaration m) {
+            return new TargetCallable(m.getNameAsString(), false, m);
+        }
+        public static TargetCallable constructor(ConstructorDeclaration c) {
+            return new TargetCallable(c.getNameAsString(), true, c);
+        }
+        public static TargetCallable helper(String name) {
+            return new TargetCallable(name, false, null);
+        }
+    }
 
     private record HelperMethodResult(MethodDeclaration method, List<ParameterSpec> usedParameters,
             String forcedReturnVar) {
@@ -68,78 +85,142 @@ public class MethodExtractor extends AbstractExtractor {
 
         // 2. Identify reuse target or use the new helper
         MethodDeclaration helperMethod = helperResult.method();
-        methodNameToUse = findReusableMethod();
+        this.targetCallable = findReusableMethod();
+        this.methodNameToUse = targetCallable.name();
 
         // Add new helper if no reuse target was found
-        if (methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
-            MethodDeclaration containingMethod = cluster.primary().containingMethod();
-            if (containingMethod == null) {
-                throw new IllegalStateException("No containing method found for primary sequence");
-            }
-            
-            // FIXED: If the containingMethod is detached from the AST (e.g., after previous 
-            // refactorings modified the file), re-resolve it from the live CompilationUnit
-            if (containingMethod.getParentNode().isEmpty()) {
-                String methodName = containingMethod.getNameAsString();
-                logger.debug("Refreshing detached containingMethod: {}", methodName);
-                
-                // Look up the method in the current CompilationUnit
-                CompilationUnit cu = cluster.primary().compilationUnit();
-                if (cu != null) {
-                    containingMethod = cu.findAll(MethodDeclaration.class).stream()
-                            .filter(m -> m.getNameAsString().equals(methodName))
-                            .findFirst()
-                            .orElse(null);
-                }
-                
-                if (containingMethod == null || containingMethod.getParentNode().isEmpty()) {
-                    // Method was already refactored by a previous cluster (e.g., merged into parameterized test)
-                    // This is expected behavior, not an error - skip gracefully
-                    return new RefactoringResult(Map.of(), recommendation.getStrategy(),
-                            "Skipped: method '" + methodName + "' was already refactored by a previous cluster");
-                }
-            }
-            
-            TypeDeclaration<?> containingType = containingMethod
-                    .findAncestor(TypeDeclaration.class)
-                    .orElseThrow(() -> new IllegalStateException("No containing type found"));
-
-            MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
-                    cluster.getContainingMethods());
-            if (equivalent == null) {
-                containingType.addMember(helperMethod);
-            } else {
-                methodNameToUse = equivalent.getNameAsString();
-            }
+        Optional<RefactoringResult> skipResult = ensureHelperMethodAttached(helperMethod);
+        if (skipResult.isPresent()) {
+            return skipResult.get();
         }
 
         // 3. Execute the refactoring (Two-Phase: Prepare then Apply)
         return executeReplacements();
     }
 
+    private Optional<RefactoringResult> ensureHelperMethodAttached(MethodDeclaration helperMethod) {
+        if (!methodNameToUse.equals(recommendation.getSuggestedMethodName())) {
+            return Optional.empty();
+        }
+
+        CallableDeclaration<?> containingCallable = cluster.primary().containingCallable();
+        if (containingCallable == null) {
+            throw new IllegalStateException("No containing method found for primary sequence");
+        }
+
+        // FIXED: If the containingCallable is detached from the AST (e.g., after previous
+        // refactorings modified the file), re-resolve it from the live CompilationUnit
+        if (containingCallable.getParentNode().isEmpty()) {
+            String callableName = containingCallable.getNameAsString();
+            logger.debug("Refreshing detached containingCallable: {}", callableName);
+
+            // Look up the method/constructor in the current CompilationUnit
+            CompilationUnit cu = cluster.primary().compilationUnit();
+            containingCallable = refreshCallable(containingCallable, cu, callableName);
+
+            if (containingCallable == null || containingCallable.getParentNode().isEmpty()) {
+                // Method was already refactored by a previous cluster (e.g., merged into parameterized test)
+                // This is expected behavior, not an error - skip gracefully
+                return Optional.of(new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                        "Skipped: method '" + callableName + "' was already refactored by a previous cluster"));
+            }
+        }
+
+        TypeDeclaration<?> containingType = containingCallable
+                .findAncestor(TypeDeclaration.class)
+                .orElseThrow(() -> new IllegalStateException("No containing type found"));
+
+        MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
+                cluster.getContainingMethods());
+        if (equivalent == null) {
+            boolean signatureCollision = containingType.getMethodsByName(helperMethod.getNameAsString()).stream()
+                    .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                            && m.getType().asString().equals(helperMethod.getType().asString()));
+
+            if (signatureCollision) {
+                String baseName = helperMethod.getNameAsString();
+                String newName = baseName;
+                int counter = 1;
+                while (containingType.getMethodsByName(newName).stream()
+                        .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                                && m.getType().asString().equals(helperMethod.getType().asString()))) {
+                    newName = baseName + counter++;
+                }
+                helperMethod.setName(newName);
+                methodNameToUse = newName;
+                containingType.addMember(helperMethod);
+            } else {
+                containingType.addMember(helperMethod);
+            }
+        } else {
+            methodNameToUse = equivalent.getNameAsString();
+        }
+
+        return Optional.empty();
+    }
+
+    private CallableDeclaration<?> refreshCallable(CallableDeclaration<?> containingCallable, CompilationUnit cu, String callableName) {
+        if (cu != null) {
+            if (containingCallable instanceof MethodDeclaration) {
+                return cu.findAll(MethodDeclaration.class).stream()
+                        .filter(m -> m.getNameAsString().equals(callableName))
+                        .findFirst()
+                        .orElse(null);
+            } else if (containingCallable instanceof ConstructorDeclaration) {
+                return cu.findAll(ConstructorDeclaration.class).stream()
+                        .filter(c -> c.getNameAsString().equals(callableName))
+                        .findFirst()
+                        .orElse(null);
+            }
+        }
+        return null;
+    }
+
     /**
-     * Identify if any existing method in the cluster can be reused as the refactoring target.
+     * Identify if any existing method or constructor in the cluster can be reused as the refactoring target.
      */
-    private String findReusableMethod() {
+    private TargetCallable findReusableMethod() {
         MethodDeclaration helperMethod = helperResult.method();
         effectiveParams = helperResult.usedParameters();
 
         for (StatementSequence seq : cluster.allSequences()) {
-            MethodDeclaration m = seq.containingMethod();
-            if (m != null && isMethodBody(seq)) {
-                 if (m.getParameters().size() == effectiveParams.size() &&
-                         m.getType().equals(helperMethod.getType())) {
+            CallableDeclaration<?> m = seq.containingCallable();
+            if (m == null) continue;
 
-                     String candNorm = normalizeMethodBody(m);
-                     String helperNorm = normalizeMethodBody(helperMethod);
-                     if (candNorm != null && candNorm.equals(helperNorm)) {
+            // A callable can be reused only if there's at least one OTHER callable in the cluster
+            // that is NOT this one, so that we actually perform a refactoring.
+            // If m is the only callable in the cluster, reusing it is a no-op.
+            boolean hasOtherCallers = false;
+            for (StatementSequence otherSeq : cluster.allSequences()) {
+                if (otherSeq.containingCallable() != m) {
+                    hasOtherCallers = true;
+                    break;
+                }
+            }
+            if (!hasOtherCallers) continue;
+            
+            if (isMethodBody(seq) && m != null) {
+                if (m instanceof MethodDeclaration method &&
+                        method.getParameters().size() == effectiveParams.size() &&
+                        method.getType().equals(helperMethod.getType())) {
 
-                         return m.getNameAsString();
-                     }
-                 }
+                    String candNorm = normalizeMethodBody(method);
+                    String helperNorm = normalizeMethodBody(helperMethod);
+                    if (candNorm != null && candNorm.equals(helperNorm)) {
+                        return TargetCallable.method(method);
+                    }
+                } else if (m instanceof ConstructorDeclaration constructor &&
+                        constructor.getParameters().size() == effectiveParams.size()) {
+
+                    String candNorm = normalizeMethodBody(constructor);
+                    String helperNorm = normalizeMethodBody(helperMethod);
+                    if (candNorm != null && candNorm.equals(helperNorm)) {
+                        return TargetCallable.constructor(constructor);
+                    }
+                }
             }
         }
-        return recommendation.getSuggestedMethodName();
+        return TargetCallable.helper(recommendation.getSuggestedMethodName());
     }
 
     /**
@@ -154,8 +235,8 @@ public class MethodExtractor extends AbstractExtractor {
 
         // Phase 1: Prepare
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingMethod() != null
-                    && seq.containingMethod().getNameAsString().equals(methodNameToUse)
+            if (seq.containingCallable() != null && targetCallable.node() != null
+                    && seq.containingCallable() == targetCallable.node()
                     && isMethodBody(seq)
             ) {
                 // Potential recursion check: skip if we are reusing THIS method
@@ -214,11 +295,11 @@ public class MethodExtractor extends AbstractExtractor {
         }
 
         for (StatementSequence seq : cluster.allSequences()) {
-            MethodDeclaration containingMethod = seq.containingMethod();
-            if (containingMethod == null) {
+            CallableDeclaration<?> containingCallable = seq.containingCallable();
+            if (containingCallable == null) {
                 continue;
             }
-            TypeDeclaration<?> containingType = containingMethod.findAncestor(TypeDeclaration.class)
+            TypeDeclaration<?> containingType = containingCallable.findAncestor(TypeDeclaration.class)
                     .orElse(null);
             if (containingType == null) {
                 continue;
@@ -461,7 +542,7 @@ public class MethodExtractor extends AbstractExtractor {
     private void applyMethodModifiers(MethodDeclaration method) {
         boolean shouldBeStatic = false;
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingMethod() != null && seq.containingMethod().isStatic()) {
+            if (seq.containingCallable() != null && seq.containingCallable().isStatic()) {
                 shouldBeStatic = true;
                 break;
             }
@@ -485,7 +566,7 @@ public class MethodExtractor extends AbstractExtractor {
                     new com.raditha.dedup.model.Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(),
                             fullRange.startColumn()),
                     fullSequence.startOffset(),
-                    fullSequence.containingMethod(),
+                    fullSequence.containingCallable(),
                     fullSequence.compilationUnit(),
                     fullSequence.sourceFilePath());
         }
@@ -503,7 +584,7 @@ public class MethodExtractor extends AbstractExtractor {
                 prefixStmts,
                 prefixRange,
                 fullSequence.startOffset(),
-                fullSequence.containingMethod(),
+                fullSequence.containingCallable(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
     }
@@ -559,8 +640,8 @@ public class MethodExtractor extends AbstractExtractor {
     }
 
     private void copyThrownExceptions(MethodDeclaration method, StatementSequence sequence) {
-        if (sequence.containingMethod() != null) {
-            NodeList<ReferenceType> exceptions = sequence.containingMethod().getThrownExceptions();
+        if (sequence.containingCallable() != null) {
+            NodeList<ReferenceType> exceptions = sequence.containingCallable().getThrownExceptions();
             for (ReferenceType exception : exceptions) {
                 method.addThrownException(exception.clone());
             }
@@ -725,8 +806,8 @@ public class MethodExtractor extends AbstractExtractor {
      * Returns null if argument resolution fails.
      */
     private MethodCallExpr prepareReplacement(StatementSequence sequence) {
-        MethodDeclaration containingMethod = sequence.containingMethod();
-        if (containingMethod == null || containingMethod.getBody().isEmpty()) {
+        Optional<BlockStmt> body = sequence.getCallableBody();
+        if (body.isEmpty() || body.get().getStatements().isEmpty()) {
             return null;
         }
 
@@ -754,14 +835,17 @@ public class MethodExtractor extends AbstractExtractor {
      */
     private boolean applyReplacement(StatementSequence sequence,
             MethodCallExpr methodCall, String forcedReturnVar, com.github.javaparser.ast.type.Type returnType) {
-        MethodDeclaration containingMethod = sequence.containingMethod();
-        if (containingMethod == null || containingMethod.getBody().isEmpty()) {
+
+        Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
+        if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
             return false;
         }
 
+        BlockStmt body = bodyOpt.get();
+
         // Locate the actual block containing the sequence (might be nested)
         BlockStmt block = sequence.statements().getFirst().findAncestor(BlockStmt.class)
-                .orElse(containingMethod.getBody().get());
+                .orElse(body);
 
         // 3) Remember any original return inside the duplicate sequence
         int limit = getEffectiveLimit(sequence);
@@ -771,6 +855,16 @@ public class MethodExtractor extends AbstractExtractor {
         int startIdx = findStatementIndex(block, sequence);
         if (startIdx < 0)
             return false;
+
+        if (targetCallable.isConstructor() && sequence.containingCallable() instanceof ConstructorDeclaration caller) {
+            if (startIdx == 0 && block == body) {
+                ExplicitConstructorInvocationStmt ctorCall = new ExplicitConstructorInvocationStmt(true, null, methodCall.getArguments());
+                
+                removeOldStatements(block, 0, limit);
+                block.addStatement(0, ctorCall);
+                return true;
+            }
+        }
 
         removeOldStatements(block, startIdx, limit);
 
@@ -782,7 +876,7 @@ public class MethodExtractor extends AbstractExtractor {
         }
 
         applyValueReplacement(sequence, methodCall, forcedReturnVar, returnType, 
-                containingMethod, block, startIdx, originalReturnValues);
+                block, startIdx, originalReturnValues);
 
         return true;
     }
@@ -796,14 +890,13 @@ public class MethodExtractor extends AbstractExtractor {
     private void applyValueReplacement(StatementSequence sequence,
                                       MethodCallExpr methodCall, String forcedReturnVar,
                                       com.github.javaparser.ast.type.Type returnType,
-                                      MethodDeclaration containingMethod, BlockStmt block,
-                                      int startIdx, ReturnStmt originalReturnValues) {
+                                      BlockStmt block, int startIdx, ReturnStmt originalReturnValues) {
         String varName = (forcedReturnVar != null) ? forcedReturnVar : inferReturnVariable(sequence);
         boolean nextIsReturn = startIdx < block.getStatements().size()
                 && block.getStatements().get(startIdx).isReturnStmt();
 
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-        boolean shouldReturnDirectly = canInlineReturn(containingMethod, block, originalReturnValues,
+        boolean shouldReturnDirectly = canInlineReturn(sequence.containingCallable(), block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
 
         if (!shouldReturnDirectly && varName == null) {
@@ -864,7 +957,7 @@ public class MethodExtractor extends AbstractExtractor {
                     new Range(sequence.range().startLine(), sequence.range().startColumn(),
                             stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
                             stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
-                    sequence.startOffset(), sequence.containingMethod(), sequence.compilationUnit(),
+                    sequence.startOffset(), sequence.containingCallable(), sequence.compilationUnit(),
                     sequence.sourceFilePath());
         }
 
@@ -982,11 +1075,11 @@ public class MethodExtractor extends AbstractExtractor {
      * Check if the sequence covers the entire body of the containing method.
      */
     private boolean isMethodBody(StatementSequence seq) {
-        MethodDeclaration method = seq.containingMethod();
-        if (method == null || method.getBody().isEmpty()) {
+        Optional<BlockStmt> bodyOpt = seq.getCallableBody();
+        if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
             return false;
         }
-        BlockStmt body = method.getBody().get();
+        BlockStmt body = bodyOpt.get();
         List<Statement> bodyStmts = body.getStatements();
         List<Statement> seqStmts = seq.statements();
         
@@ -1072,7 +1165,7 @@ public class MethodExtractor extends AbstractExtractor {
             if (expr.isNameExpr()) {
                 String varName = expr.asNameExpr().getNameAsString();
                 if (isLocalVariable(sequence, varName)) {
-                     com.github.javaparser.ast.type.Type type = resolveVariableInMethod(sequence.containingMethod(), varName);
+                     com.github.javaparser.ast.type.Type type = resolveVariableInMethod(sequence, varName);
                      if (type != null) {
                          return AbstractCompiler.findType(sequence.compilationUnit(), type);
                      }
@@ -1089,14 +1182,18 @@ public class MethodExtractor extends AbstractExtractor {
             return null;
         }
 
-        private com.github.javaparser.ast.type.Type resolveVariableInMethod(MethodDeclaration method, String varName) {
-             if (method == null || method.getBody().isEmpty()) return null;
-             // Check parameters
+        private com.github.javaparser.ast.type.Type resolveVariableInMethod(StatementSequence sequence, String varName) {
+             Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
+             if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
+                 return null;
+             }
+             CallableDeclaration<?> method = sequence.containingCallable();
+
              for (Parameter p : method.getParameters()) {
                  if (p.getNameAsString().equals(varName)) return p.getType();
              }
-             // Check body
-             for (Statement stmt : method.getBody().get().getStatements()) {
+
+             for (Statement stmt : bodyOpt.get().getStatements()) {
                   if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
                       for (com.github.javaparser.ast.body.VariableDeclarator v : stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()) {
                           if (v.getNameAsString().equals(varName)) return v.getType();
@@ -1188,14 +1285,15 @@ public class MethodExtractor extends AbstractExtractor {
          * but NOT in the sequence).
          */
         private boolean isLocalVariable(StatementSequence sequence, String varName) {
-            MethodDeclaration containingMethod = sequence.containingMethod();
-            if (containingMethod == null || containingMethod.getBody().isEmpty()) {
+            CallableDeclaration<?> containingCallable = sequence.containingCallable();
+            Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
+            if (containingCallable == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                 return false;
             }
 
             // Search for variable declaration in method body but BEFORE the sequence start
             int sequenceStartLine = sequence.range().startLine();
-            BlockStmt methodBody = containingMethod.getBody().get();
+            BlockStmt methodBody = bodyOpt.get();
 
             for (VariableDeclarationExpr varDecl : methodBody.findAll(VariableDeclarationExpr.class)) {
                 if (varDecl.getRange().isPresent() &&
@@ -1209,7 +1307,7 @@ public class MethodExtractor extends AbstractExtractor {
             }
 
             // Also check method parameters
-            for (var param : containingMethod.getParameters()) {
+            for (var param : containingCallable.getParameters()) {
                 if (param.getNameAsString().equals(varName)) {
                     return true; // It's a method parameter, treated as external
                 }
@@ -1271,11 +1369,17 @@ public class MethodExtractor extends AbstractExtractor {
         return null;
     }
 
-    private boolean canInlineReturn(MethodDeclaration containingMethod, BlockStmt block,
+    private boolean canInlineReturn(CallableDeclaration<?> containingCallable, BlockStmt block,
             ReturnStmt originalReturnValues, boolean returnHasExternalVars, boolean nextIsReturn) {
         if (returnHasExternalVars)
             return false;
-        boolean methodIsVoid = containingMethod.getType().asString().equals("void");
+
+        boolean methodIsVoid = true; // Default to void (e.g. constructor)
+        if (containingCallable instanceof MethodDeclaration m) {
+            methodIsVoid = m.getType().asString().equals("void");
+        }
+        // Constructors are conceptually void-like here (cannot return value)
+
         boolean blockEmptyAfterRemoval = block.getStatements().isEmpty();
         return ((nextIsReturn && originalReturnValues != null) ||
                 (blockEmptyAfterRemoval && !methodIsVoid && originalReturnValues != null));
@@ -1530,25 +1634,39 @@ public class MethodExtractor extends AbstractExtractor {
     // Produce a canonical representation of the method body with parameter names
     // normalized (p0, p1, ...)
     @SuppressWarnings("deprecation")
-    private String normalizeMethodBody(MethodDeclaration method) {
-        if (method.getBody().isEmpty())
+    private String normalizeMethodBody(CallableDeclaration<?> callable) {
+        BlockStmt body = null;
+        if (callable instanceof MethodDeclaration m) {
+            body = m.getBody().orElse(null);
+        } else if (callable instanceof ConstructorDeclaration c) {
+            body = c.getBody();
+        }
+
+        if (body == null || body.getStatements().isEmpty())
             return null;
 
-        MethodDeclaration clone = method.clone();
+        CallableDeclaration<?> clone = callable.clone();
         java.util.Map<String, String> renames = new java.util.HashMap<>();
         for (int i = 0; i < clone.getParameters().size(); i++) {
             renames.put(clone.getParameter(i).getNameAsString(), "p" + i);
         }
 
         // Apply visitor to rename variables securely
-        new NormalizationVisitor().visit(clone, renames);
+        clone.accept(new NormalizationVisitor(), renames);
 
         // Canonical string representation without comments
         com.github.javaparser.printer.configuration.PrettyPrinterConfiguration config = new com.github.javaparser.printer.configuration.PrettyPrinterConfiguration();
         config.setPrintComments(false);
 
+        BlockStmt cloneBody = null;
+        if (clone instanceof MethodDeclaration m) {
+            cloneBody = m.getBody().orElse(null);
+        } else if (clone instanceof ConstructorDeclaration c) {
+            cloneBody = c.getBody();
+        }
+
         // Strip whitespace to ignore formatting differences completely
-        return clone.getBody().get().toString(config).replaceAll("\\s+", "");
+        return cloneBody != null ? cloneBody.toString(config).replaceAll("\\s+", "") : null;
     }
 
     /**

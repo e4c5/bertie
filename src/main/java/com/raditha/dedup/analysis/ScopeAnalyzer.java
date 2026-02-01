@@ -1,8 +1,8 @@
 package com.raditha.dedup.analysis;
 
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.stmt.Statement;
@@ -45,7 +45,7 @@ public class ScopeAnalyzer {
     private List<VariableInfo> extractMethodParameters(StatementSequence sequence) {
         List<VariableInfo> params = new ArrayList<>();
 
-        MethodDeclaration method = sequence.containingMethod();
+        CallableDeclaration<?> method = sequence.containingCallable();
         if (method == null) {
             return params;
         }
@@ -103,12 +103,12 @@ public class ScopeAnalyzer {
     private List<VariableInfo> extractLocalVariables(StatementSequence sequence) {
         List<VariableInfo> locals = new ArrayList<>();
 
-        MethodDeclaration method = sequence.containingMethod();
-        if (method == null || method.getBody().isEmpty()) {
+        CallableDeclaration<?> method = sequence.containingCallable();
+        if (method == null || sequence.getCallableBody().isEmpty()) {
             return locals;
         }
 
-        List<Statement> allStatements = method.getBody().get().getStatements();
+        List<Statement> allStatements = sequence.getCallableBody().get().getStatements();
         List<Statement> sequenceStatements = sequence.statements();
 
         if (sequenceStatements.isEmpty()) {

@@ -65,13 +65,6 @@ public class EscapeAnalyzer {
     private static void analyzeAssignment(Expression ae, Set<String> modifiedVariables) {
         if (ae.isNameExpr()) {
             modifiedVariables.add(ae.asNameExpr().getNameAsString());
-        } else if (ae.isFieldAccessExpr()) {
-            var fae = ae.asFieldAccessExpr();
-            if (fae.getScope().isThisExpr()) {
-                modifiedVariables.add(fae.getNameAsString());
-            } else {
-                modifiedVariables.add(fae.toString());
-            }
         }
     }
 }

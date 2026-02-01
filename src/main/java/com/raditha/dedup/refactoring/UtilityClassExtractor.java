@@ -3,7 +3,9 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -41,24 +43,24 @@ public class UtilityClassExtractor extends AbstractExtractor {
         initialize(cluster, recommendation);
         StatementSequence primary = cluster.primary();
         Path sourceFile = primary.sourceFilePath();
-        MethodDeclaration methodToExtract = primary.containingMethod();
+        CallableDeclaration<?> callableToExtract = primary.containingCallable();
 
-        validateCanBeStatic(methodToExtract);
+        validateCanBeStatic(callableToExtract);
 
         this.utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
 
-        CompilationUnit utilityCu = createUtilityClass(methodToExtract);
+        CompilationUnit utilityCu = createUtilityClass(callableToExtract);
         String utilityFqn = packageName + ".util." + utilityClassName;
         AntikytheraRunTime.addCompilationUnit(utilityFqn, utilityCu);
         Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
         modifiedFiles.put(utilityPath, utilityCu.toString());
 
         for (CompilationUnit currentCu : involvedCus) {
-            updateCallSitesAndImports(currentCu, methodToExtract);
+            updateCallSitesAndImports(currentCu, callableToExtract);
 
-            List<MethodDeclaration> methods = methodsToRemove.get(currentCu);
+            List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
             if (methods != null) {
-                methods.forEach(MethodDeclaration::remove);
+                methods.forEach(CallableDeclaration::remove);
             }
 
             modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
@@ -70,21 +72,36 @@ public class UtilityClassExtractor extends AbstractExtractor {
                 "Extracted to utility class: " + utilityClassName);
     }
 
-    private void validateCanBeStatic(MethodDeclaration method) {
+    private void validateCanBeStatic(CallableDeclaration<?> method) {
         if (method.isStatic()) {
             return;
         }
+        // Constructors are never static but are not supported here anyway due to check above.
 
         if (!method.findAll(ThisExpr.class).isEmpty()) {
             throw new IllegalArgumentException("Method uses 'this' and cannot be made static.");
         }
     }
 
-    private CompilationUnit createUtilityClass(MethodDeclaration originalMethod) {
+    private CompilationUnit createUtilityClass(CallableDeclaration<?> originalMethod) {
         CompilationUnit utilCu = new CompilationUnit();
         utilCu.setPackageDeclaration(packageName + ".util");
 
-        MethodDeclaration newMethod = originalMethod.clone();
+        MethodDeclaration newMethod = null;
+        if (originalMethod instanceof MethodDeclaration md) {
+            newMethod = md.clone();
+        } else if (originalMethod instanceof ConstructorDeclaration cd) {
+            newMethod = new MethodDeclaration();
+            newMethod.setName(recommendation.getSuggestedMethodName());
+            newMethod.setParameters(new NodeList<>(cd.getParameters()));
+            newMethod.setBody(cd.getBody().clone());
+            newMethod.setType("void");
+        }
+
+        if (newMethod == null) {
+            throw new IllegalArgumentException("Unsupported callable type");
+        }
+
         newMethod.setModifiers(Modifier.Keyword.PUBLIC, Modifier.Keyword.STATIC);
 
         ClassOrInterfaceDeclaration utilClass = utilCu.addClass(utilityClassName)
@@ -113,8 +130,11 @@ public class UtilityClassExtractor extends AbstractExtractor {
                 call.getScope().map(s -> s instanceof ThisExpr).orElse(false);
     }
 
-    private void updateCallSitesAndImports(CompilationUnit cu, MethodDeclaration originalMethod) {
+    private void updateCallSitesAndImports(CompilationUnit cu, CallableDeclaration<?> originalMethod) {
         String methodName = originalMethod.getNameAsString();
+        if (originalMethod instanceof ConstructorDeclaration) {
+            methodName = recommendation.getSuggestedMethodName();
+        }
         String utilityRunTimePackage = packageName + ".util";
         cu.addImport(utilityRunTimePackage + "." + utilityClassName);
 
@@ -124,10 +144,12 @@ public class UtilityClassExtractor extends AbstractExtractor {
         }
         GraphNode contextNode = Graph.createGraphNode(typeDecl);
 
+        final String finalMethodName = methodName;
+        final ClassOrInterfaceDeclaration finalTypeDecl = typeDecl;
         cu.findAll(MethodCallExpr.class).forEach(call -> {
-            if (call.getNameAsString().equals(methodName) && isUnqualifiedOrThisScoped(call)) {
+            if (call.getNameAsString().equals(finalMethodName) && isUnqualifiedOrThisScoped(call)) {
                 MCEWrapper wrapper = Resolver.resolveArgumentTypes(contextNode, call);
-                Callable callable = AbstractCompiler.findCallableDeclaration(wrapper, typeDecl).orElse(null);
+                Callable callable = AbstractCompiler.findCallableDeclaration(wrapper, finalTypeDecl).orElse(null);
 
                 if (callable != null && callable.isMethodDeclaration()) {
                     MethodDeclaration resolvedMethod = callable.asMethodDeclaration();

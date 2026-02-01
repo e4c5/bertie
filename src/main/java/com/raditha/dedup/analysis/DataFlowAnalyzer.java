@@ -1,6 +1,6 @@
 package com.raditha.dedup.analysis;
 
-import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
@@ -232,8 +232,8 @@ public class DataFlowAnalyzer {
     public Set<String> findVariablesUsedAfter(StatementSequence sequence) {
         Set<String> usedAfter = new HashSet<>();
 
-        MethodDeclaration method = sequence.containingMethod();
-        if (method == null || method.getBody().isEmpty()) {
+        CallableDeclaration<?> method = sequence.containingCallable();
+        if (method == null || sequence.getCallableBody().isEmpty()) {
             return usedAfter;
         }
 
@@ -249,7 +249,7 @@ public class DataFlowAnalyzer {
 
 
         // Scan the entire method body for variable usages
-        BlockStmt methodBody = method.getBody().get();
+        BlockStmt methodBody = sequence.getCallableBody().get();
         methodBody.findAll(NameExpr.class).forEach(nameExpr -> {
             // Check if this usage is physically AFTER the sequence
             if (nameExpr.getRange().isPresent()) {
