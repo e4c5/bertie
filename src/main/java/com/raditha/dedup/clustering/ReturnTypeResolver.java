@@ -75,9 +75,9 @@ public class ReturnTypeResolver extends AbstractResolver {
             }
         } else {
             // Default return logic
-            InternalReturnType result = determineReturnTypeWithVariable(cluster);
-            returnType = result.type();
-            primaryReturnVariable = result.variable();
+            ReturnTypeResult result = determineReturnTypeWithVariable(cluster);
+            returnType = result.returnType();
+            primaryReturnVariable = result.returnVariable();
         }
 
         // Additional check: if returnType is set but returnVariable is still null
@@ -88,31 +88,30 @@ public class ReturnTypeResolver extends AbstractResolver {
         return new ReturnTypeResult(returnType != null ? returnType : StaticJavaParser.parseType("void"), primaryReturnVariable);
     }
 
-    private record InternalReturnType(Type type, String variable) {}
 
-    private InternalReturnType determineReturnTypeWithVariable(DuplicateCluster cluster) {
+    private ReturnTypeResult determineReturnTypeWithVariable(DuplicateCluster cluster) {
         Set<Type> returnTypes = new HashSet<>();
-        InternalReturnType primaryResult = analyzeReturnTypeForSequenceExtended(cluster.primary());
+        ReturnTypeResult primaryResult = analyzeReturnTypeForSequenceExtended(cluster.primary());
 
-        if (primaryResult.type() != null) {
-            returnTypes.add(primaryResult.type());
+        if (primaryResult.returnType() != null) {
+            returnTypes.add(primaryResult.returnType());
         }
 
         // Check all duplicates
         for (SimilarityPair pair : cluster.duplicates()) {
             StatementSequence duplicate = pair.seq2();
-            Type type = analyzeReturnTypeForSequenceExtended(duplicate).type();
+            Type type = analyzeReturnTypeForSequenceExtended(duplicate).returnType();
             if (type != null) {
                 returnTypes.add(type);
             }
         }
 
         if (returnTypes.isEmpty()) {
-            return new InternalReturnType(StaticJavaParser.parseType("void"), null);
+            return new ReturnTypeResult(StaticJavaParser.parseType("void"), null);
         }
 
         Type unifiedType = unifyTypes(returnTypes);
-        return new InternalReturnType(unifiedType, primaryResult.variable());
+        return new ReturnTypeResult(unifiedType, primaryResult.returnVariable());
     }
 
     private Type unifyTypes(Set<Type> returnTypes) {
@@ -135,7 +134,7 @@ public class ReturnTypeResolver extends AbstractResolver {
         return returnTypes.iterator().next();
     }
 
-    private InternalReturnType analyzeReturnTypeForSequenceExtended(StatementSequence sequence) {
+    private ReturnTypeResult analyzeReturnTypeForSequenceExtended(StatementSequence sequence) {
         DataFlowAnalyzer.SequenceAnalysis analysis = dataFlowAnalyzer.analyzeSequenceVariables(sequence);
         
         // Priority 1: Check for live-out variables
@@ -145,17 +144,17 @@ public class ReturnTypeResolver extends AbstractResolver {
         if (returnVarName != null) {
             Type type = analysis.typeMap().get(returnVarName);
             if (type != null) {
-                return new InternalReturnType(resolveTypeToAST(type, sequence.statements().get(0), sequence), returnVarName);
+                return new ReturnTypeResult(resolveTypeToAST(type, sequence.statements().get(0), sequence), returnVarName);
             }
 
             Type varType = findTypeInContext(sequence, returnVarName);
             if (varType != null && !varType.isVoidType()) {
-                return new InternalReturnType(varType, returnVarName);
+                return new ReturnTypeResult(varType, returnVarName);
             }
         }
 
         // Priority 2: Check for logical return statements
-        return new InternalReturnType(analyzeReturnStatementType(sequence), null);
+        return new ReturnTypeResult(analyzeReturnStatementType(sequence), null);
     }
 
     private Type analyzeReturnStatementType(StatementSequence sequence) {
