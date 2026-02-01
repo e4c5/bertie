@@ -6,6 +6,7 @@ import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.ast.type.VoidType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -112,7 +113,7 @@ public class RefactoringRecommendationGenerator {
                 strategy,
                 methodName,
                 parameters,
-                returnType != null ? returnType : StaticJavaParser.parseType("void"),
+                returnType != null ? returnType : new VoidType(),
                 "",
                 confidence,
                 cluster.estimatedLOCReduction(),
@@ -126,7 +127,7 @@ public class RefactoringRecommendationGenerator {
                 RefactoringStrategy.EXTRACT_HELPER_METHOD,
                 "",
                 Collections.emptyList(),
-                StaticJavaParser.parseType("void"),
+                new VoidType(),
                 "",
                 0.0,
                 0,
