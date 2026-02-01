@@ -206,11 +206,14 @@ public class StatementExtractor {
 
             // SPECIAL CASE: Always extract the full body as a sequence if it meets min requirements
             // This is critical for constructor/method reuse even when one body is longer than another.
+            // BUT: Only add it here if the normal window logic WON'T capture it (i.e., if it's too long).
             if (totalStatements >= effectiveMin) {
                 // Check if this is indeed the full body of the callable (not a nested block)
                 Optional<BlockStmt> bodyOpt = getCallableBody(callable);
                 if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements) {
-                    sequences.add(createSequence(statements, callable));
+                    if (totalStatements > effectiveMin + maxWindowGrowth) {
+                        sequences.add(createSequence(statements, callable));
+                    }
                 }
             }
 
