@@ -190,44 +190,57 @@ public class MethodExtractor extends AbstractExtractor {
         MethodDeclaration helperMethod = helperResult.method();
         effectiveParams = helperResult.usedParameters();
 
-        for (StatementSequence seq : cluster.allSequences()) {
-            CallableDeclaration<?> m = seq.containingCallable();
-            if (m == null) continue;
+        return cluster.allSequences().stream()
+                .filter(this::isSequenceEligibleForReuse)
+                .map(seq -> getReusableCallable(seq, helperMethod))
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(TargetCallable.helper(recommendation.getSuggestedMethodName()));
+    }
 
-            // A callable can be reused only if there's at least one OTHER callable in the cluster
-            // that is NOT this one, so that we actually perform a refactoring.
-            // If m is the only callable in the cluster, reusing it is a no-op.
-            boolean hasOtherCallers = false;
-            for (StatementSequence otherSeq : cluster.allSequences()) {
-                if (otherSeq.containingCallable() != m) {
-                    hasOtherCallers = true;
-                    break;
-                }
-            }
-            if (!hasOtherCallers) continue;
-            
-            if (isMethodBody(seq) && m != null) {
-                if (m instanceof MethodDeclaration method &&
-                        method.getParameters().size() == effectiveParams.size() &&
-                        method.getType().equals(helperMethod.getType())) {
+    private boolean isSequenceEligibleForReuse(StatementSequence seq) {
+        CallableDeclaration<?> m = seq.containingCallable();
+        if (m == null) return false;
 
-                    String candNorm = normalizeMethodBody(method);
-                    String helperNorm = normalizeMethodBody(helperMethod);
-                    if (candNorm != null && candNorm.equals(helperNorm)) {
-                        return TargetCallable.method(method);
-                    }
-                } else if (m instanceof ConstructorDeclaration constructor &&
-                        constructor.getParameters().size() == effectiveParams.size()) {
+        return cluster.allSequences().stream()
+                .anyMatch(otherSeq -> otherSeq.containingCallable() != m);
+    }
 
-                    String candNorm = normalizeMethodBody(constructor);
-                    String helperNorm = normalizeMethodBody(helperMethod);
-                    if (candNorm != null && candNorm.equals(helperNorm)) {
-                        return TargetCallable.constructor(constructor);
-                    }
-                }
+    private TargetCallable getReusableCallable(StatementSequence seq, MethodDeclaration helperMethod) {
+        if (!isMethodBody(seq)) return null;
+
+        CallableDeclaration<?> m = seq.containingCallable();
+        if (m instanceof MethodDeclaration method) {
+            return findMatchInMethod(method, helperMethod);
+        } else if (m instanceof ConstructorDeclaration constructor) {
+            return findMatchInConstructor(constructor, helperMethod);
+        }
+        return null;
+    }
+
+    private TargetCallable findMatchInMethod(MethodDeclaration method, MethodDeclaration helperMethod) {
+        if (method.getParameters().size() == effectiveParams.size() &&
+                method.getType().equals(helperMethod.getType())) {
+
+            String candNorm = normalizeMethodBody(method);
+            String helperNorm = normalizeMethodBody(helperMethod);
+            if (candNorm != null && candNorm.equals(helperNorm)) {
+                return TargetCallable.method(method);
             }
         }
-        return TargetCallable.helper(recommendation.getSuggestedMethodName());
+        return null;
+    }
+
+    private TargetCallable findMatchInConstructor(ConstructorDeclaration constructor, MethodDeclaration helperMethod) {
+        if (constructor.getParameters().size() == effectiveParams.size()) {
+
+            String candNorm = normalizeMethodBody(constructor);
+            String helperNorm = normalizeMethodBody(helperMethod);
+            if (candNorm != null && candNorm.equals(helperNorm)) {
+                return TargetCallable.constructor(constructor);
+            }
+        }
+        return null;
     }
 
     /**
@@ -871,6 +884,10 @@ public class MethodExtractor extends AbstractExtractor {
             return false;
 
         if (targetCallable.isConstructor() && sequence.containingCallable() instanceof ConstructorDeclaration caller) {
+            if (hasExplicitConstructorCall(caller)) {
+                return false;
+            }
+
             if (startIdx == 0 && block == body) {
                 ExplicitConstructorInvocationStmt ctorCall = new ExplicitConstructorInvocationStmt(true, null, methodCall.getArguments());
                 
@@ -1724,5 +1741,10 @@ public class MethodExtractor extends AbstractExtractor {
                 Files.writeString(file, entry.getValue());
             }
         }
+    }
+
+    private boolean hasExplicitConstructorCall(ConstructorDeclaration caller) {
+        return caller.getBody().getStatements().stream()
+                .anyMatch(s -> s instanceof ExplicitConstructorInvocationStmt);
     }
 }

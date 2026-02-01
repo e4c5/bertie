@@ -94,20 +94,7 @@ public class UtilityClassExtractor extends AbstractExtractor {
         CompilationUnit utilCu = new CompilationUnit();
         utilCu.setPackageDeclaration(packageName + ".util");
 
-        MethodDeclaration newMethod = null;
-        if (originalMethod instanceof MethodDeclaration md) {
-            newMethod = md.clone();
-        } else if (originalMethod instanceof ConstructorDeclaration cd) {
-            newMethod = new MethodDeclaration();
-            newMethod.setName(recommendation.getSuggestedMethodName());
-            newMethod.setParameters(new NodeList<>(cd.getParameters()));
-            newMethod.setBody(cd.getBody().clone());
-            newMethod.setType("void");
-        }
-
-        if (newMethod == null) {
-            throw new IllegalArgumentException("Unsupported callable type");
-        }
+        MethodDeclaration newMethod = createMethodDeclaration(originalMethod);
 
         newMethod.setModifiers(Modifier.Keyword.PUBLIC, Modifier.Keyword.STATIC);
 

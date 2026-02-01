@@ -106,43 +106,55 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
         
         MethodDeclaration extractedMethod = createMethod(callableToExtract);
-
         for (CompilationUnit currentCu : involvedCus) {
-            boolean isCurrentCuParent = isPeerParent && currentCu == peerParentCu.get();
-
-            if (existingParent.isEmpty() && !isCurrentCuParent) {
-                addExtendsClause(currentCu);
-                addImportIfNeeded(currentCu);
-            }
-
-            if (!isCurrentCuParent) {
-                removeExtractedFields(currentCu);
-            }
-
-            List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
-            if (methods != null) {
-                for (CallableDeclaration<?> mToRemove : methods) {
-                    if (isCurrentCuParent) {
-                        if (mToRemove instanceof MethodDeclaration md) {
-                            if (md.isPrivate()) {
-                                md.setModifiers(Modifier.Keyword.PROTECTED);
-                            } else if (md.isPublic()) {
-                                md.setModifiers(Modifier.Keyword.PUBLIC);
-                            }
-                        }
-                    } else {
-                        processChildMethod(mToRemove, extractedMethod);
-                    }
-                }
-            }
-
-            modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
+            processInvolvedCompilationUnit(currentCu, existingParent, isPeerParent, peerParentCu, extractedMethod);
         }
 
         return new MethodExtractor.RefactoringResult(
                 modifiedFiles,
                 recommendation.getStrategy(),
                 "Extracted to parent class: " + parentClassName);
+    }
+
+    private void processInvolvedCompilationUnit(CompilationUnit currentCu, Optional<ClassOrInterfaceDeclaration> existingParent,
+                                               boolean isPeerParent, Optional<CompilationUnit> peerParentCu,
+                                               MethodDeclaration extractedMethod) {
+        boolean isCurrentCuParent = isPeerParent && currentCu == peerParentCu.get();
+
+        if (existingParent.isEmpty() && !isCurrentCuParent) {
+            addExtendsClause(currentCu);
+            addImportIfNeeded(currentCu);
+        }
+
+        if (!isCurrentCuParent) {
+            removeExtractedFields(currentCu);
+        }
+
+        handleMethodRemoval(currentCu, isCurrentCuParent, extractedMethod);
+        modifiedFiles.put(cuToPath.get(currentCu), currentCu.toString());
+    }
+
+    private void handleMethodRemoval(CompilationUnit currentCu, boolean isCurrentCuParent, MethodDeclaration extractedMethod) {
+        List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
+        if (methods == null) return;
+
+        for (CallableDeclaration<?> mToRemove : methods) {
+            if (isCurrentCuParent) {
+                promoteVisibilityIfNeeded(mToRemove);
+            } else {
+                processChildMethod(mToRemove, extractedMethod);
+            }
+        }
+    }
+
+    private void promoteVisibilityIfNeeded(CallableDeclaration<?> mToRemove) {
+        if (mToRemove instanceof MethodDeclaration md) {
+            if (md.isPrivate()) {
+                md.setModifiers(Modifier.Keyword.PROTECTED);
+            } else if (md.isPublic()) {
+                md.setModifiers(Modifier.Keyword.PUBLIC);
+            }
+        }
     }
 
     private void addImportIfNeeded(CompilationUnit currentCu) {
@@ -288,37 +300,9 @@ public class ParentClassExtractor extends AbstractExtractor {
     }
 
     private @NonNull MethodDeclaration createMethod(CallableDeclaration<?> originalMethod) {
-        MethodDeclaration newMethod = null;
-        if (originalMethod instanceof MethodDeclaration md) {
-            newMethod = md.clone();
-        } else if (originalMethod instanceof ConstructorDeclaration cd) {
-            newMethod = new MethodDeclaration();
-            newMethod.setName(recommendation.getSuggestedMethodName());
-            NodeList<com.github.javaparser.ast.body.Parameter> clonedParams = new NodeList<>();
-            cd.getParameters().forEach(p -> clonedParams.add(p.clone()));
-            newMethod.setParameters(clonedParams);
-            newMethod.setBody(cd.getBody().clone());
-            newMethod.setType("void");
-        }
-        
-        if (newMethod == null) {
-            throw new IllegalArgumentException("Unsupported callable type");
-        }
-
+        MethodDeclaration newMethod = createMethodDeclaration(originalMethod);
         newMethod.getAnnotations().clear();
-        // Clear existing modifiers
-        newMethod.getModifiers().clear();
-        // Preserve public visibility, otherwise use protected
-        // (Private methods need to be promoted to protected so subclasses can call super)
-        if (originalMethod.isPublic()) {
-            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
-        } else {
-            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
-        }
-        // Preserve static modifier if present
-        if (originalMethod.isStatic()) {
-            newMethod.addModifier(Modifier.Keyword.STATIC);
-        }
+        configureMethodModifiers(originalMethod, newMethod);
 
         Set<String> declaredVars = new HashSet<>();
         newMethod.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
@@ -327,22 +311,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
-        final MethodDeclaration finalMethod = newMethod;
-        recommendation.getSuggestedParameters().forEach(p -> {
-            String targetName = paramNameOverrides.getOrDefault(p, p.getName());
-            
-            // Skip if this parameter is actually a field we are extracting to the parent
-            if (fieldsToExtract.containsKey(targetName)) {
-                return;
-            }
-
-            boolean exists = finalMethod.getParameters().stream()
-                    .anyMatch(param -> param.getNameAsString().equals(targetName));
-            
-            if (!exists) {
-                finalMethod.addParameter(p.getType(), targetName);
-            }
-        });
+        addSuggestedParameters(newMethod, paramNameOverrides);
 
         if (newMethod.getBody().isPresent()) {
             BlockStmt body = newMethod.getBody().get();
@@ -538,20 +507,29 @@ public class ParentClassExtractor extends AbstractExtractor {
     }
 
     private void validateNoFieldUsage(CallableDeclaration<?> method) {
-        // Collect field names used in any of the involved classes or parent
-        Set<String> usedFieldNames = new HashSet<>();
+        Set<String> allClassFieldNames = collectClassFieldNames();
+        Set<String> usedFieldNames = identifyUsedFieldNames(method, allClassFieldNames);
+
+        for (String fieldName : usedFieldNames) {
+            checkFieldCompatibility(fieldName);
+        }
+    }
+
+    private Set<String> collectClassFieldNames() {
         Set<String> allClassFieldNames = new HashSet<>();
-        
         for (CompilationUnit involvedCu : involvedCus) {
-            findPrimaryClass(involvedCu).ifPresent(c -> 
-                c.getFields().forEach(f -> f.getVariables().forEach(v -> allClassFieldNames.add(v.getNameAsString())))
+            findPrimaryClass(involvedCu).ifPresent(c ->
+                    c.getFields().forEach(f -> f.getVariables().forEach(v -> allClassFieldNames.add(v.getNameAsString())))
             );
         }
-        
-        findExistingCommonParent().ifPresent(c -> 
-            c.getFields().forEach(f -> f.getVariables().forEach(v -> allClassFieldNames.add(v.getNameAsString())))
+        findExistingCommonParent().ifPresent(c ->
+                c.getFields().forEach(f -> f.getVariables().forEach(v -> allClassFieldNames.add(v.getNameAsString())))
         );
+        return allClassFieldNames;
+    }
 
+    private Set<String> identifyUsedFieldNames(CallableDeclaration<?> method, Set<String> allClassFieldNames) {
+        Set<String> usedFieldNames = new HashSet<>();
         method.findAll(NameExpr.class).forEach(name -> {
             String identifier = name.getNameAsString();
             if (allClassFieldNames.contains(identifier) && !isShadowed(identifier, method)) {
@@ -559,64 +537,58 @@ public class ParentClassExtractor extends AbstractExtractor {
             }
         });
         method.findAll(FieldAccessExpr.class).forEach(fieldAccess -> {
-            if (!(fieldAccess.getScope() instanceof ThisExpr
-                    || fieldAccess.getScope() instanceof SuperExpr)) {
-                return;
-            }
-            String fieldName = fieldAccess.getNameAsString();
-            if (allClassFieldNames.contains(fieldName) && !isShadowed(fieldName, method)) {
-                usedFieldNames.add(fieldName);
+            if (fieldAccess.getScope() instanceof ThisExpr || fieldAccess.getScope() instanceof SuperExpr) {
+                String fieldName = fieldAccess.getNameAsString();
+                if (allClassFieldNames.contains(fieldName) && !isShadowed(fieldName, method)) {
+                    usedFieldNames.add(fieldName);
+                }
             }
         });
+        return usedFieldNames;
+    }
 
-        // For each used field, verify it's present and compatible across all classes
-        for (String fieldName : usedFieldNames) {
-            Type type = null;
-            boolean extractable = true;
+    private void checkFieldCompatibility(String fieldName) {
+        Type type = null;
+        boolean extractable = true;
 
-            for (CompilationUnit involvedCu : involvedCus) {
-                Optional<ClassOrInterfaceDeclaration> classDecl = findPrimaryClass(involvedCu);
-                
-                // Skip checking the parent class if it's already in the cluster
-                if (classDecl.isPresent() && classDecl.get().getNameAsString().equals(parentClassName)) {
+        for (CompilationUnit involvedCu : involvedCus) {
+            Optional<ClassOrInterfaceDeclaration> classDecl = findPrimaryClass(involvedCu);
+            if (classDecl.isPresent() && classDecl.get().getNameAsString().equals(parentClassName)) {
+                continue;
+            }
+
+            if (classDecl.isEmpty()) {
+                extractable = false;
+                break;
+            }
+
+            Optional<com.github.javaparser.ast.body.FieldDeclaration> field = classDecl.get().getFieldByName(fieldName);
+            if (field.isEmpty()) {
+                Optional<ClassOrInterfaceDeclaration> parentRef = findExistingCommonParent();
+                if (parentRef.isPresent() && parentRef.get().getFieldByName(fieldName).isPresent()) {
+                    if (type == null) {
+                        type = parentRef.get().getFieldByName(fieldName).get().getElementType();
+                    }
                     continue;
                 }
-
-                if (classDecl.isEmpty()) {
-                    extractable = false;
-                    break;
-                }
-
-                Optional<com.github.javaparser.ast.body.FieldDeclaration> field = classDecl.get().getFieldByName(fieldName);
-                if (field.isEmpty()) {
-                    // If not in child, maybe it's already in the parent
-                    Optional<ClassOrInterfaceDeclaration> parentRef = findExistingCommonParent();
-                    if (parentRef.isPresent() && parentRef.get().getFieldByName(fieldName).isPresent()) {
-                        if (type == null) {
-                            Type parentType = parentRef.get().getFieldByName(fieldName).get().getElementType();
-                            type = parentType;
-                        }
-                        continue;
-                    }
-                    extractable = false;
-                    break;
-                }
-
-                Type currentType = field.get().getElementType();
-                if (type == null) {
-                    type = currentType;
-                } else if (!type.asString().equals(currentType.asString())) {
-                    extractable = false;
-                    break;
-                }
+                extractable = false;
+                break;
             }
 
-            if (extractable && type != null) {
-                fieldsToExtract.put(fieldName, type.clone());
-            } else {
-                throw new IllegalStateException(
-                        "Skipped: Method uses field '" + fieldName + "' which is not present or compatible in all classes.");
+            Type currentType = field.get().getElementType();
+            if (type == null) {
+                type = currentType;
+            } else if (!type.asString().equals(currentType.asString())) {
+                extractable = false;
+                break;
             }
+        }
+
+        if (extractable && type != null) {
+            fieldsToExtract.put(fieldName, type.clone());
+        } else {
+            throw new IllegalStateException(
+                    "Skipped: Method uses field '" + fieldName + "' which is not present or compatible in all classes.");
         }
     }
 
@@ -663,9 +635,6 @@ public class ParentClassExtractor extends AbstractExtractor {
     /**
      * Check if a name expression is shadowed by a local variable or parameter.
      */
-    private boolean isShadowed(NameExpr name, CallableDeclaration<?> method) {
-        return isShadowed(name.getNameAsString(), method);
-    }
 
     private boolean isShadowed(String identifier, CallableDeclaration<?> method) {
         // Check parameters
@@ -691,43 +660,38 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         recommendation.getSuggestedParameters().forEach(param -> {
             String targetName = paramNameOverrides.getOrDefault(param, param.getName());
-            
-            if (fieldsToExtract.containsKey(targetName)) {
-                return;
-            }
+            if (fieldsToExtract.containsKey(targetName)) return;
 
             boolean exists = childMethod.getParameters().stream()
                     .anyMatch(p -> p.getNameAsString().equals(targetName));
+            if (exists) return;
 
-            if (exists) {
-                return;
-            }
-
-            Expression val = null;
-            if (matchingSeq.isPresent() && param.getStartLine() != null && param.getStartColumn() != null) {
-                // Determine relative coordinates in primary sequence
-                StatementSequence primary = cluster.primary();
-                int lineOffset = param.getStartLine() - primary.range().startLine();
-                int colOffset = param.getStartColumn() - (lineOffset == 0 ? primary.range().startColumn() : 1);
-
-                // Apply to child sequence
-                int targetLine = matchingSeq.get().range().startLine() + lineOffset;
-                int targetCol = (lineOffset == 0 ? matchingSeq.get().range().startColumn() : 1) + colOffset;
-
-                val = findNodeByCoordinates(matchingSeq.get(), targetLine, targetCol);
-            }
-
-            if (val == null) {
-                // Fallback to type-based heuristic
-                val = findLiteralForParameter(childMethod, param);
-            }
-
+            Expression val = determineParameterValue(matchingSeq, param, childMethod);
             if (val != null) {
                 call.addArgument(val.clone());
             } else {
                 call.addArgument(Reflect.createLiteralExpression(Reflect.getDefault(param.getType().asString())));
             }
         });
+    }
+
+    private Expression determineParameterValue(Optional<StatementSequence> matchingSeq, ParameterSpec param, CallableDeclaration<?> childMethod) {
+        Expression val = null;
+        if (matchingSeq.isPresent() && param.getStartLine() != null && param.getStartColumn() != null) {
+            StatementSequence primary = cluster.primary();
+            int lineOffset = param.getStartLine() - primary.range().startLine();
+            int colOffset = param.getStartColumn() - (lineOffset == 0 ? primary.range().startColumn() : 1);
+
+            int targetLine = matchingSeq.get().range().startLine() + lineOffset;
+            int targetCol = (lineOffset == 0 ? matchingSeq.get().range().startColumn() : 1) + colOffset;
+
+            val = findNodeByCoordinates(matchingSeq.get(), targetLine, targetCol);
+        }
+
+        if (val == null) {
+            val = findLiteralForParameter(childMethod, param);
+        }
+        return val;
     }
 
     private void computeParamNameOverrides(CallableDeclaration<?> method) {
@@ -922,5 +886,29 @@ public class ParentClassExtractor extends AbstractExtractor {
         static FunctionalPredicateInfo disabled() {
             return new FunctionalPredicateInfo(false, Set.of(), "", "", "", "");
         }
+    }
+    private void configureMethodModifiers(CallableDeclaration<?> originalMethod, MethodDeclaration newMethod) {
+        newMethod.getModifiers().clear();
+        if (originalMethod.isPublic()) {
+            newMethod.setModifiers(Modifier.Keyword.PUBLIC);
+        } else {
+            newMethod.setModifiers(Modifier.Keyword.PROTECTED);
+        }
+        if (originalMethod.isStatic()) {
+            newMethod.addModifier(Modifier.Keyword.STATIC);
+        }
+    }
+
+    private void addSuggestedParameters(MethodDeclaration newMethod, Map<ParameterSpec, String> paramNameOverrides) {
+        recommendation.getSuggestedParameters().forEach(p -> {
+            String targetName = paramNameOverrides.getOrDefault(p, p.getName());
+            if (!fieldsToExtract.containsKey(targetName)) {
+                boolean exists = newMethod.getParameters().stream()
+                        .anyMatch(param -> param.getNameAsString().equals(targetName));
+                if (!exists) {
+                    newMethod.addParameter(p.getType(), targetName);
+                }
+            }
+        });
     }
 }

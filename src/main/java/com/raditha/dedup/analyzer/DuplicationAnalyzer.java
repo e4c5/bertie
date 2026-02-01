@@ -506,25 +506,33 @@ public class DuplicationAnalyzer {
      * Since all pairs in the group have sameMethodPair==true, we only check physical overlap.
      */
     private List<SimilarityPair> removeOverlapsInGroup(List<SimilarityPair> group) {
-
-        EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
-        Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
-        var escapeCount = (java.util.function.ToIntFunction<StatementSequence>) seq ->
+        final EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
+        final Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
+        final java.util.function.ToIntFunction<StatementSequence> escapeCount = seq ->
                 escapeCounts.computeIfAbsent(seq, s -> escapeAnalyzer.analyze(s).size());
 
-        // Sort by escape risk (ascending), then scope (descending), then statement count, then start line
+        group.sort(createSimilarityPairComparator(escapeCount));
 
-        group.sort((a, b) -> {
-            // Priority 0: Fewest Escapes (Safety First!)
+        List<SimilarityPair> filtered = new ArrayList<>();
+        for (SimilarityPair current : group) {
+            if (noneOverlap(current, filtered)) {
+                filtered.add(current);
+            }
+        }
+        return filtered;
+    }
+
+    private java.util.Comparator<SimilarityPair> createSimilarityPairComparator(
+            java.util.function.ToIntFunction<StatementSequence> escapeCount) {
+        return (a, b) -> {
+            // Priority 0: Fewest Escapes
             int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
             int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
             int escapeCompare = Integer.compare(escapesA, escapesB);
-            if (escapeCompare != 0) {
-                return escapeCompare;
-            }
+            if (escapeCompare != 0) return escapeCompare;
 
-            // Priority 1: Full Body Match (Tie-breaker for safe code)
-            boolean bodyA = isFullBody(a.seq1()); 
+            // Priority 1: Full Body Match
+            boolean bodyA = isFullBody(a.seq1());
             boolean bodyB = isFullBody(b.seq1());
             if (bodyA != bodyB) return bodyA ? -1 : 1;
 
@@ -533,40 +541,24 @@ public class DuplicationAnalyzer {
             int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
             int scopeCompare = Integer.compare(scopeB, scopeA);
             if (scopeCompare != 0) return scopeCompare;
-            
-            // Priority 3: Largest Size
-            int sizeCompare = Integer.compare(
-                    b.seq1().statements().size(),
-                    a.seq1().statements().size());
-            if (sizeCompare != 0) return sizeCompare;
-            
-            // Priority 4: Earliest Appearance
-            return Integer.compare(
-                    a.seq1().range().startLine(),
-                    b.seq1().range().startLine());
-        });
 
-        // Filter overlaps - same logic as original O(N²) but within group
-        List<SimilarityPair> filtered = new ArrayList<>();
-        for (SimilarityPair current : group) {
-            boolean overlaps = false;
-            
-            for (SimilarityPair kept : filtered) {
-                // Within same method-pair group, only check physical overlap
-                // (sameMethodPair is guaranteed true by grouping)
-                if (isPhysicallyOverlapping(current.seq1(), kept.seq1()) ||
-                    isPhysicallyOverlapping(current.seq2(), kept.seq2())) {
-                    overlaps = true;
-                    break;
-                }
-            }
-            
-            if (!overlaps) {
-                filtered.add(current);
+            // Priority 3: Largest Size
+            int sizeCompare = Integer.compare(b.seq1().statements().size(), a.seq1().statements().size());
+            if (sizeCompare != 0) return sizeCompare;
+
+            // Priority 4: Earliest Appearance
+            return Integer.compare(a.seq1().range().startLine(), b.seq1().range().startLine());
+        };
+    }
+
+    private boolean noneOverlap(SimilarityPair current, List<SimilarityPair> filtered) {
+        for (SimilarityPair kept : filtered) {
+            if (isPhysicallyOverlapping(current.seq1(), kept.seq1()) ||
+                isPhysicallyOverlapping(current.seq2(), kept.seq2())) {
+                return false;
             }
         }
-        
-        return filtered;
+        return true;
     }
 
     /**
