@@ -129,6 +129,9 @@ public class VariationAnalysis {
 
         /**
          * Sets the varying expressions.
+         *
+         * @param varyingExpressions list of varying expressions
+         * @return this builder
          */
         public Builder varyingExpressions(List<VaryingExpression> varyingExpressions) {
             this.varyingExpressions = varyingExpressions;
@@ -137,6 +140,9 @@ public class VariationAnalysis {
 
         /**
          * Sets the variable references.
+         *
+         * @param variableReferences set of variable references
+         * @return this builder
          */
         public Builder variableReferences(Set<VariableReference> variableReferences) {
             this.variableReferences = variableReferences;
@@ -145,6 +151,9 @@ public class VariationAnalysis {
 
         /**
          * Sets the declared internal variables.
+         *
+         * @param declaredInternalVariables set of internal variables
+         * @return this builder
          */
         public Builder declaredInternalVariables(Set<String> declaredInternalVariables) {
             this.declaredInternalVariables = declaredInternalVariables;
@@ -153,6 +162,9 @@ public class VariationAnalysis {
 
         /**
          * Sets the variations.
+         *
+         * @param variations list of variations
+         * @return this builder
          */
         public Builder variations(List<Variation> variations) {
             this.variations = variations;
@@ -161,6 +173,9 @@ public class VariationAnalysis {
 
         /**
          * Sets the expression bindings.
+         *
+         * @param exprBindings map of expression bindings
+         * @return this builder
          */
         public Builder exprBindings(Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings) {
             this.exprBindings = exprBindings;
@@ -169,6 +184,8 @@ public class VariationAnalysis {
 
         /**
          * Builds the VariationAnalysis instance.
+         *
+         * @return new VariationAnalysis
          */
         public VariationAnalysis build() {
             return new VariationAnalysis(this);
