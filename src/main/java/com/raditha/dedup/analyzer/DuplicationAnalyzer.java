@@ -3,7 +3,6 @@ package com.raditha.dedup.analyzer;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analysis.BoundaryRefiner;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
-import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.extraction.StatementExtractor;
 import com.raditha.dedup.filter.PreFilterChain;
@@ -265,15 +264,14 @@ public class DuplicationAnalyzer {
     private List<SimilarityPair> findCandidates(List<StatementSequence> sequences) {
         if (DuplicationDetectorSettings.getEnableLSH()) {
             return findCandidatesLSH(sequences);
-        } else {
-            // Brute force fallback - requires full normalization
-            List<NormalizedSequence> normalizedSequences = sequences.stream()
-                .map(seq -> new NormalizedSequence(
-                        seq,
-                        astNormalizer.normalize(seq.statements())))
-                .toList();
-            return findCandidatesBruteForce(normalizedSequences);
         }
+        // Brute force fallback - requires full normalization
+        List<NormalizedSequence> normalizedSequences = sequences.stream()
+            .map(seq -> new NormalizedSequence(
+                    seq,
+                    astNormalizer.normalize(seq.statements())))
+            .toList();
+        return findCandidatesBruteForce(normalizedSequences);
     }
 
     /**
@@ -332,28 +330,23 @@ public class DuplicationAnalyzer {
      * robustness check: returns true if sequences are in the same method
      * or if method is null (e.g. static block) and they are in same file
      */
-    private boolean isPhysicallyOverlapping(StatementSequence s1, StatementSequence s2) {
-        // Different files -> cannot overlap
-        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null
-                && !s1.sourceFilePath().equals(s2.sourceFilePath())) {
+    boolean isPhysicallyOverlapping(StatementSequence s1, StatementSequence s2) {
+        Path p1 = s1.sourceFilePath();
+        Path p2 = s2.sourceFilePath();
+
+        // Must be in the same file to overlap
+        if (p1 == null || p2 == null || !p1.equals(p2)) {
             return false;
         }
 
+        // If both are within methods/constructors, they must be the SAME one
         var m1 = s1.containingCallable();
         var m2 = s2.containingCallable();
-
-        if (m1 != null && m2 != null) {
-            // Same method -> check if line ranges overlap
-            return m1.equals(m2) && rangesOverlap(s1.range(), s2.range());
+        if (m1 != null && m2 != null && !m1.equals(m2)) {
+            return false;
         }
 
-        // If one or both methods are null (e.g. static initializer logic),
-        // check if they are in the same file and their ranges overlap
-        if (s1.sourceFilePath() != null && s2.sourceFilePath() != null) {
-            return s1.sourceFilePath().equals(s2.sourceFilePath()) && rangesOverlap(s1.range(), s2.range());
-        }
-
-        return false;
+        return rangesOverlap(s1.range(), s2.range());
     }
 
 
