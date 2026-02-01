@@ -70,6 +70,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         validateNoInnerClassUsage(primaryCu, callableToExtract);
         validateNoFieldUsage(callableToExtract);
         validateInheritance();
+        validateStructuralCompatibility(primaryCu, callableToExtract);
 
         computeParamNameOverrides(callableToExtract);
 
@@ -228,6 +229,22 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         if (parentNames.size() > 1) {
             throw new IllegalStateException("Skipped: Involved classes have conflicting inheritance hierarchies.");
+        }
+    }
+
+    private void validateStructuralCompatibility(CompilationUnit cu, CallableDeclaration<?> callable) {
+        Optional<ClassOrInterfaceDeclaration> primaryClassOpt = findPrimaryClass(cu);
+        
+        if (primaryClassOpt.isEmpty()) {
+             throw new IllegalStateException("Skipped: No primary class found.");
+        }
+        
+        ClassOrInterfaceDeclaration primaryClass = primaryClassOpt.get();
+        // Check if callable is a direct member of primaryClass
+        // We use reference equality on the parent node
+        Optional<Node> parent = callable.getParentNode();
+        if (parent.isEmpty() || parent.get() != primaryClass) {
+             throw new IllegalStateException("Skipped: Method is in a nested type (Enum, Inner Class) or not a direct member of the primary class.");
         }
     }
 
