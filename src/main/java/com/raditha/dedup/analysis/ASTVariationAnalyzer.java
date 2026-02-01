@@ -346,7 +346,13 @@ public class ASTVariationAnalyzer {
 
         // Handle Reference Types
         if (t1 instanceof ResolvedReferenceType && t2 instanceof ResolvedReferenceType) {
-            return findLCA((ResolvedReferenceType) t1, (ResolvedReferenceType) t2);
+            try {
+                return findLCA((ResolvedReferenceType) t1, (ResolvedReferenceType) t2);
+            } catch (Exception e) {
+                // If resolution fails, fallback to Object
+                logger.debug("Failed to resolve LCA for types {} and {}: {}", t1.describe(), t2.describe(), e.getMessage());
+                return null;
+            }
         }
 
         return null; // Fallback to Object (implied by null)
@@ -355,19 +361,11 @@ public class ASTVariationAnalyzer {
     private ResolvedType findLCA(ResolvedReferenceType r1, ResolvedReferenceType r2) {
         Set<String> ancestors1 = new HashSet<>();
         ancestors1.add(r1.getQualifiedName());
-        try {
-            r1.getAllAncestors().forEach(a -> ancestors1.add(a.getQualifiedName()));
-        } catch (Exception e) {
-            // ignore resolution errors
-        }
+        r1.getAllAncestors().forEach(a -> ancestors1.add(a.getQualifiedName()));
 
         List<ResolvedReferenceType> ancestors2 = new ArrayList<>();
         ancestors2.add(r2);
-        try {
-            ancestors2.addAll(r2.getAllAncestors());
-        } catch (Exception e) {
-            // ignore resolution errors
-        }
+        ancestors2.addAll(r2.getAllAncestors());
 
         List<ResolvedReferenceType> common = new ArrayList<>();
         for (ResolvedReferenceType t : ancestors2) {
