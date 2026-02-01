@@ -44,12 +44,6 @@
             <artifactId>javaparser-core</artifactId>
             <version>${javaparser.version}</version>
         </dependency>
-        <dependency>
-            <groupId>com.github.javaparser</groupId>
-            <artifactId>javaparser-symbol-solver-core</artifactId>
-            <version>${javaparser.version}</version>
-            <scope>test</scope>
-        </dependency>
 
         <!-- Logging -->
         <dependency>

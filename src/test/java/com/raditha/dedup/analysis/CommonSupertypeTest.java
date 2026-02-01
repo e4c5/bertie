@@ -165,18 +165,19 @@ class CommonSupertypeTest {
 
         VaryingExpression var = variations.get(0);
 
-        // Should be null (Object) because List<String> is not assignable to List<Integer> and vice versa
-        // And their common supertype (List<?>) is not easily represented as a single concrete type
-        // without wildcards, which we might not handle yet.
-        // Or it might resolve to raw List.
-        // Crucially, it must NOT be List<Integer>.
+        // Should be null (Object) or a safe supertype (raw List or Object).
+        // It must NOT be List<Integer> or List<String>.
 
-        if (var.type() != null) {
-             assertNotEquals("java.util.List<java.lang.Integer>", var.type().describe());
-             // Ensure it is safe (e.g. java.lang.Object or raw List)
-             // For now, our fix returns null if assignability check fails
-        } else {
-            assertNull(var.type());
+        String typeDesc = var.type() != null ? var.type().describe() : null;
+
+        if (typeDesc != null) {
+            boolean isSafe = typeDesc.equals("java.lang.Object") ||
+                             typeDesc.equals("java.util.List") ||
+                             typeDesc.equals("java.util.Collection");
+
+            assertTrue(isSafe,
+                "Common type was unsafe: " + typeDesc + ". Expected null, Object, or raw List/Collection.");
         }
+        // Implicitly passes if null
     }
 }
