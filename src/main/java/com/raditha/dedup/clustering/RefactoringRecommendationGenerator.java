@@ -2,6 +2,8 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
@@ -168,11 +170,11 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean isMethodBody(StatementSequence seq) {
-        var method = seq.containingMethod();
-        if (method == null || method.getBody().isEmpty()) {
+        CallableDeclaration<?> method = seq.containingCallable();
+        if (method == null || seq.getCallableBody().isEmpty()) {
             return false;
         }
-        var bodyStmts = method.getBody().get().getStatements();
+        var bodyStmts = seq.getCallableBody().get().getStatements();
         var seqStmts = seq.statements();
         if (bodyStmts.size() != seqStmts.size()) {
             return false;
@@ -199,7 +201,13 @@ public class RefactoringRecommendationGenerator {
         // rather than a Utility class.
         // This matches the original behavior and ensures Service classes
         // are refactored into BaseService hierarchies.
-        return seq.containingMethod() != null && !seq.containingMethod().isStatic();
+        CallableDeclaration<?> method = seq.containingCallable();
+        if (method == null) return false;
+        if (method instanceof MethodDeclaration m) {
+            return !m.isStatic();
+        }
+        // Constructors are not static, so they use instance state.
+        return true;
     }
 
     private boolean hasNestedReturn(StatementSequence seq) {
@@ -254,8 +262,10 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
-        var containingClass = cluster.primary().containingMethod()
-                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+        CallableDeclaration<?> callable = cluster.primary().containingCallable();
+        if (callable == null) return "extractedMethod";
+
+        var containingClass = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
                 .orElse(null);
 
         return nameGenerator.generateName(
@@ -285,7 +295,7 @@ public class RefactoringRecommendationGenerator {
      * Get all field names from the containing class.
      */
     private Set<String> getFieldNames(StatementSequence sequence) {
-        var method = sequence.containingMethod();
+        var method = sequence.containingCallable();
         if (method == null) {
             return Collections.emptySet();
         }

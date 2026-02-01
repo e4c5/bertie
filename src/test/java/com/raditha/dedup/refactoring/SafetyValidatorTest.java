@@ -2,6 +2,7 @@ package com.raditha.dedup.refactoring;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.*;
@@ -51,7 +52,7 @@ class SafetyValidatorTest {
     void testValidateSuccess() {
         StatementSequence seq = mock(StatementSequence.class);
         when(cluster.primary()).thenReturn(seq);
-        when(seq.containingMethod()).thenReturn(null); // No class context, no conflict possible
+        when(seq.containingCallable()).thenReturn(null); // No class context, no conflict possible
         
         SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
         
@@ -66,7 +67,7 @@ class SafetyValidatorTest {
         ClassOrInterfaceDeclaration clazz = cu.getClassByName("A").get();
         
         when(cluster.primary()).thenReturn(seq);
-        when(seq.containingMethod()).thenReturn(clazz.getMethods().get(0));
+        when(seq.containingCallable()).thenReturn((CallableDeclaration) clazz.getMethods().get(0));
         when(recommendation.getSuggestedMethodName()).thenReturn("existingMethod");
         
         SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
@@ -195,8 +196,8 @@ class SafetyValidatorTest {
         StatementSequence seq1 = mock(StatementSequence.class);
         StatementSequence seq2 = mock(StatementSequence.class);
         
-        when(seq1.containingMethod()).thenReturn(clazz.getMethods().get(0));
-        when(seq2.containingMethod()).thenReturn(clazz.getMethods().get(1));
+        when(seq1.containingCallable()).thenReturn((CallableDeclaration) clazz.getMethods().get(0));
+        when(seq2.containingCallable()).thenReturn((CallableDeclaration) clazz.getMethods().get(1));
         when(seq1.statements()).thenReturn(List.of(stmt1));
         when(seq2.statements()).thenReturn(List.of(stmt2));
         

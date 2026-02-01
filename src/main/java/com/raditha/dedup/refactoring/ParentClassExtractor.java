@@ -3,6 +3,7 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
@@ -42,11 +43,16 @@ public class ParentClassExtractor extends AbstractExtractor {
     private FunctionalPredicateInfo functionalPredicate;
 
     private MethodDeclaration getMethodToExtract(StatementSequence primary) {
-        MethodDeclaration methodToExtract = primary.containingMethod();
+        CallableDeclaration<?> callable = primary.containingCallable();
 
-        if (methodToExtract == null) {
-            throw new IllegalArgumentException("No containing method found");
+        if (callable == null) {
+            throw new IllegalArgumentException("No containing callable found");
         }
+
+        if (!(callable instanceof MethodDeclaration)) {
+            throw new IllegalArgumentException("Parent class extraction only supported for methods.");
+        }
+        MethodDeclaration methodToExtract = (MethodDeclaration) callable;
 
         Optional<ClassOrInterfaceDeclaration> primaryClass = findPrimaryClass(primary.compilationUnit());
         if (primaryClass.isEmpty()) {
@@ -112,17 +118,20 @@ public class ParentClassExtractor extends AbstractExtractor {
                 removeExtractedFields(currentCu);
             }
 
-            List<MethodDeclaration> methods = methodsToRemove.get(currentCu);
+            List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
             if (methods != null) {
-                for (MethodDeclaration methodToRemove : methods) {
+                for (CallableDeclaration<?> methodToRemove : methods) {
+                    if (!(methodToRemove instanceof MethodDeclaration)) continue;
+                    MethodDeclaration mToRemove = (MethodDeclaration) methodToRemove;
+
                     if (isCurrentCuParent) {
-                        if (methodToRemove.isPrivate()) {
-                            methodToRemove.setModifiers(Modifier.Keyword.PROTECTED);
-                        } else if (methodToRemove.isPublic()) {
-                            methodToRemove.setModifiers(Modifier.Keyword.PUBLIC);
+                        if (mToRemove.isPrivate()) {
+                            mToRemove.setModifiers(Modifier.Keyword.PROTECTED);
+                        } else if (mToRemove.isPublic()) {
+                            mToRemove.setModifiers(Modifier.Keyword.PUBLIC);
                         }
                     } else {
-                        processChildMethod(methodToRemove, methodToExtract);
+                        processChildMethod(mToRemove, methodToExtract);
                     }
                 }
             }
@@ -637,7 +646,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void addLiteralArguments(MethodCallExpr call, MethodDeclaration childMethod) {
         Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
-                .filter(seq -> seq.containingMethod().getNameAsString().equals(childMethod.getNameAsString()) &&
+                .filter(seq -> seq.containingCallable().getNameAsString().equals(childMethod.getNameAsString()) &&
                         seq.sourceFilePath().equals(childMethod.findCompilationUnit()
                                 .flatMap(CompilationUnit::getStorage)
                                 .map(CompilationUnit.Storage::getPath)
@@ -771,7 +780,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             methodNames.add(call.getNameAsString());
         }
 
-        String paramType = "Predicate<" + resolveScopeType(scopeName, cluster.primary().containingMethod()) + ">";
+        String paramType = "Predicate<" + resolveScopeType(scopeName, (MethodDeclaration) cluster.primary().containingCallable()) + ">";
         String parentName = computeFunctionalParentName();
 
         return new FunctionalPredicateInfo(true, methodNames, scopeName, "filter", paramType, parentName);
@@ -840,7 +849,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         if (suggested != null && !suggested.isEmpty()) {
             return suggested;
         }
-        MethodDeclaration method = cluster.primary().containingMethod();
+        CallableDeclaration<?> method = cluster.primary().containingCallable();
         return method != null ? method.getNameAsString() : "extractedMethod";
     }
 

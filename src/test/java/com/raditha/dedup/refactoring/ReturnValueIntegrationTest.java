@@ -114,7 +114,7 @@ class ReturnValueIntegrationTest {
         // File has BOTH int and boolean duplicates - find the int one (calculateTotal
         // methods)
         DuplicateCluster intCluster = report.clusters().stream()
-                .filter(c -> c.primary().containingMethod().getNameAsString().contains("calculate"))
+                .filter(c -> c.primary().containingCallable().getNameAsString().contains("calculate"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Should find calculateTotal duplicate returning int"));
 

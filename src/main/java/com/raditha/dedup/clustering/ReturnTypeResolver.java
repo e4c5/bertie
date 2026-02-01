@@ -2,10 +2,14 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
@@ -219,8 +223,8 @@ public class ReturnTypeResolver {
         }
 
         // 2. Check field declarations in the containing class
-        if (sequence.containingMethod() != null) {
-            var classDecl = sequence.containingMethod()
+        if (sequence.containingCallable() != null) {
+            var classDecl = sequence.containingCallable()
                     .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
             if (classDecl.isPresent()) {
                 for (var field : classDecl.get().getFields()) {
@@ -231,7 +235,7 @@ public class ReturnTypeResolver {
                     }
                 }
             }
-            for (var param : sequence.containingMethod().getParameters()) {
+            for (var param : sequence.containingCallable().getParameters()) {
                 if (param.getNameAsString().equals(varName)) {
                     return resolveType(param.getType(), param, sequence);
                 }
@@ -239,8 +243,8 @@ public class ReturnTypeResolver {
         }
 
         // 3. Scan method body for variables declared outside the block
-        if (sequence.containingMethod() != null && sequence.containingMethod().getBody().isPresent()) {
-            Optional<String> type = findVarTypeInStatement(sequence.containingMethod().getBody().get(), varName, sequence);
+        if (sequence.containingCallable() != null && sequence.getCallableBody().isPresent()) {
+            Optional<String> type = findVarTypeInStatement(sequence.getCallableBody().get(), varName, sequence);
             if (type.isPresent()) {
                 return type.get();
             }
@@ -339,8 +343,8 @@ public class ReturnTypeResolver {
                 }
             } else {
                 // Implicit scope (this)
-                if (sequence.containingMethod() != null) {
-                    var classDecl = sequence.containingMethod()
+                if (sequence.containingCallable() != null) {
+                    var classDecl = sequence.containingCallable()
                             .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
                     if (classDecl.isPresent()) {
                         String methodName = methodCall.getNameAsString();
@@ -378,7 +382,7 @@ public class ReturnTypeResolver {
 
     @SuppressWarnings("unchecked")
     private Optional<Type> extractGenericTypeFromScope(StatementSequence sequence, String scopeName) {
-        var classDecl = sequence.containingMethod()
+        var classDecl = sequence.containingCallable()
                 .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
         if (classDecl.isEmpty()) {
             return Optional.empty();
