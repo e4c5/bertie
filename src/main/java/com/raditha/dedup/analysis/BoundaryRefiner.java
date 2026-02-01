@@ -367,6 +367,13 @@ public class BoundaryRefiner {
                 original.sourceFilePath());
     }
 
+    /**
+     * Create a range covering the span from the first to the last statement.
+     *
+     * @param first The first statement
+     * @param last  The last statement
+     * @return A Range object covering the span
+     */
     public static Range createRange(Statement first, Statement last) {
         com.github.javaparser.Range firstRange = first.getRange()
                 .orElseThrow(() -> new IllegalStateException("Statement missing range"));

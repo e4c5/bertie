@@ -36,6 +36,13 @@ public class UtilityClassExtractor extends AbstractExtractor {
 
     private String utilityClassName;
 
+    /**
+     * Extracts duplicates to a utility class.
+     *
+     * @param cluster The duplicate cluster
+     * @param recommendation The refactoring recommendation
+     * @return Result of the refactoring operation
+     */
     @Override
     public MethodExtractor.RefactoringResult refactor(DuplicateCluster cluster,
                                                       RefactoringRecommendation recommendation) {

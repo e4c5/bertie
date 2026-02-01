@@ -105,6 +105,11 @@ public class MinHash {
         return (int) h;
     }
 
+    /**
+     * Gets the number of hash functions used for the signature.
+     *
+     * @return the number of hash functions
+     */
     public int getNumHashFunctions() {
         return numHashFunctions;
     }

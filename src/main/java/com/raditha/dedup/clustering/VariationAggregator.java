@@ -25,10 +25,18 @@ public class VariationAggregator {
 
     private final ASTVariationAnalyzer astAnalyzer;
 
+    /**
+     * Creates a new aggregator with a default AST variation analyzer.
+     */
     public VariationAggregator() {
         this.astAnalyzer = new ASTVariationAnalyzer();
     }
 
+    /**
+     * Creates a new aggregator with a specific AST variation analyzer.
+     *
+     * @param astAnalyzer the analyzer to use
+     */
     public VariationAggregator(ASTVariationAnalyzer astAnalyzer) {
         this.astAnalyzer = astAnalyzer;
     }

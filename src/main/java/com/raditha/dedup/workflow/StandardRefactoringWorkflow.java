@@ -17,10 +17,25 @@ public class StandardRefactoringWorkflow implements RefactoringWorkflow {
 
     private final RefactoringEngine engine;
 
+    /**
+     * Creates a new standard refactoring workflow.
+     *
+     * @param engine the refactoring engine to use
+     */
     public StandardRefactoringWorkflow(RefactoringEngine engine) {
         this.engine = engine;
     }
 
+    /**
+     * Executes the standard refactoring workflow.
+     *
+     * @param clazz           the class to refactor
+     * @param initialClusters the clusters of duplicates found in the class
+     * @param cu              the compilation unit containing the class
+     * @return a session tracking the refactoring results
+     * @throws IOException          if an I/O error occurs
+     * @throws InterruptedException if the process is interrupted
+     */
     @Override
     public RefactoringSession execute(ClassOrInterfaceDeclaration clazz,
                                       List<DuplicateCluster> initialClusters,

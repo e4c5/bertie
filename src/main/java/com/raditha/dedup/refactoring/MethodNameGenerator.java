@@ -18,6 +18,9 @@ import java.util.Set;
  */
 public class MethodNameGenerator {
 
+    /**
+     * Strategy for generating method names.
+     */
     public enum NamingStrategy {
         SEQUENTIAL, // Simple numbering
         SEMANTIC, // Code analysis
@@ -30,10 +33,18 @@ public class MethodNameGenerator {
     private final boolean useAI;
     private final Set<String> generatedNames = new HashSet<>(); // Track names generated in this session
 
+    /**
+     * Creates a generator with AI enabled by default.
+     */
     public MethodNameGenerator() {
         this(true); // AI enabled by default
     }
 
+    /**
+     * Creates a generator with specific AI setting.
+     *
+     * @param useAI true to enable AI naming, false for deterministic only
+     */
     public MethodNameGenerator(boolean useAI) {
         this.semanticAnalyzer = new SemanticNameAnalyzer();
         this.useAI = useAI;

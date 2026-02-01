@@ -39,10 +39,18 @@ public class RefactoringRecommendationGenerator {
     private final RefactoringConfidenceCalculator confidenceCalculator;
     private final MethodNameGenerator nameGenerator;
 
+    /**
+     * Creates a new generator with default configuration.
+     */
     public RefactoringRecommendationGenerator() {
         this(Collections.emptyMap());
     }
 
+    /**
+     * Creates a new generator with context-aware resolvers.
+     *
+     * @param allCUs Map of all compilation units for cross-reference analysis
+     */
     public RefactoringRecommendationGenerator(Map<String, CompilationUnit> allCUs) {
         this.variationAggregator = new VariationAggregator();
         this.truncator = new SequenceTruncator();

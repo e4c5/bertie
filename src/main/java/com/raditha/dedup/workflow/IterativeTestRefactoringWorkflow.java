@@ -24,11 +24,27 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
     private final DuplicationAnalyzer analyzer;
     private final RefactoringEngine engine;
 
+    /**
+     * Creates a new iterative workflow instance.
+     *
+     * @param analyzer the duplication analyzer to use for re-analysis
+     * @param engine   the refactoring engine to execute changes
+     */
     public IterativeTestRefactoringWorkflow(DuplicationAnalyzer analyzer, RefactoringEngine engine) {
         this.analyzer = analyzer;
         this.engine = engine;
     }
 
+    /**
+     * Executes the iterative refactoring process for a test class.
+     *
+     * @param clazz           the test class being refactored
+     * @param initialClusters the initial set of duplicate clusters found in the class
+     * @param cu              the compilation unit containing the class
+     * @return a session object tracking all performed refactorings
+     * @throws IOException          if file I/O operations fail
+     * @throws InterruptedException if the process is interrupted
+     */
     @Override
     public RefactoringSession execute(ClassOrInterfaceDeclaration clazz,
                                       List<DuplicateCluster> initialClusters,

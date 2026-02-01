@@ -30,6 +30,13 @@ public class MutabilityAnalyzer {
     private static final Set<String> MOCK_INDICATORS = Set.of(
             "Mock", "Spy", "InjectMocks", "Captor");
 
+    /**
+     * Check if a type is safe to promote to an instance field in a test class.
+     * Safe types are immutable, mocks, or stateless test helpers.
+     *
+     * @param typeName The type name to check
+     * @return true if safe to promote
+     */
     public boolean isSafeToPromote(String typeName) {
         if (isImmutableType(typeName) || isMockType(typeName)) {
             return true;
@@ -42,10 +49,22 @@ public class MutabilityAnalyzer {
                 baseType.endsWith("Helper"));
     }
 
+    /**
+     * Check if a type is known to be immutable.
+     *
+     * @param typeName The type name
+     * @return true if immutable
+     */
     public boolean isImmutableType(String typeName) {
         return IMMUTABLE_TYPES.contains(stripGenerics(typeName));
     }
 
+    /**
+     * Check if a type is a mock or spy based on naming conventions.
+     *
+     * @param typeName The type name
+     * @return true if it appears to be a mock
+     */
     public boolean isMockType(String typeName) {
         String baseType = stripGenerics(typeName);
         for (String indicator : MOCK_INDICATORS) {
@@ -61,6 +80,12 @@ public class MutabilityAnalyzer {
         return (genericStart > 0) ? typeName.substring(0, genericStart) : typeName;
     }
 
+    /**
+     * Get a warning message if the type is mutable and unsafe to promote.
+     *
+     * @param typeName The type name
+     * @return Warning message or null if safe
+     */
     public String getMutabilityWarning(String typeName) {
         if (isSafeToPromote(typeName)) {
             return null;

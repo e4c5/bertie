@@ -36,10 +36,23 @@ public class RefactoringEngine {
     private final RefactoringMode mode;
     private final List<String> dryRunDiffs = new ArrayList<>();
 
+    /**
+     * Creates a new refactoring engine with default verification level (COMPILE).
+     *
+     * @param projectRoot The root directory of the project
+     * @param mode        The refactoring mode
+     */
     public RefactoringEngine(Path projectRoot, RefactoringMode mode) {
         this(projectRoot, mode, com.raditha.dedup.cli.VerifyMode.COMPILE);
     }
 
+    /**
+     * Creates a new refactoring engine with specified verification level.
+     *
+     * @param projectRoot       The root directory of the project
+     * @param mode              The refactoring mode
+     * @param verificationLevel The level of verification to perform
+     */
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
             com.raditha.dedup.cli.VerifyMode verificationLevel) {
         this.mode = mode;
@@ -359,52 +372,93 @@ public class RefactoringEngine {
     public static class RefactoringSession {
         private final List<RefactoringResult> results = new ArrayList<>();
 
+        /**
+         * Record a successful refactoring.
+         */
         public void addSuccess(DuplicateCluster cluster, String details) {
             results.add(new RefactoringResult(cluster, RefactoringStatus.SUCCESS, details));
         }
 
+        /**
+         * Record a skipped refactoring.
+         */
         public void addSkipped(DuplicateCluster cluster, String reason) {
             results.add(new RefactoringResult(cluster, RefactoringStatus.SKIPPED, reason));
         }
 
+        /**
+         * Record a failed refactoring.
+         */
         public void addFailed(DuplicateCluster cluster, String error) {
             results.add(new RefactoringResult(cluster, RefactoringStatus.FAILED, error));
         }
 
+        /**
+         * Get successful results.
+         */
         public List<RefactoringResult> getSuccessful() {
             return results.stream()
                     .filter(r -> r.status() == RefactoringStatus.SUCCESS)
                     .toList();
         }
 
+        /**
+         * Get skipped results.
+         */
         public List<RefactoringResult> getSkipped() {
             return results.stream()
                     .filter(r -> r.status() == RefactoringStatus.SKIPPED)
                     .toList();
         }
 
+        /**
+         * Get failed results.
+         */
         public List<RefactoringResult> getFailed() {
             return results.stream()
                     .filter(r -> r.status() == RefactoringStatus.FAILED)
                     .toList();
         }
 
+        /**
+         * Check if any failures occurred.
+         */
         public boolean hasFailures() {
             return results.stream().anyMatch(r -> r.status() == RefactoringStatus.FAILED);
         }
 
+        /**
+         * Get total items processed.
+         */
         public int getTotalProcessed() {
             return results.size();
         }
     }
 
+    /**
+     * Status of a refactoring operation.
+     */
     public enum RefactoringStatus {
         SUCCESS, SKIPPED, FAILED
     }
 
+    /**
+     * Result of a single refactoring operation.
+     */
     public record RefactoringResult(DuplicateCluster cluster, RefactoringStatus status, String message) {
+        /**
+         * Details of the operation (alias for message).
+         */
         public String details() { return message; }
+
+        /**
+         * Reason for skipping (alias for message).
+         */
         public String reason() { return message; }
+
+        /**
+         * Error message (alias for message).
+         */
         public String error() { return message; }
     }
 

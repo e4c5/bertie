@@ -141,14 +141,29 @@ public class SafetyValidator {
      * Result of validation check.
      */
     public record ValidationResult(List<ValidationIssue> issues) {
+        /**
+         * Checks if the refactoring is valid (no errors).
+         *
+         * @return true if valid
+         */
         public boolean isValid() {
             return issues.stream().noneMatch(i -> i.severity() == Severity.ERROR);
         }
 
+        /**
+         * Checks if there are any warnings.
+         *
+         * @return true if warnings exist
+         */
         public boolean hasWarnings() {
             return issues.stream().anyMatch(i -> i.severity() == Severity.WARNING);
         }
 
+        /**
+         * Gets list of error messages.
+         *
+         * @return list of errors
+         */
         public List<String> getErrors() {
             return issues.stream()
                     .filter(i -> i.severity() == Severity.ERROR)
@@ -156,6 +171,11 @@ public class SafetyValidator {
                     .toList();
         }
 
+        /**
+         * Gets list of warning messages.
+         *
+         * @return list of warnings
+         */
         public List<String> getWarnings() {
             return issues.stream()
                     .filter(i -> i.severity() == Severity.WARNING)
@@ -168,10 +188,22 @@ public class SafetyValidator {
      * A single validation issue.
      */
     public record ValidationIssue(Severity severity, String message) {
+        /**
+         * Creates an error issue.
+         *
+         * @param message The error message
+         * @return new ValidationIssue with ERROR severity
+         */
         public static ValidationIssue error(String message) {
             return new ValidationIssue(Severity.ERROR, message);
         }
 
+        /**
+         * Creates a warning issue.
+         *
+         * @param message The warning message
+         * @return new ValidationIssue with WARNING severity
+         */
         public static ValidationIssue warning(String message) {
             return new ValidationIssue(Severity.WARNING, message);
         }
