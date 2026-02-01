@@ -213,23 +213,8 @@ class DataFlowAnalyzerTest {
                 // Expected: 'user' is defined, matches type User, but NOT live-out (not used
                 // after).
                 // Fallback logic should pick it up if we ask for "User".
-                // Expected: 'finalUser' is defined, matches type User. 
-                // We'll use getNames which has 'names' and is more predictable.
-                method = cu.findFirst(MethodDeclaration.class,
-                        m -> m.getNameAsString().equals("setUserAndId")).orElseThrow();
-                
-                stmts = method.getBody().orElseThrow().getStatements();
-                
-                sequence = new StatementSequence(
-                        stmts,
-                        new com.raditha.dedup.model.Range(stmts.getFirst().getBegin().get().line, stmts.getLast().getEnd().get().line, 1, 100),
-                        0,
-                        method,
-                        cu,
-                        sourceFilePath);
-
                 String returnVar = analyzer.findReturnVariable(sequence, StaticJavaParser.parseType("User"));
-                assertEquals("finalUser", returnVar, "Should find 'finalUser' via fallback mechanism");
+                assertEquals("user", returnVar, "Should find 'user' via fallback mechanism");
         }
 
         @Test
@@ -241,9 +226,9 @@ class DataFlowAnalyzerTest {
                 CompilationUnit cu = new com.github.javaparser.JavaParser().parse(file).getResult().orElseThrow();
 
                 MethodDeclaration method = cu.findFirst(MethodDeclaration.class,
-                                m -> m.getNameAsString().equals("getNames")).orElseThrow();
+                                m -> m.getNameAsString().equals("collectActiveUserNames")).orElseThrow();
 
-                Statement forStmt = method.getBody().orElseThrow().getStatements().get(1); // 1 is loop
+                Statement forStmt = method.getBody().orElseThrow().getStatements().get(1); // 0 is list init, 1 is loop
                 assertTrue(forStmt.isForEachStmt());
 
                 BlockStmt loopBody = forStmt.asForEachStmt().getBody().asBlockStmt();

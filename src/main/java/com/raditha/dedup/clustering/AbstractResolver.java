@@ -10,9 +10,7 @@ import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import com.github.javaparser.ast.type.PrimitiveType;
 import com.github.javaparser.ast.type.Type;
-import com.github.javaparser.ast.type.VoidType;
 import com.github.javaparser.resolution.types.ResolvedType;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.StatementSequence;
@@ -28,15 +26,6 @@ import java.util.Optional;
 public abstract class AbstractResolver {
 
     protected static final String OBJECT = "Object";
-    protected static final Type VOID_TYPE = new VoidType();
-    protected static final Type INT_TYPE = new PrimitiveType(PrimitiveType.Primitive.INT);
-    protected static final Type LONG_TYPE = new PrimitiveType(PrimitiveType.Primitive.LONG);
-    protected static final Type DOUBLE_TYPE = new PrimitiveType(PrimitiveType.Primitive.DOUBLE);
-    protected static final Type BOOLEAN_TYPE = new PrimitiveType(PrimitiveType.Primitive.BOOLEAN);
-    protected static final Type CHAR_TYPE = new PrimitiveType(PrimitiveType.Primitive.CHAR);
-    protected static final Type STRING_TYPE = new ClassOrInterfaceType(null, "String");
-    protected static final Type OBJECT_TYPE = new ClassOrInterfaceType(null, OBJECT);
-
     protected final Map<String, CompilationUnit> allCUs;
     protected final DataFlowAnalyzer dataFlowAnalyzer;
 
@@ -53,16 +42,17 @@ public abstract class AbstractResolver {
         if (classDecl.isPresent()) {
             String fqn = AbstractCompiler.resolveTypeFqn(type, classDecl.get(), null);
             if (fqn != null && !fqn.equals("java.lang.Object") && !fqn.equals(OBJECT)) {
-                return new ClassOrInterfaceType(null, simplifyType(fqn));
+                return StaticJavaParser.parseType(simplifyType(fqn));
             }
         }
 
-        if (type.isVarType() || "var".equals(type.asString())) {
+        String astType = type.asString();
+        if ("var".equals(astType)) {
             if (contextNode instanceof VariableDeclarator v && v.getInitializer().isPresent()) {
                 var init = v.getInitializer().get();
                 return resolveExpressionTypeToAST(init, sequence);
             }
-            return OBJECT_TYPE;
+            return StaticJavaParser.parseType(OBJECT);
         }
         return type;
     }
@@ -123,7 +113,7 @@ public abstract class AbstractResolver {
             }
         }
 
-        return OBJECT_TYPE;
+        return StaticJavaParser.parseType(OBJECT);
     }
 
     protected Optional<Type> findVarTypeInStatement(Node node, String varName, StatementSequence sequence) {
@@ -143,7 +133,7 @@ public abstract class AbstractResolver {
                         if (!param.getType().isUnknownType() && !param.getType().isVarType()) {
                             return resolveTypeToAST(param.getType(), n, sequence);
                         }
-                        return OBJECT_TYPE;
+                        return StaticJavaParser.parseType(OBJECT);
                     }
                 }
                 return super.visit(n, name);
@@ -185,18 +175,18 @@ public abstract class AbstractResolver {
     }
 
     protected Type inferTypeFromExpression(Expression expr) {
-        if (expr.isStringLiteralExpr()) return STRING_TYPE;
-        if (expr.isIntegerLiteralExpr()) return INT_TYPE;
-        if (expr.isLongLiteralExpr()) return LONG_TYPE;
-        if (expr.isDoubleLiteralExpr()) return DOUBLE_TYPE;
-        if (expr.isBooleanLiteralExpr()) return BOOLEAN_TYPE;
-        if (expr.isCharLiteralExpr()) return CHAR_TYPE;
+        if (expr.isStringLiteralExpr()) return StaticJavaParser.parseType("String");
+        if (expr.isIntegerLiteralExpr()) return StaticJavaParser.parseType("int");
+        if (expr.isLongLiteralExpr()) return StaticJavaParser.parseType("long");
+        if (expr.isDoubleLiteralExpr()) return StaticJavaParser.parseType("double");
+        if (expr.isBooleanLiteralExpr()) return StaticJavaParser.parseType("boolean");
+        if (expr.isCharLiteralExpr()) return StaticJavaParser.parseType("char");
         if (expr.isObjectCreationExpr()) return expr.asObjectCreationExpr().getType();
         if (expr.isBinaryExpr()) {
-            if (expr.toString().contains("\"")) return STRING_TYPE;
-            return INT_TYPE;
+            if (expr.toString().contains("\"")) return StaticJavaParser.parseType("String");
+            return StaticJavaParser.parseType("int");
         }
-        return OBJECT_TYPE;
+        return StaticJavaParser.parseType(OBJECT);
     }
 
     protected CompilationUnit findCompilationUnit(StatementSequence sequence, String scopeName) {

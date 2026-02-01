@@ -1,5 +1,6 @@
 package com.raditha.dedup.clustering;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.stmt.Statement;
@@ -69,7 +70,7 @@ public class ReturnTypeResolver extends AbstractResolver {
                     primaryReturnVariable = liveOut;
                     returnType = findTypeInContext(cluster.primary(), liveOut);
                 } else {
-                    returnType = VOID_TYPE;
+                    returnType = StaticJavaParser.parseType("void");
                 }
             }
         } else {
@@ -84,7 +85,7 @@ public class ReturnTypeResolver extends AbstractResolver {
             primaryReturnVariable = dataFlowAnalyzer.findReturnVariable(cluster.primary(), returnType);
         }
 
-        return new ReturnTypeResult(returnType != null ? returnType : VOID_TYPE, primaryReturnVariable);
+        return new ReturnTypeResult(returnType != null ? returnType : StaticJavaParser.parseType("void"), primaryReturnVariable);
     }
 
 
@@ -106,7 +107,7 @@ public class ReturnTypeResolver extends AbstractResolver {
         }
 
         if (returnTypes.isEmpty()) {
-            return new ReturnTypeResult(VOID_TYPE, null);
+            return new ReturnTypeResult(StaticJavaParser.parseType("void"), null);
         }
 
         Type unifiedType = unifyTypes(returnTypes);
@@ -114,20 +115,21 @@ public class ReturnTypeResolver extends AbstractResolver {
     }
 
     private Type unifyTypes(Set<Type> returnTypes) {
-        // Preference: Non-primitive types first (excluding String and Void)
+        // Preference: Non-primitive types first
         for (Type t : returnTypes) {
-            if (!t.isPrimitiveType() && !t.isVoidType() && !t.equals(STRING_TYPE)) {
+            if (!t.isPrimitiveType() && !t.isVoidType() && !t.asString().equals("String")) {
                 return t;
             }
         }
-        
-        // Handle String
-        if (returnTypes.contains(STRING_TYPE)) return STRING_TYPE;
 
-        // Handle common numeric types (Widening)
-        if (returnTypes.contains(DOUBLE_TYPE)) return DOUBLE_TYPE;
-        if (returnTypes.contains(LONG_TYPE)) return LONG_TYPE;
-        if (returnTypes.contains(INT_TYPE)) return INT_TYPE;
+        // Handle common numeric types
+        boolean hasInt = returnTypes.stream().anyMatch(t -> t.asString().equals("int"));
+        boolean hasLong = returnTypes.stream().anyMatch(t -> t.asString().equals("long"));
+        boolean hasDouble = returnTypes.stream().anyMatch(t -> t.asString().equals("double"));
+
+        if (hasDouble) return StaticJavaParser.parseType("double");
+        if (hasLong) return StaticJavaParser.parseType("long");
+        if (hasInt) return StaticJavaParser.parseType("int");
 
         return returnTypes.iterator().next();
     }
@@ -137,7 +139,7 @@ public class ReturnTypeResolver extends AbstractResolver {
         
         // Priority 1: Check for live-out variables
         // Pass a dummy void type if we don't know the type yet
-        String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, VOID_TYPE, analysis);
+        String returnVarName = dataFlowAnalyzer.findReturnVariable(sequence, StaticJavaParser.parseType("void"), analysis);
 
         if (returnVarName != null) {
             Type type = analysis.typeMap().get(returnVarName);
