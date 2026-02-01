@@ -111,11 +111,11 @@ public class ReturnTypeResolver extends AbstractResolver {
             return new InternalReturnType(StaticJavaParser.parseType("void"), null);
         }
 
-        Type unifiedType = unifyTypes(returnTypes, cluster);
+        Type unifiedType = unifyTypes(returnTypes);
         return new InternalReturnType(unifiedType, primaryResult.variable());
     }
 
-    private Type unifyTypes(Set<Type> returnTypes, DuplicateCluster cluster) {
+    private Type unifyTypes(Set<Type> returnTypes) {
         // Preference: Non-primitive types first
         for (Type t : returnTypes) {
             if (!t.isPrimitiveType() && !t.isVoidType() && !t.asString().equals("String")) {

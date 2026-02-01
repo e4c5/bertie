@@ -1,6 +1,5 @@
 package com.raditha.dedup.clustering;
 
-import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -33,7 +32,6 @@ import java.util.Set;
 public class ParameterResolver extends AbstractResolver {
 
     private final ASTParameterExtractor extractor;
-    private final ReturnTypeResolver typeResolver;
 
     /**
      * Creates a new parameter resolver with default analyzers.
@@ -41,8 +39,7 @@ public class ParameterResolver extends AbstractResolver {
      * @param allCUs Map of all compilation units for type resolution
      */
     public ParameterResolver(Map<String, CompilationUnit> allCUs) {
-        this(new ASTParameterExtractor(), new DataFlowAnalyzer(), 
-             new ReturnTypeResolver(allCUs), allCUs);
+        this(new ASTParameterExtractor(), new DataFlowAnalyzer(), allCUs);
     }
 
     /**
@@ -50,14 +47,12 @@ public class ParameterResolver extends AbstractResolver {
      *
      * @param extractor         The parameter extractor
      * @param dataFlowAnalyzer  The data flow analyzer
-     * @param typeResolver      The return type resolver
      * @param allCUs           Map of all compilation units
      */
     public ParameterResolver(ASTParameterExtractor extractor, DataFlowAnalyzer dataFlowAnalyzer,
-                             ReturnTypeResolver typeResolver, Map<String, CompilationUnit> allCUs) {
+                             Map<String, CompilationUnit> allCUs) {
         super(allCUs, dataFlowAnalyzer);
         this.extractor = extractor;
-        this.typeResolver = typeResolver;
     }
 
     /**
