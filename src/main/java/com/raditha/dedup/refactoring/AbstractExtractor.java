@@ -4,10 +4,13 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.stmt.Statement;
+import org.jspecify.annotations.NonNull;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
@@ -247,5 +250,21 @@ public abstract class AbstractExtractor {
             }
         }
         return null;
+    }
+
+    protected @NonNull MethodDeclaration createMethodDeclaration(CallableDeclaration<?> originalMethod) {
+        MethodDeclaration newMethod;
+        if (originalMethod instanceof MethodDeclaration md) {
+            newMethod = md.clone();
+        } else if (originalMethod instanceof ConstructorDeclaration cd) {
+            newMethod = new MethodDeclaration();
+            newMethod.setName(recommendation.getSuggestedMethodName());
+            newMethod.setParameters(new NodeList<>(cd.getParameters()));
+            newMethod.setBody(cd.getBody().clone());
+            newMethod.setType("void");
+        } else {
+            throw new IllegalArgumentException("Unsupported callable type: " + originalMethod.getClass().getName());
+        }
+        return newMethod;
     }
 }

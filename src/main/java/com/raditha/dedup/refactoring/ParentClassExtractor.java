@@ -288,20 +288,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     }
 
     private @NonNull MethodDeclaration createMethod(CallableDeclaration<?> originalMethod) {
-        MethodDeclaration newMethod = null;
-        if (originalMethod instanceof MethodDeclaration md) {
-            newMethod = md.clone();
-        } else if (originalMethod instanceof ConstructorDeclaration cd) {
-            newMethod = new MethodDeclaration();
-            newMethod.setName(recommendation.getSuggestedMethodName());
-            newMethod.setParameters(new NodeList<>(cd.getParameters()));
-            newMethod.setBody(cd.getBody().clone());
-            newMethod.setType("void");
-        }
-        
-        if (newMethod == null) {
-            throw new IllegalArgumentException("Unsupported callable type");
-        }
+        MethodDeclaration newMethod = createMethodDeclaration(originalMethod);
 
         newMethod.getAnnotations().clear();
         // Clear existing modifiers
