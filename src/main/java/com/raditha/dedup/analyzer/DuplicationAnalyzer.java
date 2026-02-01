@@ -335,7 +335,7 @@ public class DuplicationAnalyzer {
         Path p2 = s2.sourceFilePath();
 
         // Must be in the same file to overlap
-        if (p1 == null || p2 == null || !p1.equals(p2)) {
+        if (p1 == null || !p1.equals(p2)) {
             return false;
         }
 

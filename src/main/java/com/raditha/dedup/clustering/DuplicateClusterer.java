@@ -39,16 +39,15 @@ public class DuplicateClusterer {
      * @return List of clusters sorted by LOC reduction potential (highest first)
      */
     public List<DuplicateCluster> cluster(List<SimilarityPair> pairs) {
-        // Filter by similarity threshold
-        List<SimilarityPair> filtered = pairs.stream()
-                .filter(p -> p.similarity().overallScore() >= similarityThreshold)
-                .toList();
-
-        // Build adjacency graph for connected components
+        // Filter by similarity threshold and build adjacency graph
+        List<SimilarityPair> filtered = new ArrayList<>();
         Map<StatementSequence, Set<StatementSequence>> adj = new HashMap<>();
-        for (SimilarityPair p : filtered) {
-             adj.computeIfAbsent(p.seq1(), k -> new HashSet<>()).add(p.seq2());
-             adj.computeIfAbsent(p.seq2(), k -> new HashSet<>()).add(p.seq1());
+        for (SimilarityPair p : pairs) {
+            if (p.similarity().overallScore() >= similarityThreshold) {
+                filtered.add(p);
+                adj.computeIfAbsent(p.seq1(), k -> new HashSet<>()).add(p.seq2());
+                adj.computeIfAbsent(p.seq2(), k -> new HashSet<>()).add(p.seq1());
+            }
         }
 
         Set<StatementSequence> visited = new HashSet<>();
