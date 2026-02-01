@@ -31,15 +31,6 @@ public class DuplicationAnalyzer {
     private final com.raditha.dedup.normalization.ASTNormalizer astNormalizer; // NEW: AST-based
     private final com.raditha.dedup.similarity.ASTSimilarityCalculator astSimilarityCalculator; // NEW: AST-based
     private final DuplicateClusterer clusterer;
-    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
-            java.util.Comparator
-                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
-                    .thenComparingInt(StatementSequence::startOffset)
-                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final RefactoringRecommendationGenerator recommendationGenerator;
     private final BoundaryRefiner boundaryRefiner;
 
@@ -127,7 +118,7 @@ public class DuplicationAnalyzer {
             }
         }
 
-        allSequences.sort(SEQ_ORDER);
+        allSequences.sort(StatementSequenceComparator.INSTANCE);
 
         // 2-4. Process sequences through the duplicate detection pipeline
         ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
@@ -311,7 +302,7 @@ public class DuplicationAnalyzer {
             // Query and Add
             Set<StatementSequence> potentialMatches = lshIndex.queryAndAdd(tokens, currentSeq);
             List<StatementSequence> orderedMatches = new ArrayList<>(potentialMatches);
-            orderedMatches.sort(SEQ_ORDER);
+            orderedMatches.sort(StatementSequenceComparator.INSTANCE);
 
             for (StatementSequence candidateSeq : orderedMatches) {
                 // Combined check to reduce continue statements
@@ -429,11 +420,11 @@ public class DuplicationAnalyzer {
                     if (scoreCompare != 0) {
                         return scoreCompare;
                     }
-                    int seq1Compare = SEQ_ORDER.compare(a.seq1(), b.seq1());
+                    int seq1Compare = StatementSequenceComparator.INSTANCE.compare(a.seq1(), b.seq1());
                     if (seq1Compare != 0) {
                         return seq1Compare;
                     }
-                    return SEQ_ORDER.compare(a.seq2(), b.seq2());
+                    return StatementSequenceComparator.INSTANCE.compare(a.seq2(), b.seq2());
                 })
                 .toList();
     }
@@ -506,12 +497,7 @@ public class DuplicationAnalyzer {
      * Since all pairs in the group have sameMethodPair==true, we only check physical overlap.
      */
     private List<SimilarityPair> removeOverlapsInGroup(List<SimilarityPair> group) {
-        final EscapeAnalyzer escapeAnalyzer = new EscapeAnalyzer();
-        final Map<StatementSequence, Integer> escapeCounts = new IdentityHashMap<>();
-        final java.util.function.ToIntFunction<StatementSequence> escapeCount = seq ->
-                escapeCounts.computeIfAbsent(seq, s -> escapeAnalyzer.analyze(s).size());
-
-        group.sort(createSimilarityPairComparator(escapeCount));
+        group.sort(new RefactoringPriorityComparator());
 
         List<SimilarityPair> filtered = new ArrayList<>();
         for (SimilarityPair current : group) {
@@ -520,35 +506,6 @@ public class DuplicationAnalyzer {
             }
         }
         return filtered;
-    }
-
-    private java.util.Comparator<SimilarityPair> createSimilarityPairComparator(
-            java.util.function.ToIntFunction<StatementSequence> escapeCount) {
-        return (a, b) -> {
-            // Priority 0: Fewest Escapes
-            int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
-            int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
-            int escapeCompare = Integer.compare(escapesA, escapesB);
-            if (escapeCompare != 0) return escapeCompare;
-
-            // Priority 1: Full Body Match
-            boolean bodyA = isFullBody(a.seq1());
-            boolean bodyB = isFullBody(b.seq1());
-            if (bodyA != bodyB) return bodyA ? -1 : 1;
-
-            // Priority 2: Broadest Scope
-            int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
-            int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
-            int scopeCompare = Integer.compare(scopeB, scopeA);
-            if (scopeCompare != 0) return scopeCompare;
-
-            // Priority 3: Largest Size
-            int sizeCompare = Integer.compare(b.seq1().statements().size(), a.seq1().statements().size());
-            if (sizeCompare != 0) return sizeCompare;
-
-            // Priority 4: Earliest Appearance
-            return Integer.compare(a.seq1().range().startLine(), b.seq1().range().startLine());
-        };
     }
 
     private boolean noneOverlap(SimilarityPair current, List<SimilarityPair> filtered) {
@@ -568,15 +525,6 @@ public class DuplicationAnalyzer {
         // Ranges overlap if one starts before the other ends
         return range1.startLine() <= range2.endLine() &&
                 range2.startLine() <= range1.endLine();
-    }
-
-    /**
-     * Check if a sequence corresponds to the full body of its containing method/constructor.
-     */
-    private boolean isFullBody(StatementSequence seq) {
-        return seq.getCallableBody()
-                .map(body -> body.getStatements().size() == seq.statements().size())
-                .orElse(false);
     }
 
 }

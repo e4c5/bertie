@@ -4,6 +4,7 @@ import com.raditha.dedup.analyzer.DuplicationReport;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.StatementSequenceComparator;
 import com.raditha.dedup.model.StatementSequence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,15 +22,6 @@ import java.util.Map;
 @SuppressWarnings("java:S106")
 public class RefactoringEngine {
     private static final Logger logger = LoggerFactory.getLogger(RefactoringEngine.class);
-    private static final java.util.Comparator<StatementSequence> SEQ_ORDER =
-            java.util.Comparator
-                    .comparing((StatementSequence s) -> s.sourceFilePath() == null ? "" : s.sourceFilePath().toString())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().startColumn())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endLine())
-                    .thenComparingInt(s -> s.range() == null ? 0 : s.range().endColumn())
-                    .thenComparingInt(StatementSequence::startOffset)
-                    .thenComparingInt(s -> s.statements() == null ? 0 : s.statements().size());
     private final SafetyValidator validator;
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
@@ -197,7 +189,7 @@ public class RefactoringEngine {
         if (s2 == null) {
             return -1;
         }
-        return SEQ_ORDER.compare(s1, s2);
+        return StatementSequenceComparator.INSTANCE.compare(s1, s2);
     }
 
     private boolean canRefactor(RefactoringSession session , RefactoringRecommendation recommendation, DuplicateCluster cluster) {
