@@ -245,13 +245,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     }
 
     private void validateStructuralCompatibility(CompilationUnit cu, CallableDeclaration<?> callable) {
-        Optional<ClassOrInterfaceDeclaration> primaryClassOpt = findPrimaryClass(cu);
-        
-        if (primaryClassOpt.isEmpty()) {
-             throw new IllegalStateException("Skipped: No primary class found.");
-        }
-        
-        ClassOrInterfaceDeclaration primaryClass = primaryClassOpt.get();
+        ClassOrInterfaceDeclaration primaryClass = findPrimaryClass(cu).orElseThrow();
         // Check if callable is a direct member of primaryClass
         // We use reference equality on the parent node
         Optional<Node> parent = callable.getParentNode();

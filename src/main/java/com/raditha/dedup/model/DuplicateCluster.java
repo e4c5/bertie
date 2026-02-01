@@ -19,12 +19,6 @@ public record DuplicateCluster(
         List<SimilarityPair> duplicates,
         RefactoringRecommendation recommendation,
         int estimatedLOCReduction) {
-    /**
-     * Get total number of duplicate instances (including primary).
-     */
-    public int getDuplicateCount() {
-        return duplicates.size() + 1; // +1 for primary
-    }
 
     /**
      * Get average similarity score across all duplicates.

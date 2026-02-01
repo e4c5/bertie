@@ -33,15 +33,6 @@ public class VariationAggregator {
     }
 
     /**
-     * Creates a new aggregator with a specific AST variation analyzer.
-     *
-     * @param astAnalyzer the analyzer to use
-     */
-    public VariationAggregator(ASTVariationAnalyzer astAnalyzer) {
-        this.astAnalyzer = astAnalyzer;
-    }
-
-    /**
      * Aggregate variations from comparing the primary sequence against all duplicates.
      * 
      * @param cluster The duplicate cluster to analyze

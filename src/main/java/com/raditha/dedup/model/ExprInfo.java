@@ -30,14 +30,4 @@ public record ExprInfo(
         }
         return new ExprInfo(e, line, col, e != null ? e.toString() : null);
     }
-
-    /**
-     * Creates ExprInfo from raw text (when AST is unavailable).
-     *
-     * @param text The expression text
-     * @return ExprInfo
-     */
-    public static ExprInfo fromText(String text) {
-        return new ExprInfo(null, null, null, text);
-    }
 }

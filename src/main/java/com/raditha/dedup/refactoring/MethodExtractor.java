@@ -1693,7 +1693,8 @@ public class MethodExtractor extends AbstractExtractor {
         BlockStmt cloneBody = null;
         if (clone instanceof MethodDeclaration m) {
             cloneBody = m.getBody().orElse(null);
-        } else if (clone instanceof ConstructorDeclaration c) {
+        } else {
+            ConstructorDeclaration c = (ConstructorDeclaration) clone;
             cloneBody = c.getBody();
         }
 
