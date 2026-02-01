@@ -5,10 +5,12 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.ReturnTypeResult;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.refactoring.MethodNameGenerator;
@@ -96,7 +98,7 @@ public class RefactoringRecommendationGenerator {
         // Step 5: Resolve return type
         ReturnTypeResult returnTypeResult = returnTypeResolver.resolve(cluster, validStatementCount, 
                 truncation.returnVariable());
-        String returnType = returnTypeResult.returnType();
+        Type returnType = returnTypeResult.returnType();
         String primaryReturnVariable = returnTypeResult.returnVariable();
 
         // Step 6: Calculate confidence
@@ -110,7 +112,7 @@ public class RefactoringRecommendationGenerator {
                 strategy,
                 methodName,
                 parameters,
-                StaticJavaParser.parseType(returnType != null ? returnType : "void"),
+                returnType != null ? returnType : StaticJavaParser.parseType("void"),
                 "",
                 confidence,
                 cluster.estimatedLOCReduction(),

@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.analysis.ASTParameterExtractor;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -15,6 +16,7 @@ import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.VariableReference;
 import com.raditha.dedup.model.VariationAnalysis;
+import com.github.javaparser.resolution.types.ResolvedType;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.ArrayList;
@@ -28,14 +30,10 @@ import java.util.Set;
  * Handles all parameter extraction, captured parameters, and filtering logic.
  * Consolidates logic from RefactoringRecommendationGenerator for better testability.
  */
-public class ParameterResolver {
-
-    private static final String OBJECT = "Object";
+public class ParameterResolver extends AbstractResolver {
 
     private final ASTParameterExtractor extractor;
-    private final DataFlowAnalyzer dataFlowAnalyzer;
     private final ReturnTypeResolver typeResolver;
-    private final Map<String, CompilationUnit> allCUs;
 
     /**
      * Creates a new parameter resolver with default analyzers.
@@ -57,10 +55,9 @@ public class ParameterResolver {
      */
     public ParameterResolver(ASTParameterExtractor extractor, DataFlowAnalyzer dataFlowAnalyzer,
                              ReturnTypeResolver typeResolver, Map<String, CompilationUnit> allCUs) {
+        super(allCUs, dataFlowAnalyzer);
         this.extractor = extractor;
-        this.dataFlowAnalyzer = dataFlowAnalyzer;
         this.typeResolver = typeResolver;
-        this.allCUs = allCUs;
     }
 
     /**
@@ -103,9 +100,6 @@ public class ParameterResolver {
 
         addArgumentsAsParameters(extractionPlan, parameters);
 
-        // CRITICAL FIX: Filter truncated parameters (future variations) BEFORE identifying captured parameters
-        // This ensures that if a variable is found as a variation in the cut-off part, it is removed,
-        // allowing identifyCapturedParameters to correctly add it back if it is needed in the retained part.
         if (validStatementCount != -1 && validStatementCount < cluster.primary().statements().size()
                 && validStatementCount > 0) {
             parameters = filterTruncatedParameters(parameters, cluster.primary(), validStatementCount);
@@ -122,7 +116,7 @@ public class ParameterResolver {
     private void addArgumentsAsParameters(ExtractionPlan extractionPlan, List<ParameterSpec> parameters) {
         for (VariableReference arg : extractionPlan.arguments()) {
             if (parameters.stream().noneMatch(p -> p.getName().equals(arg.name()))) {
-                com.github.javaparser.ast.type.Type paramType = convertResolvedTypeToJavaParserType(arg.type());
+                Type paramType = convertResolvedTypeToJavaParserType(arg.type());
                 parameters.add(new ParameterSpec(
                         arg.name(),
                         paramType,
@@ -154,9 +148,9 @@ public class ParameterResolver {
             if (!shouldSkipCapturedVariable(varName, existingParamNames, cu) && 
                 !processFieldCapture(varName, classFields, containingMethodIsStatic, capturedParams)) {
                 
-                String type = typeResolver.findTypeInContext(sequence, varName);
-                if (!"void".equals(type)) {
-                    capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type != null ? type : OBJECT),
+                Type type = findTypeInContext(sequence, varName);
+                if (!type.isVoidType()) {
+                    capturedParams.add(new ParameterSpec(varName, type,
                             List.of(varName), null, null, null));
                 }
             }
@@ -176,8 +170,6 @@ public class ParameterResolver {
              return true;
         }
         
-        // If it starts with an uppercase letter, it might be a type.
-        // Check if it's a resolvable type in the compilation unit.
         if (Character.isUpperCase(varName.charAt(0))) {
             if (Set.of("System", "Math", "Integer", "String", "Double", "Long", "Boolean", OBJECT).contains(varName)) {
                 return true;
@@ -193,8 +185,7 @@ public class ParameterResolver {
         FieldInfo fi = classFields.get(varName);
         if (fi != null) {
             if (!containingMethodIsStatic && fi.isStatic) {
-                String type = fi.type != null ? fi.type : OBJECT;
-                capturedParams.add(new ParameterSpec(varName, StaticJavaParser.parseType(type),
+                capturedParams.add(new ParameterSpec(varName, fi.type,
                         List.of(varName), null, null, null));
             }
             return true;
@@ -206,11 +197,9 @@ public class ParameterResolver {
         var methodOpt = sequence.containingCallable();
         if (methodOpt == null) return false;
 
-        // Check if it's a MethodDeclaration and is static
         if (methodOpt instanceof MethodDeclaration m) {
             return m.isStatic();
         }
-        // Constructors are never static
         return false;
     }
 
@@ -223,7 +212,7 @@ public class ParameterResolver {
                 boolean isStatic = fd.getModifiers().stream()
                         .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
                 fd.getVariables().forEach(v -> 
-                    classFields.put(v.getNameAsString(), new FieldInfo(v.getType().asString(), isStatic)));
+                    classFields.put(v.getNameAsString(), new FieldInfo(resolveTypeToAST(v.getType(), v, sequence), isStatic)));
             }));
         }
         return classFields;
@@ -232,9 +221,6 @@ public class ParameterResolver {
     private List<ParameterSpec> filterInternalParameters(List<ParameterSpec> params, DuplicateCluster cluster, 
             DataFlowAnalyzer.SequenceAnalysis primaryAnalysis) {
         Set<String> defined = new HashSet<>(primaryAnalysis.definedVars());
-        // FIXED: Only consider variables defined in the PRIMARY sequence.
-        // If a variable is external (captured) in Primary, it MUST be a parameter for the helper method (which is based on Primary).
-        // If it happens to be internal in a duplicate, we deal with that during call replacement, but we can't strip it from the signature.
 
         CompilationUnit cu = null;
         if (!cluster.primary().statements().isEmpty()) {
@@ -272,12 +258,10 @@ public class ParameterResolver {
     }
 
     private boolean isDefinedVariable(String val, Set<String> defined) {
-        // Optimized check: explicit contains check first (covers all identifiers)
         if (defined.contains(val)) {
             return true;
         }
         
-        // Scan for direct field access (treat only variable or its field as internal)
         for (String def : defined) {
             if (val.startsWith(def + ".")) {
                 return true;
@@ -287,7 +271,7 @@ public class ParameterResolver {
     }
 
     private boolean isStaticClassReference(String val, CompilationUnit cu) {
-        if (cu != null && val.matches("[A-Z]\\w*")) { // Use \w for simplified regex
+        if (cu != null && val.matches("[A-Z]\\w*")) {
             try {
                 if (AbstractCompiler.findType(cu, val) != null) {
                     return true;
@@ -308,10 +292,6 @@ public class ParameterResolver {
                 }
                 return super.visit(e, targetVal);
             }
-            
-            // We only care about MethodCallExpr for void types in this context usually, 
-            // but let's be safe and check all expressions if val could be something else.
-            // Actually, any expression can be visited.
         }
         
         VoidExpressionVisitor visitor = new VoidExpressionVisitor();
@@ -325,8 +305,8 @@ public class ParameterResolver {
 
     private boolean isExpressionVoid(Expression e, DuplicateCluster cluster) {
         try {
-            String type = e.calculateResolvedType().describe();
-            if ("void".equals(type)) {
+            ResolvedType type = e.calculateResolvedType();
+            if (type.isVoid()) {
                 return true;
             }
         } catch (Exception ex) {
@@ -352,21 +332,6 @@ public class ParameterResolver {
         }
         return false;
     }
-    
-    private CompilationUnit findCompilationUnit(StatementSequence sequence, String scopeName) {
-        String scopeType = typeResolver.findTypeInContext(sequence, scopeName);
-
-        CompilationUnit typeCU = allCUs.get(scopeType);
-        if (typeCU == null) {
-            for (var entry : allCUs.entrySet()) {
-                if (entry.getKey().endsWith("." + scopeType) || entry.getKey().equals(scopeType)) {
-                    typeCU = entry.getValue();
-                    break;
-                }
-            }
-        }
-        return typeCU;
-    }
 
     private List<ParameterSpec> refineParameterTypes(List<ParameterSpec> parameters, DuplicateCluster cluster) {
         List<ParameterSpec> refined = new ArrayList<>();
@@ -379,17 +344,17 @@ public class ParameterResolver {
     private ParameterSpec refineSingleParameter(ParameterSpec p, DuplicateCluster cluster) {
         if (OBJECT.equals(p.getType().asString()) && !p.getExampleValues().isEmpty()) {
             String val = p.getExampleValues().get(0);
-            String inferred = null;
+            Type inferred = null;
             try {
-                inferred = typeResolver.findTypeInContext(cluster.primary(), val);
+                inferred = findTypeInContext(cluster.primary(), val);
             } catch (Exception e) {
                 // ignore
             }
 
-            if (inferred != null && !inferred.equals(OBJECT)) {
+            if (inferred != null && !inferred.asString().equals(OBJECT)) {
                 return new ParameterSpec(
                         p.getName(),
-                        StaticJavaParser.parseType(inferred),
+                        inferred,
                         p.getExampleValues(),
                         p.getVariationIndex(),
                         p.getStartLine(),
@@ -413,19 +378,5 @@ public class ParameterResolver {
         return filtered;
     }
 
-    private com.github.javaparser.ast.type.Type convertResolvedTypeToJavaParserType(
-            com.github.javaparser.resolution.types.ResolvedType resolvedType) {
-        if (resolvedType == null) {
-            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, OBJECT);
-        }
-
-        try {
-            String typeDesc = resolvedType.describe();
-            return StaticJavaParser.parseType(typeDesc);
-        } catch (Exception e) {
-            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, resolvedType.describe());
-        }
-    }
-
-    private record FieldInfo(String type, boolean isStatic) {}
+    private record FieldInfo(Type type, boolean isStatic) {}
 }

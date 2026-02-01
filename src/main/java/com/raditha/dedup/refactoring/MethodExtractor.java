@@ -1,5 +1,6 @@
 package com.raditha.dedup.refactoring;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
@@ -468,7 +469,7 @@ public class MethodExtractor extends AbstractExtractor {
 
         // Determine body (with final decision on return var)
         String effectiveTargetVar = (forcedReturnVar != null) ? forcedReturnVar
-                : determineTargetReturnVar(sequence, method.getType().asString());
+                : determineTargetReturnVar(sequence, method.getType());
         
         BlockStmt body = buildHelperMethodBody(sequence, effectiveTargetVar, method.getType());
         method.setBody(body);
@@ -491,7 +492,7 @@ public class MethodExtractor extends AbstractExtractor {
         });
 
         // Determine target return variable for a temporary body to check parameter usage
-        String tempTargetVar = determineTargetReturnVar(sequence, recommendation.getSuggestedReturnType().asString());
+        String tempTargetVar = determineTargetReturnVar(sequence, recommendation.getSuggestedReturnType());
         BlockStmt tempBody = buildHelperMethodBody(sequence, tempTargetVar, recommendation.getSuggestedReturnType());
 
         List<ParameterSpec> usedParams = new ArrayList<>();
@@ -675,8 +676,8 @@ public class MethodExtractor extends AbstractExtractor {
         }
     }
 
-    private String determineTargetReturnVar(StatementSequence sequence, String returnType) {
-        if (!"void".equals(returnType)) {
+    private String determineTargetReturnVar(StatementSequence sequence, com.github.javaparser.ast.type.Type returnType) {
+        if (!returnType.isVoidType()) {
             return findReturnVariable(sequence, returnType);
         }
         return null;
@@ -785,7 +786,7 @@ public class MethodExtractor extends AbstractExtractor {
     /**
      * Find the variable to return using data flow analysis.
      */
-    private String findReturnVariable(StatementSequence sequence, String returnType) {
+    private String findReturnVariable(StatementSequence sequence, com.github.javaparser.ast.type.Type returnType) {
         DataFlowAnalyzer analyzer = new DataFlowAnalyzer();
         return analyzer.findReturnVariable(sequence, returnType);
     }
@@ -1007,8 +1008,8 @@ public class MethodExtractor extends AbstractExtractor {
         // Fallback or if primary var not found in this sequence (shouldn't happen for clones)
         if (varName == null) {
             varName = findReturnVariable(analyzeSeq,
-                    recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType().asString()
-                            : "void");
+                    recommendation.getSuggestedReturnType() != null ? recommendation.getSuggestedReturnType()
+                            : StaticJavaParser.parseType("void"));
         }
         if (varName == null) {
             List<String> typedCandidates = new ArrayList<>();
