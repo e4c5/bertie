@@ -81,17 +81,17 @@ public class RefactoringEngine {
                     int priorityCompare = Integer.compare(p2, p1);
                     if (priorityCompare != 0) return priorityCompare;
 
-                    // Then by Statement Count (descending) - CRITICAL for handling overlapping duplicates
+                    // Then by LOC reduction (descending)
+                    int locCompare = Integer.compare(c2.estimatedLOCReduction(), c1.estimatedLOCReduction());
+                    if (locCompare != 0)
+                        return locCompare;
+
+                    // Then by Statement Count (descending) - Secondary to total savings
                     // Check primary sequence size
                     int size1 = c1.primary() != null ? c1.primary().statements().size() : 0;
                     int size2 = c2.primary() != null ? c2.primary().statements().size() : 0;
                     int sizeCompare = Integer.compare(size2, size1);
                     if (sizeCompare != 0) return sizeCompare;
-
-                    // Then by LOC reduction (descending)
-                    int locCompare = Integer.compare(c2.estimatedLOCReduction(), c1.estimatedLOCReduction());
-                    if (locCompare != 0)
-                        return locCompare;
 
                     // Then by similarity score (descending)
                     double sim1 = c1.duplicates().isEmpty() ? 0 : c1.duplicates().get(0).similarity().overallScore();

@@ -196,21 +196,23 @@ class RefactoringBugReproductionTest {
                 package com.example;
                 public class HelperLeak {
                     public void process() {
-                        System.out.println("duplicate");
+                        int impossible = 1;
+                        System.out.println("duplicate" + impossible);
                     }
                     public void process2() {
-                        System.out.println("duplicate");
+                        int impossible = 2;
+                        System.out.println("duplicate" + impossible);
                     }
                 }
                 """;
         CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
 
         var method = cu.findFirst(com.github.javaparser.ast.body.MethodDeclaration.class).orElseThrow();
-        var statement = method.getBody().get().getStatements().get(0);
+        var statement = method.getBody().get().getStatements().get(1);
         
         var seq = new com.raditha.dedup.model.StatementSequence(
                 new com.github.javaparser.ast.NodeList<>(statement),
-                new com.raditha.dedup.model.Range(4, 25, 4, 35),
+                new com.raditha.dedup.model.Range(5, 25, 5, 35),
                 0,
                 method,
                 cu,
@@ -222,7 +224,7 @@ class RefactoringBugReproductionTest {
              "impossible", 
              new com.github.javaparser.ast.type.PrimitiveType(com.github.javaparser.ast.type.PrimitiveType.Primitive.INT),
              List.of(), // Empty examples
-             -1, // No variation index
+             0, // Variation index (NOT -1 to avoid literal name fallback)
              100, // Invalid line
              100  // Invalid col
         );

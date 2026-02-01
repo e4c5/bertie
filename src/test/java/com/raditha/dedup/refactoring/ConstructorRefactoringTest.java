@@ -116,20 +116,18 @@ class ConstructorRefactoringTest {
 
         // Verify Result
         assertNotNull(result);
-        assertEquals(RefactoringStrategy.EXTRACT_HELPER_METHOD, result.strategy());
 
-        // Verify helper method was added
+        // Verify NO helper method was added (reused existing constructor)
         List<MethodDeclaration> methods = classDecl.getMethods();
-        assertEquals(1, methods.size());
-        assertEquals("helperMethod", methods.get(0).getNameAsString());
-        assertEquals("void", methods.get(0).getType().asString());
+        assertEquals(0, methods.size(), "Should have reused existing constructor instead of extracting helper");
 
-        // Verify constructors now call the helper
-        assertEquals(1, ctor1.getBody().getStatements().size());
-        assertTrue(ctor1.getBody().getStatements().get(0).toString().contains("helperMethod()"));
+        // Verify constructors: ctor1 is source, ctor2 calls ctor1
+        // (Wait, ctor1 is the one with 0 params, so it's the reuse target)
+        assertEquals(3, ctor1.getBody().getStatements().size()); // Unchanged
 
         assertEquals(1, ctor2.getBody().getStatements().size());
-        assertTrue(ctor2.getBody().getStatements().get(0).toString().contains("helperMethod()"));
+        assertTrue(ctor2.getBody().getStatements().get(0).toString().contains("this()"), 
+                "Constructor 2 should reuse Constructor 1 via this()");
     }
 
     @Test

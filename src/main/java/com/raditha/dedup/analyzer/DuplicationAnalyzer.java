@@ -397,10 +397,6 @@ public class DuplicationAnalyzer {
      * Analyze a pair of sequences for similarity using pre-computed normalized AST.
      */
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
-        // CRITICAL FIX: To prevent code loss during extraction, we must ensure
-        // that duplicates have the EXACT same number of statements.
-        // If they differ in length, they are "similar code" but NOT suitable 
-        // for being clustered together for common method extraction.
         int size1 = norm1.sequence().statements().size();
         int size2 = norm2.sequence().statements().size();
         if (size1 != size2) {
@@ -409,11 +405,9 @@ public class DuplicationAnalyzer {
                             com.raditha.dedup.model.VariationAnalysis.builder().build(), null, false));
         }
 
-        // Use PRE-COMPUTED normalized nodes (no normalization needed!)
         var nodes1 = norm1.normalizedNodes();
         var nodes2 = norm2.normalizedNodes();
 
-        // Calculate similarity using AST-based calculator
         SimilarityResult similarity = astSimilarityCalculator.calculate(
                 nodes1,
                 nodes2,
@@ -521,6 +515,7 @@ public class DuplicationAnalyzer {
         // Sort by escape risk (ascending), then scope (descending), then statement count, then start line
 
         group.sort((a, b) -> {
+            // Priority 0: Fewest Escapes (Safety First!)
             int escapesA = escapeCount.applyAsInt(a.seq1()) + escapeCount.applyAsInt(a.seq2());
             int escapesB = escapeCount.applyAsInt(b.seq1()) + escapeCount.applyAsInt(b.seq2());
             int escapeCompare = Integer.compare(escapesA, escapesB);
@@ -528,16 +523,24 @@ public class DuplicationAnalyzer {
                 return escapeCompare;
             }
 
+            // Priority 1: Full Body Match (Tie-breaker for safe code)
+            boolean bodyA = isFullBody(a.seq1()); 
+            boolean bodyB = isFullBody(b.seq1());
+            if (bodyA != bodyB) return bodyA ? -1 : 1;
+
+            // Priority 2: Broadest Scope
             int scopeA = a.seq1().range().endLine() - a.seq1().range().startLine();
             int scopeB = b.seq1().range().endLine() - b.seq1().range().startLine();
             int scopeCompare = Integer.compare(scopeB, scopeA);
             if (scopeCompare != 0) return scopeCompare;
             
+            // Priority 3: Largest Size
             int sizeCompare = Integer.compare(
                     b.seq1().statements().size(),
                     a.seq1().statements().size());
             if (sizeCompare != 0) return sizeCompare;
             
+            // Priority 4: Earliest Appearance
             return Integer.compare(
                     a.seq1().range().startLine(),
                     b.seq1().range().startLine());
@@ -573,6 +576,15 @@ public class DuplicationAnalyzer {
         // Ranges overlap if one starts before the other ends
         return range1.startLine() <= range2.endLine() &&
                 range2.startLine() <= range1.endLine();
+    }
+
+    /**
+     * Check if a sequence corresponds to the full body of its containing method/constructor.
+     */
+    private boolean isFullBody(StatementSequence seq) {
+        return seq.getCallableBody()
+                .map(body -> body.getStatements().size() == seq.statements().size())
+                .orElse(false);
     }
 
 }

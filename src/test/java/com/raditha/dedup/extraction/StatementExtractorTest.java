@@ -278,8 +278,11 @@ class StatementExtractorTest {
         // With maxWindowGrowth=2: max window size is 5+2=7
         // Position 0-1: extract 7 statements
         // Position 2-3: extract 6, 5 statements respectively
-        // Total: 4 sequences
-        assertEquals(4, sequences.size());
-        assertEquals(7, sequences.get(0).statements().size());
+        // PLUS: Special Case extracts the full 8 statements (exceeding window growth to ensure full match)
+        // Total: 4 + 1 = 5 sequences
+        assertEquals(5, sequences.size());
+        assertEquals(8, sequences.get(0).statements().size()); // Special Case is added FIRST
+        // And the first windowed sequence (which was at index 0 before) is now at index 1
+        assertEquals(7, sequences.get(1).statements().size());
     }
 }

@@ -62,7 +62,6 @@ public class DuplicateClusterer {
 
         Set<StatementSequence> visited = new HashSet<>();
         List<DuplicateCluster> clusters = new ArrayList<>();
-        int clusterId = 1;
 
         List<StatementSequence> orderedNodes = new ArrayList<>(adj.keySet());
         orderedNodes.sort(SEQ_ORDER);
@@ -94,7 +93,7 @@ public class DuplicateClusterer {
             StatementSequence primary = component.stream()
                 .min(SEQ_ORDER)
                 .orElseThrow();
-            
+
             // Group pairs relevant to this cluster
             List<SimilarityPair> componentPairs = new ArrayList<>();
             for (SimilarityPair p : filtered) {
@@ -102,54 +101,27 @@ public class DuplicateClusterer {
                      componentPairs.add(p);
                 }
             }
-            
+
             // Calculate LOC reduction
             int totalDuplicateLines = component.stream()
                  .filter(s -> !s.equals(primary))
                  .mapToInt(s -> s.statements().size())
                  .sum();
-            
-            int callSiteLines = component.size() - 1; 
+
+            int callSiteLines = component.size() - 1;
             int methodOverhead = 1;
             int locReduction = Math.max(0, totalDuplicateLines - callSiteLines - methodOverhead);
 
             clusters.add(new DuplicateCluster(
                     primary,
-                    componentPairs, 
-                    null, 
+                    componentPairs,
+                    null,
                     locReduction));
-            
-            clusterId++;
         }
 
         // Sort by LOC reduction potential (highest first)
         return clusters.stream()
                 .sorted((a, b) -> Integer.compare(b.estimatedLOCReduction(), a.estimatedLOCReduction()))
                 .toList();
-    }
-
-    /**
-     * Group pairs by their primary (earliest) sequence.
-     */
-    private Map<StatementSequence, List<SimilarityPair>> groupByPrimary(List<SimilarityPair> pairs) {
-        Map<StatementSequence, List<SimilarityPair>> groups = new HashMap<>();
-
-        for (SimilarityPair pair : pairs) {
-            StatementSequence primary = getPrimary(pair);
-            groups.computeIfAbsent(primary, k -> new ArrayList<>()).add(pair);
-        }
-
-        return groups;
-    }
-
-    /**
-     * Get the primary sequence from a pair.
-     * Primary is defined as the sequence that appears first in the file (lowest
-     * line number).
-     */
-    private StatementSequence getPrimary(SimilarityPair pair) {
-        int line1 = pair.seq1().range().startLine();
-        int line2 = pair.seq2().range().startLine();
-        return line1 < line2 ? pair.seq1() : pair.seq2();
     }
 }

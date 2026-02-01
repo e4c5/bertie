@@ -85,7 +85,7 @@ public class RefactoringRecommendationGenerator {
         if (validStatementCount != -1) {
             effectivePrimary = truncator.createPrefixSequence(cluster.primary(), validStatementCount);
         }
-        RefactoringStrategy strategy = determineStrategy(cluster, effectivePrimary);
+        RefactoringStrategy strategy = determineStrategy(cluster, effectivePrimary, parameters);
         
         // CRITICAL FIX: Exclude field variables from parameters for EXTRACT_HELPER_METHOD
         // For EXTRACT_PARENT_CLASS, fields need to be promoted to parent, so keep them as parameters
@@ -133,7 +133,7 @@ public class RefactoringRecommendationGenerator {
                 analysis);
     }
 
-    private RefactoringStrategy determineStrategy(DuplicateCluster cluster, StatementSequence primarySeq) {
+    private RefactoringStrategy determineStrategy(DuplicateCluster cluster, StatementSequence primarySeq, List<ParameterSpec> parameters) {
         // Check for risky control flow (conditional returns)
         if (hasNestedReturn(primarySeq)) {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
@@ -167,9 +167,11 @@ public class RefactoringRecommendationGenerator {
             // FIXED: Only recommend if the sequence was NOT truncated.
             // If it was truncated, it means there are structural differences near the end,
             // so we should fallback to Helper Method extraction for safely extracting the common prefix.
+            // LIMIT: Do not use @ParameterizedTest if we have too many parameters (e.g. > 7)
+            // Excessive parameters make the code harder to read than a helper method.
             boolean isTruncated = primarySeq.statements().size() < cluster.primary().statements().size();
             
-            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster) && !isTruncated) {
+            if (cluster.allSequences().size() >= 3 && !isCrossFileDuplication(cluster) && !isTruncated && parameters.size() <= 7) {
                 return RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST;
             }
         }
