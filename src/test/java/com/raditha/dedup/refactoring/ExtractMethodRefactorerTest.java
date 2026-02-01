@@ -43,7 +43,7 @@ class ExtractMethodRefactorerTest {
     void setUp() {
         // Use lenient config to ensure small code blocks are detected
         // Pass empty map to avoid global scanning and duplicate class errors
-        analyzer = new DuplicationAnalyzer( Collections.emptyMap());
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test

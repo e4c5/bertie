@@ -47,9 +47,7 @@ class ConstructorRefactoringIntegrationTest {
     @BeforeEach
     void setUp() {
         // Collect all CUs for cross-file analysis
-        Map<String, CompilationUnit> allCUs = new HashMap<>();
-        // In a real run, this would be populated by scanning the project
-        analyzer = new DuplicationAnalyzer(allCUs);
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test

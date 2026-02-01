@@ -14,6 +14,7 @@ import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.resolution.types.ResolvedType;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.StatementSequence;
+import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.Map;
@@ -26,11 +27,9 @@ import java.util.Optional;
 public abstract class AbstractResolver {
 
     protected static final String OBJECT = "Object";
-    protected final Map<String, CompilationUnit> allCUs;
     protected final DataFlowAnalyzer dataFlowAnalyzer;
 
-    protected AbstractResolver(Map<String, CompilationUnit> allCUs, DataFlowAnalyzer dataFlowAnalyzer) {
-        this.allCUs = allCUs;
+    protected AbstractResolver(DataFlowAnalyzer dataFlowAnalyzer) {
         this.dataFlowAnalyzer = dataFlowAnalyzer;
     }
 
@@ -193,6 +192,7 @@ public abstract class AbstractResolver {
         Type scopeType = findTypeInContext(sequence, scopeName);
         String typeStr = scopeType.asString();
 
+        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
         CompilationUnit typeCU = allCUs.get(typeStr);
         if (typeCU == null) {
             for (var entry : allCUs.entrySet()) {
