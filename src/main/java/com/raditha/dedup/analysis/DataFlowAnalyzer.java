@@ -106,6 +106,9 @@ public class DataFlowAnalyzer {
         return liveOut;
     }
 
+    /**
+     * Results of the sequence analysis.
+     */
     public record SequenceAnalysis(
             Set<String> definedVars,
             Set<String> literalVars,
@@ -115,6 +118,12 @@ public class DataFlowAnalyzer {
             java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap
     ) {}
 
+    /**
+     * Analyzes variables in a sequence to identify definitions, usages, and types.
+     *
+     * @param sequence The statement sequence to analyze
+     * @return Detailed analysis of variable usage within the sequence
+     */
     public SequenceAnalysis analyzeSequenceVariables(StatementSequence sequence) {
         Set<String> defined = new HashSet<>();
         Set<String> literals = new HashSet<>();
@@ -140,9 +149,17 @@ public class DataFlowAnalyzer {
             java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap
     ) {}
 
+    /**
+     * Visitor that populates analysis context by traversing the AST.
+     */
     private static class SequenceAnalysisVisitor extends com.github.javaparser.ast.visitor.VoidVisitorAdapter<AnalysisContext> {
         private final Set<Statement> topLevelStmts;
 
+        /**
+         * Creates a new visitor.
+         *
+         * @param topLevelStmts The set of top-level statements in the sequence (to distinguish internal vs external scope)
+         */
         public SequenceAnalysisVisitor(Set<Statement> topLevelStmts) {
             this.topLevelStmts = topLevelStmts;
         }
@@ -276,6 +293,14 @@ public class DataFlowAnalyzer {
         return used;
     }
 
+    /**
+     * Finds potential return variable candidates based on live-out variables and return statements.
+     *
+     * @param sequence The statement sequence
+     * @param liveOut Set of variables that are live after the sequence
+     * @param analysis The sequence analysis result
+     * @return List of variable names that could be returned
+     */
     public List<String> findCandidates(StatementSequence sequence, Set<String> liveOut, SequenceAnalysis analysis) {
         List<String> candidates = new ArrayList<>();
         Set<String> returnedVars = analysis.returnedVars();
@@ -313,6 +338,14 @@ public class DataFlowAnalyzer {
         return findReturnVariable(sequence, returnType, analysis);
     }
 
+    /**
+     * Finds the best return variable for the sequence given an expected return type and analysis context.
+     *
+     * @param sequence The statement sequence
+     * @param returnType The expected return type (e.g. "String", "void")
+     * @param analysis The sequence analysis result
+     * @return The name of the return variable, or null if none found/ambiguous
+     */
     public String findReturnVariable(StatementSequence sequence, String returnType, SequenceAnalysis analysis) {
         Set<String> usedAfter = findVariablesUsedAfter(sequence);
 

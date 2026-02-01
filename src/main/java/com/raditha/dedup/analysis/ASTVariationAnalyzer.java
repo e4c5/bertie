@@ -404,35 +404,58 @@ public class ASTVariationAnalyzer {
     private static class SimpleResolvedType implements ResolvedType {
         private final String typeName;
 
+        /**
+         * Creates a new SimpleResolvedType.
+         *
+         * @param typeName The type name
+         */
         public SimpleResolvedType(String typeName) {
             this.typeName = typeName;
         }
 
+        /**
+         * Returns the type description.
+         */
         @Override
         public String describe() {
             return typeName;
         }
 
+        /**
+         * Checks if type is an array.
+         */
         @Override
         public boolean isArray() {
             return typeName.endsWith("[]");
         }
 
+        /**
+         * Checks if type is a primitive.
+         */
         @Override
         public boolean isPrimitive() {
             return false;
         } // Simplified
 
+        /**
+         * Checks if type is a reference type.
+         */
         @Override
         public boolean isReferenceType() {
             return true;
         } // simplified
 
+        /**
+         * Checks if type is void.
+         */
         @Override
         public boolean isVoid() {
             return "void".equals(typeName);
         }
 
+        /**
+         * Checks assignability.
+         */
         @Override
         public boolean isAssignableBy(ResolvedType other) {
             // Minimal implementation: exact name match

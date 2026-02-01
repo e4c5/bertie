@@ -24,12 +24,18 @@ public class SessionManager {
      */
     public record SessionDTO(List<ClusterDTO> clusters) {}
 
+    /**
+     * DTO for a duplicate cluster.
+     */
     public record ClusterDTO(
             SequenceDTO primary,
             List<SequenceDTO> duplicates,
             String strategy,
             int locReduction) {}
 
+    /**
+     * DTO for a sequence location.
+     */
     public record SequenceDTO(
             String filePath,
             int startLine,

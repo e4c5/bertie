@@ -26,6 +26,9 @@ public class MetricsExporter {
         private static class ColonPrettyPrinter extends com.fasterxml.jackson.core.util.DefaultPrettyPrinter {
                 private static final long serialVersionUID = 1L;
 
+                /**
+                 * Creates a new instance of ColonPrettyPrinter.
+                 */
                 public ColonPrettyPrinter() {
                         super();
                 }
@@ -34,11 +37,23 @@ public class MetricsExporter {
                         super(base);
                 }
 
+                /**
+                 * Creates a new instance of this printer.
+                 *
+                 * @return a new ColonPrettyPrinter instance
+                 */
                 @Override
                 public com.fasterxml.jackson.core.util.DefaultPrettyPrinter createInstance() {
                         return new ColonPrettyPrinter(this);
                 }
 
+                /**
+                 * Writes the separator between a field name and its value.
+                 * Overridden to write ": " instead of the default " : ".
+                 *
+                 * @param g the generator to write to
+                 * @throws java.io.IOException if an I/O error occurs
+                 */
                 @Override
                 public void writeObjectFieldValueSeparator(com.fasterxml.jackson.core.JsonGenerator g)
                                 throws java.io.IOException {

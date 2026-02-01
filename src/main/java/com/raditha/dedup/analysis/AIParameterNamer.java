@@ -18,6 +18,10 @@ public class AIParameterNamer {
     private final GeminiAIService aiService;
     private final boolean aiAvailable;
 
+    /**
+     * Creates a new AIParameterNamer.
+     * Initializes the Gemini AI service if configuration is available.
+     */
     public AIParameterNamer() {
         GeminiAIService service = null;
         try {

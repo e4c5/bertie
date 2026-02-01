@@ -157,6 +157,11 @@ public class BertieCLI implements Callable<Integer> {
 
     }
 
+    /**
+     * Entry point for the application.
+     *
+     * @param args Command line arguments
+     */
     public static void main(String[] args) {
         CommandLine cmd = new CommandLine(new BertieCLI());
 
@@ -645,6 +650,20 @@ public class BertieCLI implements Callable<Integer> {
      * Custom converter for RefactorMode enum to handle CLI string values.
      */
     public static class RefactorModeConverter implements ITypeConverter<RefactorMode> {
+
+        /**
+         * Creates a new RefactorModeConverter.
+         */
+        public RefactorModeConverter() {
+        }
+
+        /**
+         * Converts string value to RefactorMode.
+         *
+         * @param value the string value to convert
+         * @return the corresponding RefactorMode
+         * @throws Exception if conversion fails
+         */
         @Override
         public RefactorMode convert(String value) throws Exception {
             return RefactorMode.fromString(value);
@@ -655,6 +674,20 @@ public class BertieCLI implements Callable<Integer> {
      * Custom converter for VerifyMode enum to handle CLI string values.
      */
     public static class VerifyModeConverter implements ITypeConverter<VerifyMode> {
+
+        /**
+         * Creates a new VerifyModeConverter.
+         */
+        public VerifyModeConverter() {
+        }
+
+        /**
+         * Converts string value to VerifyMode.
+         *
+         * @param value the string value to convert
+         * @return the corresponding VerifyMode
+         * @throws Exception if conversion fails
+         */
         @Override
         public VerifyMode convert(String value) throws Exception {
             return VerifyMode.fromString(value);

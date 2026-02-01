@@ -39,10 +39,22 @@ public class ReturnTypeResolver {
     private final SequenceTruncator truncator;
     private final Map<String, CompilationUnit> allCUs;
 
+    /**
+     * Creates a new return type resolver with default analyzers.
+     *
+     * @param allCUs Map of all compilation units for type resolution
+     */
     public ReturnTypeResolver(Map<String, CompilationUnit> allCUs) {
         this(new DataFlowAnalyzer(), new SequenceTruncator(), allCUs);
     }
 
+    /**
+     * Creates a new return type resolver with specific components.
+     *
+     * @param dataFlowAnalyzer The data flow analyzer
+     * @param truncator        The sequence truncator
+     * @param allCUs           Map of all compilation units
+     */
     public ReturnTypeResolver(DataFlowAnalyzer dataFlowAnalyzer, SequenceTruncator truncator,
                               Map<String, CompilationUnit> allCUs) {
         this.dataFlowAnalyzer = dataFlowAnalyzer;

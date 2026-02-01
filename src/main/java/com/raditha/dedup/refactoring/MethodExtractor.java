@@ -45,6 +45,9 @@ public class MethodExtractor extends AbstractExtractor {
     private HelperMethodResult helperResult;
     private String methodNameToUse;
 
+    /**
+     * Result of the internal helper method creation process.
+     */
     private record HelperMethodResult(MethodDeclaration method, List<ParameterSpec> usedParameters,
             String forcedReturnVar) {
     }
@@ -55,6 +58,10 @@ public class MethodExtractor extends AbstractExtractor {
      * FIXED: Now tracks ALL modified compilation units, not just primary.
      * This fixes the bug where seq1/seq2 in different files had method calls
      * but the method definition was never written to their files.
+     *
+     * @param cluster        The duplicate cluster to refactor
+     * @param recommendation The approved refactoring recommendation
+     * @return The result containing modified code and status
      */
     public RefactoringResult refactor(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         // Initialize instance fields
@@ -572,6 +579,13 @@ public class MethodExtractor extends AbstractExtractor {
         return computeParamNameOverridesStatic(declaredVars, params);
     }
 
+    /**
+     * Statically computes parameter name overrides to avoid conflicts with local variables.
+     *
+     * @param declaredVars Variables declared in the method body
+     * @param params       Parameters to be added
+     * @return Map of ParameterSpec to new parameter name
+     */
     public static Map<ParameterSpec, String> computeParamNameOverridesStatic(Set<String> declaredVars, List<ParameterSpec> params) {
         Map<ParameterSpec, String> overrides = new java.util.HashMap<>();
         Set<String> usedNames = new HashSet<>(declaredVars);

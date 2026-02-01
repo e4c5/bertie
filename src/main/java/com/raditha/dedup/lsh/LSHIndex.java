@@ -63,6 +63,12 @@ public class LSHIndex {
         }
     }
 
+    /**
+     * Query the index for candidate sequences that match the given tokens.
+     *
+     * @param tokens List of tokens representing the sequence to query.
+     * @return Set of candidate StatementSequences that share at least one bucket.
+     */
     public Set<StatementSequence> query(List<String> tokens) {
         Set<StatementSequence> candidates = new HashSet<>();
         int[] signature = minHash.computeSignature(tokens);

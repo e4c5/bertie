@@ -158,6 +158,11 @@ public class ScopeAnalyzer {
             return !isParameter && !isField;
         }
 
+        /**
+         * Returns a string representation of the variable info.
+         *
+         * @return String description like "local String name"
+         */
         @Override
         public String toString() {
             String kind = isParameter ? "param" : isField ? "field" : "local";

@@ -27,6 +27,11 @@ public class GeminiAIService {
     private HttpClient httpClient;
     private Map<String, Object> config;
 
+    /**
+     * Creates a new Gemini AI Service.
+     *
+     * @throws IOException if configuration is invalid or missing
+     */
     public GeminiAIService() throws IOException {
         // Load configuration from Settings if available
         try {

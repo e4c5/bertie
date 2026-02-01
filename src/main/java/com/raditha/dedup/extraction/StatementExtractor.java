@@ -99,6 +99,13 @@ public class StatementExtractor {
         private final CompilationUnit cu;
         private final Path sourceFile;
         
+        /**
+         * Creates a new method visitor.
+         *
+         * @param sequences List to populate with extracted sequences
+         * @param cu        The compilation unit being visited
+         * @param sourceFile The path to the source file
+         */
         MethodVisitor(List<StatementSequence> sequences, CompilationUnit cu, Path sourceFile) {
             this.sequences = sequences;
             this.cu = cu;
