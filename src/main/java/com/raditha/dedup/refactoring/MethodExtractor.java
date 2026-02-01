@@ -871,6 +871,12 @@ public class MethodExtractor extends AbstractExtractor {
             return false;
 
         if (targetCallable.isConstructor() && sequence.containingCallable() instanceof ConstructorDeclaration caller) {
+            boolean hasExplicitCtorCall = caller.getBody().getStatements().stream()
+                    .anyMatch(s -> s instanceof ExplicitConstructorInvocationStmt);
+            if (hasExplicitCtorCall) {
+                return false;
+            }
+
             if (startIdx == 0 && block == body) {
                 ExplicitConstructorInvocationStmt ctorCall = new ExplicitConstructorInvocationStmt(true, null, methodCall.getArguments());
                 
