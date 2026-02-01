@@ -217,10 +217,9 @@ public class StatementExtractor {
             if (totalStatements >= effectiveMin) {
                 // Check if this is indeed the full body of the callable (not a nested block)
                 Optional<BlockStmt> bodyOpt = getCallableBody(callable);
-                if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements) {
-                    if (totalStatements > effectiveMin + maxWindowGrowth) {
-                        sequences.add(createSequence(statements, callable));
-                    }
+                if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements
+                        && totalStatements > effectiveMin + maxWindowGrowth) {
+                    sequences.add(createSequence(statements, callable));
                 }
             }
 
