@@ -202,26 +202,39 @@ public class StatementExtractor {
          */
         private void extractSlidingWindows(List<Statement> statements, CallableDeclaration<?> callable) {
             int totalStatements = statements.size();
-            
-            // Skip if not enough statements
-            if (totalStatements < minStatements) {
+            int effectiveMin = (callable instanceof ConstructorDeclaration) ? 3 : minStatements;
+
+            // SPECIAL CASE: Always extract the full body as a sequence if it meets min requirements
+            // This is critical for constructor/method reuse even when one body is longer than another.
+            if (totalStatements >= effectiveMin) {
+                // Check if this is indeed the full body of the callable (not a nested block)
+                Optional<BlockStmt> bodyOpt = getCallableBody(callable);
+                if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements) {
+                    sequences.add(createSequence(statements, callable));
+                }
+            }
+
+            // Skip if not enough statements (redundant but safe)
+            if (totalStatements < effectiveMin) {
                 return;
             }
             
-            if (StatementExtractor.this.maximalOnly) {
-                extractMaximalSequences(statements, callable, totalStatements);
+            // Targeted Relaxation: Allow windowed extraction for constructors to support prefix reuse (this())
+            // even if global setting is maximal_only. Methods stay maximal to prevent regression.
+            if (StatementExtractor.this.maximalOnly && !(callable instanceof ConstructorDeclaration)) {
+                extractMaximalSequences(statements, callable, totalStatements, effectiveMin);
             } else {
-                extractLimitedWindowSizes(statements, callable, totalStatements);
+                extractLimitedWindowSizes(statements, callable, totalStatements, effectiveMin);
             }
         }
         
-        private void extractMaximalSequences(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements) {
+        private void extractMaximalSequences(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements, int effectiveMin) {
             // For each starting position, create the longest possible sequence
-            for (int start = 0; start <= totalStatements - minStatements; start++) {
+            for (int start = 0; start <= totalStatements - effectiveMin; start++) {
                 // Calculate the maximum size we can extract from this position
                 int remainingStatements = totalStatements - start;
                 int maxPossibleSize = Math.min(
-                    minStatements + StatementExtractor.this.maxWindowGrowth,
+                    effectiveMin + StatementExtractor.this.maxWindowGrowth,
                     remainingStatements
                 );
                 
@@ -232,16 +245,16 @@ public class StatementExtractor {
             }
         }
         
-        private void extractLimitedWindowSizes(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements) {
+        private void extractLimitedWindowSizes(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements, int effectiveMin) {
             // Limit window size growth to prevent exponential explosion
             final int maxWindowSize = Math.min(
-                minStatements + StatementExtractor.this.maxWindowGrowth,
+                effectiveMin + StatementExtractor.this.maxWindowGrowth,
                 totalStatements
             );
             
             // Extract windows with limited size variation
-            for (int start = 0; start <= totalStatements - minStatements; start++) {
-                for (int windowSize = minStatements; windowSize <= maxWindowSize && start + windowSize <= totalStatements; windowSize++) {
+            for (int start = 0; start <= totalStatements - effectiveMin; start++) {
+                for (int windowSize = effectiveMin; windowSize <= maxWindowSize && start + windowSize <= totalStatements; windowSize++) {
                     int end = start + windowSize;
                     
                     List<Statement> window = statements.subList(start, end);
