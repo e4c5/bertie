@@ -371,7 +371,9 @@ public class ASTVariationAnalyzer {
 
         List<ResolvedReferenceType> common = new ArrayList<>();
         for (ResolvedReferenceType t : ancestors2) {
-            if (ancestors1.contains(t.getQualifiedName())) {
+            // Must check name match AND assignability to handle generics correctly
+            // e.g. List<String> vs List<Integer> -> List (raw) or Collection
+            if (ancestors1.contains(t.getQualifiedName()) && t.isAssignableBy(r1)) {
                 common.add(t);
             }
         }

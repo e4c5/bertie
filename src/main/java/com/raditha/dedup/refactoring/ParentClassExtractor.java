@@ -23,7 +23,6 @@ import com.raditha.dedup.model.StatementSequence;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.SuperExpr;
-import org.jspecify.annotations.NonNull;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.evaluator.Reflect;
 import java.nio.file.Path;
@@ -262,7 +261,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         return parentCu;
     }
 
-    private @NonNull MethodDeclaration createMethod(MethodDeclaration originalMethod) {
+    private MethodDeclaration createMethod(MethodDeclaration originalMethod) {
         MethodDeclaration newMethod = originalMethod.clone();
         newMethod.getAnnotations().clear();
         // Clear existing modifiers

@@ -8,7 +8,6 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
-import org.jspecify.annotations.Nullable;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
@@ -429,7 +428,7 @@ public class DataFlowAnalyzer {
         return expectedWrapper.isAssignableFrom(varWrapper);
     }
 
-    private static @Nullable VariableDeclarator getVariableDeclarator(StatementSequence sequence, String varName) {
+    private static VariableDeclarator getVariableDeclarator(StatementSequence sequence, String varName) {
         for (Statement stmt : sequence.statements()) {
             if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
                 var decl = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
