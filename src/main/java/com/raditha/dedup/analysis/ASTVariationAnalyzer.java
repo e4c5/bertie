@@ -4,7 +4,9 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.resolution.types.ResolvedType;
 import com.raditha.dedup.model.*;
 import org.slf4j.Logger;
@@ -144,21 +146,10 @@ public class ASTVariationAnalyzer {
                 ResolvedType type1 = resolveExpressionType(e1);
                 ResolvedType type2 = resolveExpressionType(e2);
 
-                // CRITICAL FIX: Ensure type compatibility
-                ResolvedType commonType = type1;
+                // CRITICAL FIX: Ensure type compatibility using Common Supertype Resolution
+                ResolvedType commonType = null;
                 if (type1 != null && type2 != null) {
-                    String t1 = type1.describe();
-                    String t2 = type2.describe();
-
-                    if (!t1.equals(t2)) {
-                        // Types differ, fallback to Object
-                        // (Ideally finding common supertype, but Object handles primitive wrappers +
-                        // String mismatch safety)
-                        // For primitives (int vs String), we need Object.
-                        commonType = null; // null implies Object in ASTParameterExtractor
-                    }
-                } else {
-                    commonType = null; // Fallback if either is unresolved
+                    commonType = findCommonSupertype(type1, type2);
                 }
 
                 // CRITICAL FIX: Ensure unique position for each expression in statement
@@ -337,6 +328,74 @@ public class ASTVariationAnalyzer {
             }
         }
         return null;
+    }
+
+    /**
+     * Find the most specific common supertype of two types.
+     */
+    private ResolvedType findCommonSupertype(ResolvedType t1, ResolvedType t2) {
+        if (t1 == null || t2 == null) return null;
+        if (t1.equals(t2)) return t1;
+
+        // Handle SimpleResolvedType or exact description match
+        if (t1.describe().equals(t2.describe())) return t1;
+
+        // Check subtype relationships
+        if (t1.isAssignableBy(t2)) return t1;
+        if (t2.isAssignableBy(t1)) return t2;
+
+        // Handle Reference Types
+        if (t1 instanceof ResolvedReferenceType && t2 instanceof ResolvedReferenceType) {
+            try {
+                return findLCA((ResolvedReferenceType) t1, (ResolvedReferenceType) t2);
+            } catch (Exception e) {
+                // If resolution fails, fallback to Object
+                logger.debug("Failed to resolve LCA for types {} and {}: {}", t1.describe(), t2.describe(), e.getMessage());
+                return null;
+            }
+        }
+
+        return null; // Fallback to Object (implied by null)
+    }
+
+    private ResolvedType findLCA(ResolvedReferenceType r1, ResolvedReferenceType r2) {
+        Set<String> ancestors1 = new HashSet<>();
+        ancestors1.add(r1.getQualifiedName());
+        r1.getAllAncestors().forEach(a -> ancestors1.add(a.getQualifiedName()));
+
+        List<ResolvedReferenceType> ancestors2 = new ArrayList<>();
+        ancestors2.add(r2);
+        ancestors2.addAll(r2.getAllAncestors());
+
+        List<ResolvedReferenceType> common = new ArrayList<>();
+        for (ResolvedReferenceType t : ancestors2) {
+            // Must check name match AND assignability to handle generics correctly
+            // e.g. List<String> vs List<Integer> -> List (raw) or Collection
+            if (ancestors1.contains(t.getQualifiedName()) && t.isAssignableBy(r1)) {
+                common.add(t);
+            }
+        }
+
+        // Filter to find most specific
+        List<ResolvedReferenceType> mostSpecific = new ArrayList<>(common);
+        mostSpecific.removeIf(c -> {
+             for (ResolvedReferenceType d : common) {
+                 if (c != d && c.isAssignableBy(d)) return true; // d is subtype of c, so d is more specific
+             }
+             return false;
+        });
+
+        if (mostSpecific.isEmpty()) return null;
+
+        // Prefer classes over interfaces if multiple
+        return mostSpecific.stream()
+            .filter(t -> !isInterface(t))
+            .findFirst()
+            .orElse(mostSpecific.get(0));
+    }
+
+    private boolean isInterface(ResolvedReferenceType t) {
+        return t.getTypeDeclaration().map(ResolvedReferenceTypeDeclaration::isInterface).orElse(false);
     }
 
     /**
