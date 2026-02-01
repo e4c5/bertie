@@ -3,8 +3,10 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
@@ -42,24 +44,14 @@ public class ParentClassExtractor extends AbstractExtractor {
     private final Map<String, Type> fieldsToExtract = new HashMap<>();
     private FunctionalPredicateInfo functionalPredicate;
 
-    private MethodDeclaration getMethodToExtract(StatementSequence primary) {
+    private CallableDeclaration<?> getCallableToExtract(StatementSequence primary) {
         CallableDeclaration<?> callable = primary.containingCallable();
 
         if (callable == null) {
             throw new IllegalArgumentException("No containing callable found");
         }
 
-        if (!(callable instanceof MethodDeclaration)) {
-            throw new IllegalArgumentException("Parent class extraction only supported for methods.");
-        }
-        MethodDeclaration methodToExtract = (MethodDeclaration) callable;
-
-        Optional<ClassOrInterfaceDeclaration> primaryClass = findPrimaryClass(primary.compilationUnit());
-        if (primaryClass.isEmpty()) {
-            throw new IllegalArgumentException("No containing class found");
-        }
-
-        return methodToExtract;
+        return callable;
     }
 
     @Override
@@ -70,16 +62,16 @@ public class ParentClassExtractor extends AbstractExtractor {
 
         StatementSequence primary = cluster.primary();
         CompilationUnit primaryCu = primary.compilationUnit();
-        MethodDeclaration methodToExtract = getMethodToExtract(primary);
+        CallableDeclaration<?> callableToExtract = getCallableToExtract(primary);
 
         this.parentClassName = determineParentClassName();
         this.functionalPredicate = buildFunctionalPredicateInfo();
 
-        validateNoInnerClassUsage(primaryCu, methodToExtract);
-        validateNoFieldUsage(methodToExtract);
+        validateNoInnerClassUsage(primaryCu, callableToExtract);
+        validateNoFieldUsage(callableToExtract);
         validateInheritance();
 
-        computeParamNameOverrides(methodToExtract);
+        computeParamNameOverrides(callableToExtract);
 
         Optional<ClassOrInterfaceDeclaration> existingParent = findExistingCommonParent();
         Optional<CompilationUnit> peerParentCu = findPeerParent();
@@ -87,7 +79,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
 
         if (existingParent.isPresent()) {
-            addMethodToExistingParent(existingParent.get(), methodToExtract);
+            addMethodToExistingParent(existingParent.get(), callableToExtract);
             addFieldsToParent(existingParent.get(), primaryCu);
             
             existingParent.get().findCompilationUnit().ifPresent(parentCu -> {
@@ -96,7 +88,7 @@ public class ParentClassExtractor extends AbstractExtractor {
                 modifiedFiles.put(parentPath, parentCu.toString());
             });
         } else if (!isPeerParent) {
-            CompilationUnit parentCu = createParentClass(methodToExtract);
+            CompilationUnit parentCu = createParentClass(callableToExtract);
             String parentFqn = packageName.isEmpty() ? parentClassName : packageName + "." + parentClassName;
             AntikytheraRunTime.addCompilationUnit(parentFqn, parentCu);
             findPrimaryClass(parentCu).ifPresent(parentClass -> {
@@ -105,6 +97,8 @@ public class ParentClassExtractor extends AbstractExtractor {
                 modifiedFiles.put(parentPath, parentCu.toString());
             });
         }
+        
+        MethodDeclaration extractedMethod = createMethod(callableToExtract);
 
         for (CompilationUnit currentCu : involvedCus) {
             boolean isCurrentCuParent = isPeerParent && currentCu == peerParentCu.get();
@@ -120,18 +114,17 @@ public class ParentClassExtractor extends AbstractExtractor {
 
             List<CallableDeclaration<?>> methods = methodsToRemove.get(currentCu);
             if (methods != null) {
-                for (CallableDeclaration<?> methodToRemove : methods) {
-                    if (!(methodToRemove instanceof MethodDeclaration)) continue;
-                    MethodDeclaration mToRemove = (MethodDeclaration) methodToRemove;
-
+                for (CallableDeclaration<?> mToRemove : methods) {
                     if (isCurrentCuParent) {
-                        if (mToRemove.isPrivate()) {
-                            mToRemove.setModifiers(Modifier.Keyword.PROTECTED);
-                        } else if (mToRemove.isPublic()) {
-                            mToRemove.setModifiers(Modifier.Keyword.PUBLIC);
+                        if (mToRemove instanceof MethodDeclaration md) {
+                            if (md.isPrivate()) {
+                                md.setModifiers(Modifier.Keyword.PROTECTED);
+                            } else if (md.isPublic()) {
+                                md.setModifiers(Modifier.Keyword.PUBLIC);
+                            }
                         }
                     } else {
-                        processChildMethod(mToRemove, methodToExtract);
+                        processChildMethod(mToRemove, extractedMethod);
                     }
                 }
             }
@@ -152,7 +145,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
     }
 
-    private void processChildMethod(MethodDeclaration methodToRemove,
+    private void processChildMethod(CallableDeclaration<?> methodToRemove,
             MethodDeclaration methodToExtract) {
         String parentMethodName = methodToExtract.getNameAsString();
 
@@ -183,21 +176,30 @@ public class ParentClassExtractor extends AbstractExtractor {
             addLiteralArguments(call, methodToRemove);
             addFunctionalArguments(call, methodToRemove);
 
-            if (methodToRemove.getType().isVoidType()) {
+            if (methodToRemove instanceof MethodDeclaration md && md.getType().isVoidType()) {
+                body.addStatement(call);
+            } else if (methodToRemove instanceof ConstructorDeclaration) {
                 body.addStatement(call);
             } else {
                 body.addStatement(new ReturnStmt(call));
             }
-            methodToRemove.setBody(body);
+            
+            if (methodToRemove instanceof MethodDeclaration md) {
+                md.setBody(body);
+            } else if (methodToRemove instanceof ConstructorDeclaration cd) {
+                cd.setBody(body);
+            }
         }
     }
 
-    private boolean signaturesMatch(MethodDeclaration m1, MethodDeclaration m2) {
-        if (!m1.getNameAsString().equals(m2.getNameAsString())) return false;
-        if (m1.getParameters().size() != m2.getParameters().size()) return false;
+    private boolean signaturesMatch(MethodDeclaration m1, CallableDeclaration<?> m2) {
+        if (!(m2 instanceof MethodDeclaration)) return false;
+        MethodDeclaration md2 = (MethodDeclaration) m2;
+        if (!m1.getNameAsString().equals(md2.getNameAsString())) return false;
+        if (m1.getParameters().size() != md2.getParameters().size()) return false;
         for (int i = 0; i < m1.getParameters().size(); i++) {
             String t1 = m1.getParameter(i).getType().asString();
-            String t2 = m2.getParameter(i).getType().asString();
+            String t2 = md2.getParameter(i).getType().asString();
             // Ignoring generics nuances for now, just string compare
             if (!t1.equals(t2)) return false; 
         }
@@ -233,7 +235,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         return Optional.empty();
     }
 
-    private CompilationUnit createParentClass(MethodDeclaration originalMethod) {
+    private CompilationUnit createParentClass(CallableDeclaration<?> originalMethod) {
         CompilationUnit parentCu = new CompilationUnit();
         if (!packageName.isEmpty()) {
             parentCu.setPackageDeclaration(packageName);
@@ -262,8 +264,22 @@ public class ParentClassExtractor extends AbstractExtractor {
         return parentCu;
     }
 
-    private @NonNull MethodDeclaration createMethod(MethodDeclaration originalMethod) {
-        MethodDeclaration newMethod = originalMethod.clone();
+    private @NonNull MethodDeclaration createMethod(CallableDeclaration<?> originalMethod) {
+        MethodDeclaration newMethod = null;
+        if (originalMethod instanceof MethodDeclaration md) {
+            newMethod = md.clone();
+        } else if (originalMethod instanceof ConstructorDeclaration cd) {
+            newMethod = new MethodDeclaration();
+            newMethod.setName(recommendation.getSuggestedMethodName());
+            newMethod.setParameters(new NodeList<>(cd.getParameters()));
+            newMethod.setBody(cd.getBody().clone());
+            newMethod.setType("void");
+        }
+        
+        if (newMethod == null) {
+            throw new IllegalArgumentException("Unsupported callable type");
+        }
+
         newMethod.getAnnotations().clear();
         // Clear existing modifiers
         newMethod.getModifiers().clear();
@@ -286,6 +302,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         Map<ParameterSpec, String> paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
 
+        final MethodDeclaration finalMethod = newMethod;
         recommendation.getSuggestedParameters().forEach(p -> {
             String targetName = paramNameOverrides.getOrDefault(p, p.getName());
             
@@ -294,11 +311,11 @@ public class ParentClassExtractor extends AbstractExtractor {
                 return;
             }
 
-            boolean exists = newMethod.getParameters().stream()
+            boolean exists = finalMethod.getParameters().stream()
                     .anyMatch(param -> param.getNameAsString().equals(targetName));
             
             if (!exists) {
-                newMethod.addParameter(p.getType(), targetName);
+                finalMethod.addParameter(p.getType(), targetName);
             }
         });
 
@@ -415,7 +432,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     }
 
     private void addMethodToExistingParent(ClassOrInterfaceDeclaration parentClass,
-            MethodDeclaration method) {
+            CallableDeclaration<?> method) {
         MethodDeclaration newMethod = createMethod(method);
 
         if (!methodExists(parentClass, newMethod)) {
@@ -473,7 +490,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         return "";
     }
 
-    private void validateNoInnerClassUsage(CompilationUnit cu, MethodDeclaration method) {
+    private void validateNoInnerClassUsage(CompilationUnit cu, CallableDeclaration<?> method) {
         List<String> innerClassNames = new ArrayList<>();
 
         // Find all nested types
@@ -495,7 +512,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
     }
 
-    private void validateNoFieldUsage(MethodDeclaration method) {
+    private void validateNoFieldUsage(CallableDeclaration<?> method) {
         // Collect field names used in any of the involved classes or parent
         Set<String> usedFieldNames = new HashSet<>();
         Set<String> allClassFieldNames = new HashSet<>();
@@ -621,30 +638,24 @@ public class ParentClassExtractor extends AbstractExtractor {
     /**
      * Check if a name expression is shadowed by a local variable or parameter.
      */
-    private boolean isShadowed(NameExpr name, MethodDeclaration method) {
+    private boolean isShadowed(NameExpr name, CallableDeclaration<?> method) {
         return isShadowed(name.getNameAsString(), method);
     }
 
-    private boolean isShadowed(String identifier, MethodDeclaration method) {
-
+    private boolean isShadowed(String identifier, CallableDeclaration<?> method) {
         // Check parameters
         boolean isParam = method.getParameters().stream()
                 .anyMatch(p -> p.getNameAsString().equals(identifier));
         if (isParam)
             return true;
 
-        // Check local variables (simplistic check: declared before usage?)
-        // AST traversal to find ancestor blocks and declarations
-        // This is complex. For now, assume if variable with same name declared in
-        // method, it shadows.
-        // False positives (usage before decl) are safer (will skip refactoring) than
-        // false negatives.
-        return method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class).stream()
-                .anyMatch(v -> v.getNameAsString().equals(identifier));
-
+        return getCallableBody(method).map(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .stream()
+                .anyMatch(v -> v.getNameAsString().equals(identifier)))
+                .orElse(false);
     }
 
-    private void addLiteralArguments(MethodCallExpr call, MethodDeclaration childMethod) {
+    private void addLiteralArguments(MethodCallExpr call, CallableDeclaration<?> childMethod) {
         Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
                 .filter(seq -> seq.containingCallable().getNameAsString().equals(childMethod.getNameAsString()) &&
                         seq.sourceFilePath().equals(childMethod.findCompilationUnit()
@@ -694,16 +705,25 @@ public class ParentClassExtractor extends AbstractExtractor {
         });
     }
 
-    private void computeParamNameOverrides(MethodDeclaration method) {
+    private void computeParamNameOverrides(CallableDeclaration<?> method) {
         Set<String> declaredVars = new HashSet<>();
-        method.getBody().ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+        getCallableBody(method).ifPresent(body -> body.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
                 .forEach(v -> declaredVars.add(v.getNameAsString())));
         
         this.paramNameOverrides = MethodExtractor.computeParamNameOverridesStatic(
                 declaredVars, recommendation.getSuggestedParameters());
     }
 
-    private Expression findLiteralForParameter(MethodDeclaration method, com.raditha.dedup.model.ParameterSpec param) {
+    private Optional<BlockStmt> getCallableBody(CallableDeclaration<?> callable) {
+        if (callable instanceof MethodDeclaration m) {
+            return m.getBody();
+        } else if (callable instanceof ConstructorDeclaration c) {
+            return Optional.of(c.getBody());
+        }
+        return Optional.empty();
+    }
+
+    private Expression findLiteralForParameter(CallableDeclaration<?> method, com.raditha.dedup.model.ParameterSpec param) {
         // Scan method body for literals of the required type
         // This is tricky. For ReportGenerator, it's usually strings.
         for (com.github.javaparser.ast.expr.LiteralExpr literal : method
@@ -720,7 +740,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         return null;
     }
 
-    private void addFunctionalArguments(MethodCallExpr call, MethodDeclaration childMethod) {
+    private void addFunctionalArguments(MethodCallExpr call, CallableDeclaration<?> childMethod) {
         if (!functionalPredicate.enabled) {
             return;
         }
@@ -780,13 +800,13 @@ public class ParentClassExtractor extends AbstractExtractor {
             methodNames.add(call.getNameAsString());
         }
 
-        String paramType = "Predicate<" + resolveScopeType(scopeName, (MethodDeclaration) cluster.primary().containingCallable()) + ">";
+        String paramType = "Predicate<" + resolveScopeType(scopeName, cluster.primary().containingCallable()) + ">";
         String parentName = computeFunctionalParentName();
 
         return new FunctionalPredicateInfo(true, methodNames, scopeName, "filter", paramType, parentName);
     }
 
-    private MethodCallExpr findPredicateMethodCall(MethodDeclaration method, String scopeName) {
+    private MethodCallExpr findPredicateMethodCall(CallableDeclaration<?> method, String scopeName) {
         for (MethodCallExpr call : method.findAll(MethodCallExpr.class)) {
             if (!call.getArguments().isEmpty() || call.getScope().isEmpty()) {
                 continue;
@@ -799,7 +819,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         return null;
     }
 
-    private String resolvePredicateMethodName(MethodDeclaration method) {
+    private String resolvePredicateMethodName(CallableDeclaration<?> method) {
         for (MethodCallExpr call : method.findAll(MethodCallExpr.class)) {
             if (functionalPredicate.methodNames.contains(call.getNameAsString())) {
                 return call.getNameAsString();
@@ -808,7 +828,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         return functionalPredicate.methodNames.stream().findFirst().orElse(null);
     }
 
-    private String resolveScopeType(String scopeName, MethodDeclaration method) {
+    private String resolveScopeType(String scopeName, CallableDeclaration<?> method) {
         for (com.github.javaparser.ast.body.Parameter param : method.getParameters()) {
             if (param.getNameAsString().equals(scopeName)) {
                 return param.getType().asString();
