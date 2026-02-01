@@ -262,6 +262,7 @@ public abstract class AbstractExtractor {
             newMethod.setParameters(new NodeList<>(cd.getParameters()));
             newMethod.setBody(cd.getBody().clone());
             newMethod.setType("void");
+            newMethod.setThrownExceptions(new NodeList<>(cd.getThrownExceptions()));
         } else {
             throw new IllegalArgumentException("Unsupported callable type: " + originalMethod.getClass().getName());
         }
