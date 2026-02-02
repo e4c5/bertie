@@ -5,6 +5,7 @@ import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.util.ASTUtility;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -20,13 +21,6 @@ public record DuplicationReport(
         List<DuplicateCluster> clusters,
         int totalSequences,
         int candidatesAnalyzed) {
-
-    /**
-     * Get the source file path from the compilation unit.
-     */
-    public Path sourceFile() {
-        return com.raditha.dedup.util.ASTUtility.getSourcePath(compilationUnit);
-    }
 
     /**
      * Get count of duplicate pairs found.
