@@ -51,9 +51,10 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
                                       CompilationUnit cu) throws IOException, InterruptedException {
         
         RefactoringSession totalSession = new RefactoringSession();
-        Path sourceFile = cu.getStorage().map(CompilationUnit.Storage::getPath).orElse(null);
-
-        if (sourceFile == null) {
+        Path sourceFile;
+        try {
+            sourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu);
+        } catch (IllegalStateException e) {
             return totalSession;
         }
 
@@ -102,7 +103,11 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
                 .orElseThrow(() -> new IllegalStateException("Failed to re-parse modified code for Pass 2"));
                 
         // We also need to ensure the storage path is preserved for the analyzer to work correctly
-        cu.getStorage().ifPresent(s -> reParsedCU.setStorage(s.getPath()));
+        try {
+            reParsedCU.setStorage(com.raditha.dedup.util.ASTUtility.getSourcePath(cu));
+        } catch (IllegalStateException e) {
+            // Should be caught earlier
+        }
 
         DuplicationReport pass2Report = analyzer.analyzeFile(reParsedCU);
 

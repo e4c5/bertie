@@ -82,11 +82,8 @@ public class StatementExtractor {
         List<StatementSequence> sequences = new ArrayList<>();
         
         // Normalize path once for all sequences from this file
-        Path normalizedSourceFile = cu.getStorage()
-                .map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
-                .map(Path::toAbsolutePath)
-                .map(Path::normalize)
-                .orElse(null);
+        Path normalizedSourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu)
+                .toAbsolutePath().normalize();
         
         // Visit all methods and constructors in the compilation unit
         cu.accept(new MethodVisitor(sequences, cu, normalizedSourceFile), null);

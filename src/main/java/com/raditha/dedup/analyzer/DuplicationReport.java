@@ -26,9 +26,7 @@ public record DuplicationReport(
      * Get the source file path from the compilation unit.
      */
     public Path sourceFile() {
-        return compilationUnit.getStorage()
-                .map(CompilationUnit.Storage::getPath)
-                .orElse(Paths.get("unknown"));
+        return com.raditha.dedup.util.ASTUtility.getSourcePath(compilationUnit);
     }
 
     /**

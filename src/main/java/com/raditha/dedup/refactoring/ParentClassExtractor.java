@@ -657,8 +657,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
                 .filter(seq -> seq.containingCallable().getNameAsString().equals(childMethod.getNameAsString()) &&
                         seq.sourceFilePath().equals(childMethod.findCompilationUnit()
-                                .flatMap(CompilationUnit::getStorage)
-                                .map(CompilationUnit.Storage::getPath)
+                                .map(com.raditha.dedup.util.ASTUtility::getSourcePath)
                                 .orElse(null)))
                 .findFirst();
 
