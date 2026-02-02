@@ -20,7 +20,8 @@ class ConstructorExtractionTest {
         CompilationUnit cu = StaticJavaParser.parse(sourcePath);
 
         StatementExtractor extractor = new StatementExtractor(3, 5, false);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, sourcePath);
+        cu.setStorage(sourcePath);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         assertFalse(sequences.isEmpty(), "Should extract sequences");
 

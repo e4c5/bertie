@@ -34,7 +34,8 @@ class StatementExtractorNestedBlockTest {
 
         CompilationUnit cu = StaticJavaParser.parse(code);
         StatementExtractor extractor = new StatementExtractor(2); // min 2 statements to see all
-        List<StatementSequence> sequences = extractor.extractSequences(cu, Path.of("Test.java"));
+        cu.setStorage(Path.of("Test.java"));
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         // Print all sequences for debugging
         System.out.println("Total sequences extracted: " + sequences.size());
