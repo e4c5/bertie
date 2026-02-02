@@ -104,7 +104,7 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         // We also need to ensure the storage path is preserved for the analyzer to work correctly
         cu.getStorage().ifPresent(s -> reParsedCU.setStorage(s.getPath()));
 
-        DuplicationReport pass2Report = analyzer.analyzeFile(reParsedCU, sourceFile);
+        DuplicationReport pass2Report = analyzer.analyzeFile(reParsedCU);
 
         if (!pass2Report.hasDuplicates()) {
             System.out.println(">>> PASS 2: No duplicates found.");

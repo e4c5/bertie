@@ -57,21 +57,19 @@ public class DuplicationAnalyzer {
      * Analyze a single file for duplicates.
      * 
      * @param cu         Compilation unit to analyze
-     * @param sourceFile Path to source file
      * @return Analysis report with clustered duplicates and refactoring
      *         recommendations
      */
-    public DuplicationReport analyzeFile(CompilationUnit cu, Path sourceFile) {
+    public DuplicationReport analyzeFile(CompilationUnit cu) {
+        Path sourceFile = cu.getStorage()
+                .map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
+                .orElse(java.nio.file.Paths.get("unknown.java"));
+
         // Step 1: Extract all statement sequences
         List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
         // Step 2-5: Process sequences through the duplicate detection pipeline
         ProcessedDuplicates processed = processDuplicatePipeline(sequences);
-
-        // Ensure storage is set on CU
-        if (cu.getStorage().isEmpty() || !cu.getStorage().get().getPath().equals(sourceFile)) {
-            cu.setStorage(sourceFile);
-        }
 
         // Step 6: Create report
         return new DuplicationReport(

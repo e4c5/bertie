@@ -45,10 +45,12 @@ class ScalabilityIntegrationTest {
         DuplicationAnalyzer analyzerBF = new DuplicationAnalyzer();
 
         // Warmup run to eliminate JVM startup effects
-        analyzerBF.analyzeFile(cu, dummyPath);
+        cu.setStorage(dummyPath);
+        analyzerBF.analyzeFile(cu);
 
         long startBF = System.currentTimeMillis();
-        analyzerBF.analyzeFile(cu, dummyPath);
+        cu.setStorage(dummyPath);
+        analyzerBF.analyzeFile(cu);
         long durationBF = System.currentTimeMillis() - startBF;
 
         // 3. Measure LSH (LSH enabled)
@@ -61,10 +63,12 @@ class ScalabilityIntegrationTest {
         DuplicationAnalyzer analyzerLSH = new DuplicationAnalyzer();
 
         // Warmup run to eliminate JVM startup effects
-        analyzerLSH.analyzeFile(cu, dummyPath);
+        cu.setStorage(dummyPath);
+        analyzerLSH.analyzeFile(cu);
 
         long startLSH = System.currentTimeMillis();
-        analyzerLSH.analyzeFile(cu, dummyPath);
+        cu.setStorage(dummyPath);
+        analyzerLSH.analyzeFile(cu);
         long durationLSH = System.currentTimeMillis() - startLSH;
 
         double tolerance = 1.5; // Allow LSH to be up to 50% slower (conservative for small datasets)

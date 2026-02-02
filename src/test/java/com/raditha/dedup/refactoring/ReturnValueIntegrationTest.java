@@ -65,7 +65,8 @@ class ReturnValueIntegrationTest {
 
         Path sourceFile = tempDir.resolve("ServiceWithSimpleReturn.java");
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithSimpleReturn");
         assertFalse(report.clusters().isEmpty(), "Should have at least one cluster");
 
@@ -87,7 +88,8 @@ class ReturnValueIntegrationTest {
         String code = Files.readString(sourceFile);
         CompilationUnit cu = StaticJavaParser.parse(code);
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithNoReturn");
 
         DuplicateCluster cluster = report.clusters().get(0);
@@ -108,7 +110,8 @@ class ReturnValueIntegrationTest {
         String code = Files.readString(sourceFile);
         CompilationUnit cu = StaticJavaParser.parse(code);
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithPrimitiveReturns");
 
         // File has BOTH int and boolean duplicates - find the int one (calculateTotal
@@ -133,7 +136,8 @@ class ReturnValueIntegrationTest {
         String code = Files.readString(sourceFile);
         CompilationUnit cu = StaticJavaParser.parse(code);
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Lambda/stream code is complex - if no duplicates found, skip test
         if (!report.hasDuplicates() || report.clusters().isEmpty()) {
@@ -154,7 +158,8 @@ class ReturnValueIntegrationTest {
         CompilationUnit cu = AntikytheraRunTime
                 .getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
         Path sourceFile = tempDir.resolve("ServiceWithMultipleReturnCandidates.java");
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithMultipleReturnCandidates");
 
         DuplicateCluster cluster = report.clusters().get(0);

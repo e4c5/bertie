@@ -62,7 +62,8 @@ class DuplicateEliminationIntegrationTest {
                 com.raditha.dedup.config.DuplicationDetectorSettings.loadConfig(3, 70, null);
                 DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
 
-                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+                cu.setStorage(sourceFile);
+                DuplicationReport report = analyzer.analyzeFile(cu);
                 assertTrue(report.hasDuplicates(), "Should have found duplicates");
 
                 // 4. Refactor

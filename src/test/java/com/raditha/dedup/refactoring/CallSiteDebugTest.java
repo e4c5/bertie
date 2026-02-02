@@ -41,7 +41,8 @@ class CallSiteDebugTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         // When: We analyze the file for duplicates
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Then: At least one duplicate cluster should be detected
         assertNotNull(report, "Report should not be null");
@@ -62,7 +63,8 @@ class CallSiteDebugTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         // When: We analyze and generate recommendations
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Then: Each cluster should have a refactoring recommendation
         for (DuplicateCluster cluster : report.clusters()) {
@@ -84,7 +86,8 @@ class CallSiteDebugTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         // When: We analyze for duplicates
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Then: Line ranges should be valid
         for (DuplicateCluster cluster : report.clusters()) {
