@@ -2,7 +2,6 @@ package com.raditha.dedup.cli;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.model.SimilarityPair;
-import com.raditha.dedup.util.ASTUtility;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine;
@@ -352,15 +351,20 @@ public class BertieCLI implements Callable<Integer> {
 
         for (DuplicationReport report : reports) {
             if (!report.clusters().isEmpty()) {
+                System.out.println("Processing file: " + report.sourceFile().getFileName());
+                
                 CompilationUnit cu = report.compilationUnit();
-                System.out.println("Processing file: " + ASTUtility.getSourcePath(cu).getFileName());
                     
-                // Use Orchestrator instead of direct engine call
-                RefactoringEngine.RefactoringSession session = orchestrator.orchestrate(report, cu);
-
-                totalSuccess += session.getSuccessful().size();
-                totalSkipped += session.getSkipped().size();
-                totalFailed += session.getFailed().size();
+                if (cu != null) {
+                    // Use Orchestrator instead of direct engine call
+                    RefactoringEngine.RefactoringSession session = orchestrator.orchestrate(report, cu);
+    
+                    totalSuccess += session.getSuccessful().size();
+                    totalSkipped += session.getSkipped().size();
+                    totalFailed += session.getFailed().size();
+                } else {
+                    System.out.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
+                }
             }
         }
 
@@ -431,7 +435,7 @@ public class BertieCLI implements Callable<Integer> {
         }
 
         System.out.println("-".repeat(80));
-        System.out.println("File: " + ASTUtility.getSourcePath(report.compilationUnit()).getFileName());
+        System.out.println("File: " + report.sourceFile().getFileName());
         System.out.println("-".repeat(80));
         System.out.println();
 
@@ -510,7 +514,7 @@ public class BertieCLI implements Callable<Integer> {
     private static void printLocation(DuplicationReport report,
             StatementSequence seq,
             int locNum) {
-        Path sourcePath = seq.sourceFilePath() != null ? seq.sourceFilePath() : ASTUtility.getSourcePath(report.compilationUnit());
+        Path sourcePath = seq.sourceFilePath() != null ? seq.sourceFilePath() : report.sourceFile();
         String className = extractClassName(sourcePath.toString());
         String methodName = seq.containingCallable() != null ? seq.containingCallable().getNameAsString() : "top-level";
         int startLine = seq.range().startLine();
@@ -562,7 +566,7 @@ public class BertieCLI implements Callable<Integer> {
             DuplicationReport report = reports.get(i);
             if (report.hasDuplicates()) {
                 System.out.println("    {");
-                System.out.printf("      \"path\": \"%s\",%n", ASTUtility.getSourcePath(report.compilationUnit()));
+                System.out.printf("      \"path\": \"%s\",%n", report.sourceFile());
                 System.out.printf("      \"duplicates\": %d,%n", report.getDuplicateCount());
                 System.out.printf("      \"clusters\": %d%n", report.clusters().size());
                 System.out.print("    }");

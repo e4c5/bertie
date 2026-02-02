@@ -111,7 +111,7 @@ public class DuplicationAnalyzer {
         }
 
         List<StatementSequence> allSequences = new ArrayList<>();
-        Map<CompilationUnit, List<StatementSequence>> fileSequences = new IdentityHashMap<>();
+        Map<CompilationUnit, List<StatementSequence>> fileSequences = new java.util.IdentityHashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
 
         // 1. Extract from all files (Lazily normalized)
@@ -190,8 +190,8 @@ public class DuplicationAnalyzer {
             List<DuplicateCluster> clusters,
             int totalCandidates) {
 
-        Map<CompilationUnit, List<SimilarityPair>> fileToDuplicates = new IdentityHashMap<>();
-        Map<CompilationUnit, List<DuplicateCluster>> fileToClusters = new IdentityHashMap<>();
+        Map<CompilationUnit, List<SimilarityPair>> fileToDuplicates = new java.util.IdentityHashMap<>();
+        Map<CompilationUnit, List<DuplicateCluster>> fileToClusters = new java.util.IdentityHashMap<>();
 
         // Initialize with empty lists for all files
         for (CompilationUnit cu : fileSequences.keySet()) {
@@ -204,8 +204,10 @@ public class DuplicationAnalyzer {
             CompilationUnit cu1 = pair.seq1().compilationUnit();
             CompilationUnit cu2 = pair.seq2().compilationUnit();
 
-            fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
-            fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
+            if (cu1 != null)
+                fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
+            if (cu2 != null && cu2 != cu1)
+                fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
         }
 
         // Distribute clusters
@@ -213,9 +215,11 @@ public class DuplicationAnalyzer {
             cluster.allSequences().stream()
                     .map(StatementSequence::compilationUnit)
                     .distinct()
-                    .forEach(cu ->
-                        fileToClusters.computeIfAbsent(cu, k -> new ArrayList<>()).add(cluster)
-                    );
+                    .forEach(cu -> {
+                        if (cu != null) {
+                            fileToClusters.computeIfAbsent(cu, k -> new ArrayList<>()).add(cluster);
+                        }
+                    });
         }
 
         List<DuplicationReport> reports = new ArrayList<>();
