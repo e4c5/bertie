@@ -7,7 +7,6 @@ import com.raditha.dedup.model.SimilarityPair;
 import com.raditha.dedup.model.StatementSequence;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 /**

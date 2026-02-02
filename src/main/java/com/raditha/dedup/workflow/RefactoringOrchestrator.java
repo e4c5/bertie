@@ -78,11 +78,7 @@ public class RefactoringOrchestrator {
         // New Step 3: Cleanup unreferenced private methods (zombies)
         // CRITICAL FIX: Re-parse the CU from disk to ensure we have the fresh state (after rollback if any)
         // The in-memory 'cu' might still contain changes that were rolled back on disk.
-        try {
-             cu = com.github.javaparser.StaticJavaParser.parse(com.raditha.dedup.util.ASTUtility.getSourcePath(cu));
-        } catch (IllegalStateException e) {
-             // Ignore if no storage
-        }
+        cu = com.github.javaparser.StaticJavaParser.parse(com.raditha.dedup.util.ASTUtility.getSourcePath(cu));
 
         com.raditha.dedup.refactoring.UnusedMethodCleaner cleaner = new com.raditha.dedup.refactoring.UnusedMethodCleaner();
         boolean cleaned = cleaner.clean(cu);
@@ -90,12 +86,8 @@ public class RefactoringOrchestrator {
         if (cleaned) {
             logger.info("Cleanup detected unused methods. Saving changes to file.");
             // Determine file path
-            try {
-                java.nio.file.Path path = com.raditha.dedup.util.ASTUtility.getSourcePath(cu);
-                java.nio.file.Files.writeString(path, cu.toString());
-            } catch (IllegalStateException e) {
-                 logger.warn("RefactoringOrchestrator: Cannot save cleanup changes - no file path in CompilationUnit");
-            }
+            java.nio.file.Path path = com.raditha.dedup.util.ASTUtility.getSourcePath(cu);
+            java.nio.file.Files.writeString(path, cu.toString());
         }
 
         return totalSession;

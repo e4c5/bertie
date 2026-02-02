@@ -117,24 +117,10 @@ public class DuplicationAnalyzer {
         // 1. Extract from all files (Lazily normalized)
         List<CompilationUnit> sortedCUs = new ArrayList<>(targetCUs.values());
         sortedCUs.sort(java.util.Comparator.comparing(
-                unit -> {
-                    try {
-                        return com.raditha.dedup.util.ASTUtility.getSourcePath(unit);
-                    } catch (Exception e) {
-                        return null;
-                    }
-                },
+                com.raditha.dedup.util.ASTUtility::getSourcePath,
                 java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
         for (CompilationUnit cu : sortedCUs) {
             if (processedCUs.add(cu)) {
-
-                Path sourceFile;
-                try {
-                    sourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu);
-                } catch (IllegalStateException e) {
-                    // Skip files without storage information (can't track source path)
-                    continue;
-                }
 
                 List<StatementSequence> sequences = extractor.extractSequences(cu);
                 fileSequences.put(cu, sequences);
