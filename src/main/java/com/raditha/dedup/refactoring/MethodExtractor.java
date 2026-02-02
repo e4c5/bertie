@@ -1524,21 +1524,25 @@ public class MethodExtractor extends AbstractExtractor {
         for (ParameterSpec param : effectiveParams) {
             String paramName = paramNameOverrides.getOrDefault(param, param.getName());
 
-            if (tryLocationBasedReplace(stmt, param, paramName)) {
-                continue;
-            }
+            substituteEffectiveParameter(stmt, param, paramName);
+        }
+        return stmt;
+    }
 
-            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
-                for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(paramName));
-                        break;
-                    }
+    private static void substituteEffectiveParameter(Statement stmt, ParameterSpec param, String paramName) {
+        if (tryLocationBasedReplace(stmt, param, paramName)) {
+            return;
+        }
+
+        if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
+            String exampleValue = param.getExampleValues().getFirst();
+            for (Expression expr : stmt.findAll(Expression.class)) {
+                if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
+                    expr.replace(new NameExpr(paramName));
+                    break;
                 }
             }
         }
-        return stmt;
     }
 
     /**
@@ -1551,25 +1555,7 @@ public class MethodExtractor extends AbstractExtractor {
             String paramName = resolveParamNameStatic(param, nameOverrides);
 
             // 1) Prefer exact location-based replacement to avoid accidental collisions
-            if (tryLocationBasedReplace(stmt, param, paramName)) {
-                continue; // done for this parameter
-            }
-
-            // 2) Value-based fallback: replace matching expressions that lack location
-            // metadata
-            // FIXED: Only use fallback if we genuinely don't have location info.
-            // If we have location info but didn't find it (step 1 failed), it probably means
-            // the node isn't in this statement (which is fine).
-            // We should NOT fallback to value replacement in that case, as it risks replacing invariants.
-            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
-                for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(paramName));
-                        break; // Replace first occurrence only to avoid over-substitution
-                    }
-                }
-            }
+            substituteEffectiveParameter(stmt, param, paramName);
         }
         return stmt;
     }
