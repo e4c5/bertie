@@ -35,11 +35,9 @@ public class ParameterResolver extends AbstractResolver {
 
     /**
      * Creates a new parameter resolver with default analyzers.
-     *
-     * @param allCUs Map of all compilation units for type resolution
      */
-    public ParameterResolver(Map<String, CompilationUnit> allCUs) {
-        this(new ASTParameterExtractor(), new DataFlowAnalyzer(), allCUs);
+    public ParameterResolver() {
+        this(new ASTParameterExtractor(), new DataFlowAnalyzer());
     }
 
     /**
@@ -47,11 +45,9 @@ public class ParameterResolver extends AbstractResolver {
      *
      * @param extractor         The parameter extractor
      * @param dataFlowAnalyzer  The data flow analyzer
-     * @param allCUs           Map of all compilation units
      */
-    public ParameterResolver(ASTParameterExtractor extractor, DataFlowAnalyzer dataFlowAnalyzer,
-                             Map<String, CompilationUnit> allCUs) {
-        super(allCUs, dataFlowAnalyzer);
+    public ParameterResolver(ASTParameterExtractor extractor, DataFlowAnalyzer dataFlowAnalyzer) {
+        super(dataFlowAnalyzer);
         this.extractor = extractor;
     }
 

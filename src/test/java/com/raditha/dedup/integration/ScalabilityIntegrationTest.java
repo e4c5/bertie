@@ -42,7 +42,7 @@ class ScalabilityIntegrationTest {
         cliConfig.put("enable_lsh", false);
         sa.com.cloudsolutions.antikythera.configuration.Settings.setProperty("duplication_detector_cli", cliConfig);
         
-        DuplicationAnalyzer analyzerBF = new DuplicationAnalyzer(Collections.emptyMap());
+        DuplicationAnalyzer analyzerBF = new DuplicationAnalyzer();
 
         // Warmup run to eliminate JVM startup effects
         analyzerBF.analyzeFile(cu, dummyPath);
@@ -58,7 +58,7 @@ class ScalabilityIntegrationTest {
         cliConfig.put("enable_lsh", true);
         sa.com.cloudsolutions.antikythera.configuration.Settings.setProperty("duplication_detector_cli", cliConfig);
         
-        DuplicationAnalyzer analyzerLSH = new DuplicationAnalyzer(Collections.emptyMap());
+        DuplicationAnalyzer analyzerLSH = new DuplicationAnalyzer();
 
         // Warmup run to eliminate JVM startup effects
         analyzerLSH.analyzeFile(cu, dummyPath);

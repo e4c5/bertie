@@ -55,7 +55,7 @@ class RefactoringIntegrationTest {
         cliConfig.put("max_window_growth", 7);
         Settings.setProperty("duplication_detector_cli", cliConfig);
         
-        analyzer = new DuplicationAnalyzer(Collections.emptyMap());
+        analyzer = new DuplicationAnalyzer();
     }
 
     @Test

@@ -50,11 +50,7 @@ class CrossFileDuplicationTest {
         assertNotNull(cu1, "InventoryService not found in test-bed");
         assertNotNull(cu2, "ShippingService not found in test-bed");
 
-        Map<String, CompilationUnit> projectCUs = new HashMap<>();
-        projectCUs.put("com.raditha.bertie.testbed.crossfile.InventoryService", cu1);
-        projectCUs.put("com.raditha.bertie.testbed.crossfile.ShippingService", cu2);
-
-        List<DuplicationReport> reports = analyzer.analyzeProject(projectCUs);
+        List<DuplicationReport> reports = analyzer.analyzeProject();
 
         // We expect duplicates to be found
         int totalDuplicates = reports.stream().mapToInt(DuplicationReport::getDuplicateCount).sum();

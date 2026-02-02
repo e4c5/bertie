@@ -45,19 +45,10 @@ public class RefactoringRecommendationGenerator {
      * Creates a new generator with default configuration.
      */
     public RefactoringRecommendationGenerator() {
-        this(Collections.emptyMap());
-    }
-
-    /**
-     * Creates a new generator with context-aware resolvers.
-     *
-     * @param allCUs Map of all compilation units for cross-reference analysis
-     */
-    public RefactoringRecommendationGenerator(Map<String, CompilationUnit> allCUs) {
         this.variationAggregator = new VariationAggregator();
         this.truncator = new SequenceTruncator();
-        this.parameterResolver = new ParameterResolver(allCUs);
-        this.returnTypeResolver = new ReturnTypeResolver(allCUs);
+        this.parameterResolver = new ParameterResolver();
+        this.returnTypeResolver = new ReturnTypeResolver();
         this.confidenceCalculator = new RefactoringConfidenceCalculator();
         this.nameGenerator = new MethodNameGenerator(true);
     }

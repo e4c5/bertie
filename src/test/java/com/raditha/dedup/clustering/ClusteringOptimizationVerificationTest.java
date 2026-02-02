@@ -34,7 +34,7 @@ class ClusteringOptimizationVerificationTest {
 
     @BeforeEach
     void setUp() {
-        returnTypeResolver = new ReturnTypeResolver(Collections.emptyMap());
+        returnTypeResolver = new ReturnTypeResolver();
     }
 
     @Test
