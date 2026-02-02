@@ -391,7 +391,6 @@ public class BertieCLI implements Callable<Integer> {
         }
     }
 
-
     private static void printTextReport(List<DuplicationReport> reports) {
         int totalDuplicates = reports.stream()
                 .mapToInt(DuplicationReport::getDuplicateCount)
