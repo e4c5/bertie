@@ -113,7 +113,6 @@ public class DuplicationAnalyzer {
         List<StatementSequence> allSequences = new ArrayList<>();
         Map<CompilationUnit, List<StatementSequence>> fileSequences = new java.util.IdentityHashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
-        List<CompilationUnit> processedSortedCUs = new ArrayList<>();
 
         // 1. Extract from all files (Lazily normalized)
         List<CompilationUnit> sortedCUs = new ArrayList<>(targetCUs.values());
@@ -133,7 +132,6 @@ public class DuplicationAnalyzer {
 
                 List<StatementSequence> sequences = extractor.extractSequences(cu);
                 fileSequences.put(cu, sequences);
-                processedSortedCUs.add(cu);
                 allSequences.addAll(sequences);
             }
         }
@@ -144,7 +142,7 @@ public class DuplicationAnalyzer {
         ProcessedDuplicates processed = processDuplicatePipeline(allSequences);
 
         // 5. Group by File and Generate Reports
-        return distributeReports(processedSortedCUs, fileSequences, processed.duplicates, processed.clustersWithRecommendations, processed.candidatesCount);
+        return distributeReports(fileSequences, processed.duplicates, processed.clustersWithRecommendations, processed.candidatesCount);
     }
 
     /**
@@ -195,7 +193,6 @@ public class DuplicationAnalyzer {
     }
 
     private List<DuplicationReport> distributeReports(
-            List<CompilationUnit> orderedCUs,
             Map<CompilationUnit, List<StatementSequence>> fileSequences,
             List<SimilarityPair> duplicates,
             List<DuplicateCluster> clusters,
@@ -205,7 +202,7 @@ public class DuplicationAnalyzer {
         Map<CompilationUnit, List<DuplicateCluster>> fileToClusters = new java.util.IdentityHashMap<>();
 
         // Initialize with empty lists for all files
-        for (CompilationUnit cu : orderedCUs) {
+        for (CompilationUnit cu : fileSequences.keySet()) {
             fileToDuplicates.put(cu, new ArrayList<>());
             fileToClusters.put(cu, new ArrayList<>());
         }
@@ -234,10 +231,9 @@ public class DuplicationAnalyzer {
         }
 
         List<DuplicationReport> reports = new ArrayList<>();
-        for (CompilationUnit cu : orderedCUs) {
-            List<StatementSequence> seqs = fileSequences.get(cu);
-            if (seqs == null) continue; // Should not happen
-
+        for (Map.Entry<CompilationUnit, List<StatementSequence>> entry : fileSequences.entrySet()) {
+            CompilationUnit cu = entry.getKey();
+            List<StatementSequence> seqs = entry.getValue();
             List<SimilarityPair> fileDups = fileToDuplicates.getOrDefault(cu, Collections.emptyList());
             List<DuplicateCluster> fileClusters = fileToClusters.getOrDefault(cu, Collections.emptyList());
 
