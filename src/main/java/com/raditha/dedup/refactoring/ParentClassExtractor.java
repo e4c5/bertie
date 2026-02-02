@@ -90,6 +90,11 @@ public class ParentClassExtractor extends AbstractExtractor {
             });
         } else if (!isPeerParent) {
             CompilationUnit parentCu = createParentClass(callableToExtract);
+
+            // Set storage immediately
+            Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
+            parentCu.setStorage(parentPath);
+
             String parentFqn = packageName.isEmpty() ? parentClassName : packageName + "." + parentClassName;
             AntikytheraRunTime.addCompilationUnit(parentFqn, parentCu);
             
@@ -100,7 +105,6 @@ public class ParentClassExtractor extends AbstractExtractor {
                 AntikytheraRunTime.addType(parentFqn, wrapper);
                 
                 addFieldsToParent(parentClass, primaryCu);
-                Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
                 modifiedFiles.put(parentPath, parentCu.toString());
             });
         }
