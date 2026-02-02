@@ -3,6 +3,7 @@ package com.raditha.dedup.clustering;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
@@ -80,6 +81,7 @@ public class RefactoringRecommendationGenerator {
             effectivePrimary = truncator.createPrefixSequence(cluster.primary(), validStatementCount);
         }
         RefactoringStrategy strategy = determineStrategy(cluster, effectivePrimary, parameters);
+        System.out.println("DEBUG: Recommended strategy: " + strategy);
         
         // CRITICAL FIX: Exclude field variables from parameters for EXTRACT_HELPER_METHOD
         // For EXTRACT_PARENT_CLASS, fields need to be promoted to parent, so keep them as parameters
@@ -170,6 +172,14 @@ public class RefactoringRecommendationGenerator {
             }
         }
 
+        // Strategy: Constructor Delegation
+        // If all duplicates are constructors in the same class, and at least one starts at the beginning or is a full body
+        if (!isCrossFile && cluster.allSequences().stream().allMatch(s -> s.containingCallable() instanceof ConstructorDeclaration)) {
+            if (cluster.allSequences().stream().anyMatch(s -> s.startOffset() == 0 || isMethodBody(s))) {
+                return RefactoringStrategy.CONSTRUCTOR_DELEGATION;
+            }
+        }
+
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
     }
 
@@ -180,13 +190,8 @@ public class RefactoringRecommendationGenerator {
         }
         var bodyStmts = seq.getCallableBody().get().getStatements();
         var seqStmts = seq.statements();
-        if (bodyStmts.size() != seqStmts.size()) {
-            return false;
-        }
-        if (bodyStmts.isEmpty()) {
-            return true;
-        }
-        return bodyStmts.equals(seqStmts);
+
+        return bodyStmts.size() == seqStmts.size();
     }
 
     private boolean isCrossFileDuplication(DuplicateCluster cluster) {
