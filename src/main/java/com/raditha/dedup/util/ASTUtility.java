@@ -19,6 +19,7 @@ public class ASTUtility {
     public static Path getSourcePath(CompilationUnit cu) {
         return cu.getStorage()
                 .map(CompilationUnit.Storage::getPath)
-                .orElseThrow(() -> new IllegalStateException("CompilationUnit has no storage path"));
+                .orElseThrow(() -> new IllegalStateException("CompilationUnit has no storage path"))
+                .toAbsolutePath().normalize();
     }
 }

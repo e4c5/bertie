@@ -204,10 +204,8 @@ public class DuplicationAnalyzer {
             CompilationUnit cu1 = pair.seq1().compilationUnit();
             CompilationUnit cu2 = pair.seq2().compilationUnit();
 
-            if (cu1 != null)
-                fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
-            if (cu2 != null && cu2 != cu1)
-                fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
+            fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
+            fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
         }
 
         // Distribute clusters
