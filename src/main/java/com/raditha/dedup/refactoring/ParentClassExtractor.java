@@ -150,10 +150,13 @@ public class ParentClassExtractor extends AbstractExtractor {
     private void promoteVisibilityIfNeeded(CallableDeclaration<?> mToRemove) {
         if (mToRemove instanceof MethodDeclaration md) {
             if (md.isPrivate()) {
-                md.setModifiers(Modifier.Keyword.PROTECTED);
-            } else if (md.isPublic()) {
-                md.setModifiers(Modifier.Keyword.PUBLIC);
+                md.setPrivate(false);
+                md.setProtected(true);
+            } else if (!md.isPublic() && !md.isProtected()) {
+                 // Package-private case
+                 md.setProtected(true);
             }
+            // If Public, nothing to do
         }
     }
 
@@ -205,8 +208,24 @@ public class ParentClassExtractor extends AbstractExtractor {
             
             if (methodToRemove instanceof MethodDeclaration md) {
                 md.setBody(body);
+                ensureCompatibleVisibility(md, methodToExtract);
             } else if (methodToRemove instanceof ConstructorDeclaration cd) {
                 cd.setBody(body);
+            }
+        }
+    }
+    
+    private void ensureCompatibleVisibility(MethodDeclaration childMethod, MethodDeclaration parentMethod) {
+        if (parentMethod.isPublic()) {
+            if (!childMethod.isPublic()) {
+                childMethod.setPrivate(false);
+                childMethod.setProtected(false);
+                childMethod.setPublic(true);
+            }
+        } else if (parentMethod.isProtected()) {
+            if (!childMethod.isPublic() && !childMethod.isProtected()) {
+                childMethod.setPrivate(false);
+                childMethod.setProtected(true);
             }
         }
     }
@@ -592,6 +611,11 @@ public class ParentClassExtractor extends AbstractExtractor {
             Type fieldType = entry.getValue();
             if (parentClass.getFieldByName(fieldName).isEmpty()) {
                 com.github.javaparser.ast.body.FieldDeclaration field = parentClass.addField(fieldType.clone(), fieldName, Modifier.Keyword.PROTECTED);
+                
+                findFieldInitializer(sourceCu, fieldName).ifPresent(init -> 
+                    field.getVariable(0).setInitializer(init.clone())
+                );
+
                 parentClass.findCompilationUnit().ifPresent(parentCu -> 
                     copyFieldImports(sourceCu, parentCu, field)
                 );
@@ -599,8 +623,21 @@ public class ParentClassExtractor extends AbstractExtractor {
         }
     }
 
+    private Optional<Expression> findFieldInitializer(CompilationUnit cu, String fieldName) {
+        return findPrimaryClass(cu).flatMap(c -> 
+            c.getFieldByName(fieldName).flatMap(f -> 
+                f.getVariable(0).getInitializer()
+            )
+        );
+    }
+
     private void copyFieldImports(CompilationUnit source, CompilationUnit target, com.github.javaparser.ast.body.FieldDeclaration field) {
         copyImportsForType(source, target, field.getElementType());
+        field.getVariable(0).getInitializer().ifPresent(init -> 
+            init.findAll(ClassOrInterfaceType.class).forEach(t -> 
+                copyImportsForType(source, target, t)
+            )
+        );
     }
 
     private void copyImportsForType(CompilationUnit source, CompilationUnit target, Type type) {
