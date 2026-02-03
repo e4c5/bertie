@@ -23,6 +23,8 @@ import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.parser.Callable;
 import sa.com.cloudsolutions.antikythera.parser.MCEWrapper;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.nio.file.Path;
 
@@ -57,7 +59,13 @@ public class UtilityClassExtractor extends AbstractExtractor {
         this.utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
 
         CompilationUnit utilityCu = createUtilityClass(callableToExtract);
-        Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
+        Path utilDirectory = sourceFile.getParent().resolve("util");
+        try {
+            Files.createDirectories(utilDirectory);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to create utility directory: " + utilDirectory, ex);
+        }
+        Path utilityPath = utilDirectory.resolve(utilityClassName + ".java");
         utilityCu.setStorage(utilityPath);
 
         String utilityFqn = packageName + ".util." + utilityClassName;

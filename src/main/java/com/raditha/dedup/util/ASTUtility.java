@@ -9,6 +9,9 @@ import java.nio.file.Path;
  */
 public class ASTUtility {
 
+    private ASTUtility() {
+        /* this is only a utility class */
+    }
     /**
      * Get the source file path from a CompilationUnit.
      *

@@ -97,14 +97,9 @@ public class DuplicationAnalyzer {
                     .toArray(String[]::new);
 
             if (targets.length > 0) {
-                targetCUs.entrySet().removeIf(entry -> {
-                    for (String t : targets) {
-                        if (entry.getKey().startsWith(t)) {
-                            return false; // Keep it
-                        }
-                    }
-                    return true; // Remove it
-                });
+                final Set<String> availableClasses = allCUs.keySet();
+                targetCUs.entrySet().removeIf(entry ->
+                        !matchesTargetClass(entry.getKey(), targets, availableClasses));
             }
         } else {
              targetCUs = allCUs;
@@ -251,6 +246,35 @@ public class DuplicationAnalyzer {
                     cluster.estimatedLOCReduction());
         }
         return cluster;
+    }
+
+    private static boolean matchesTargetClass(String className, String[] targets, Set<String> availableClasses) {
+        for (String target : targets) {
+            boolean targetIsExactClass = availableClasses.contains(target);
+            if (targetIsExactClass) {
+                if (className.equals(target) || className.startsWith(target + "$")) {
+                    return true;
+                }
+                continue;
+            }
+
+            String prefix = target;
+            boolean wildcard = false;
+            if (target.endsWith(".*")) {
+                prefix = target.substring(0, target.length() - 2);
+                wildcard = true;
+            } else if (target.endsWith("*")) {
+                prefix = target.substring(0, target.length() - 1);
+                wildcard = true;
+            }
+
+            if (!prefix.isEmpty() && className.startsWith(prefix)) {
+                if (wildcard || !availableClasses.contains(prefix)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
