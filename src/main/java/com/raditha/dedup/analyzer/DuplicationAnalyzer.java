@@ -89,21 +89,7 @@ public class DuplicationAnalyzer {
         String targetClass = DuplicationDetectorSettings.getTargetClass();
         Map<String, CompilationUnit> targetCUs;
 
-        if (targetClass != null && !targetClass.isEmpty()) {
-            targetCUs = new java.util.HashMap<>(allCUs);
-            String[] targets = java.util.Arrays.stream(targetClass.split(","))
-                    .map(String::trim)
-                    .filter(t -> !t.isEmpty())
-                    .toArray(String[]::new);
-
-            if (targets.length > 0) {
-                final Set<String> availableClasses = allCUs.keySet();
-                targetCUs.entrySet().removeIf(entry ->
-                        !matchesTargetClass(entry.getKey(), targets, availableClasses));
-            }
-        } else {
-             targetCUs = allCUs;
-        }
+        targetCUs = identifyTargetClasses(targetClass, allCUs);
 
         List<StatementSequence> allSequences = new ArrayList<>();
         Map<CompilationUnit, List<StatementSequence>> fileSequences = new java.util.IdentityHashMap<>();
@@ -130,6 +116,26 @@ public class DuplicationAnalyzer {
 
         // 5. Group by File and Generate Reports
         return distributeReports(fileSequences, processed.duplicates, processed.clustersWithRecommendations, processed.candidatesCount);
+    }
+
+    private static Map<String, CompilationUnit> identifyTargetClasses(String targetClass, Map<String, CompilationUnit> allCUs) {
+        Map<String, CompilationUnit> targetCUs;
+        if (targetClass != null && !targetClass.isEmpty()) {
+            targetCUs = new java.util.HashMap<>(allCUs);
+            String[] targets = java.util.Arrays.stream(targetClass.split(","))
+                    .map(String::trim)
+                    .filter(t -> !t.isEmpty())
+                    .toArray(String[]::new);
+
+            if (targets.length > 0) {
+                final Set<String> availableClasses = allCUs.keySet();
+                targetCUs.entrySet().removeIf(entry ->
+                        !matchesTargetClass(entry.getKey(), targets, availableClasses));
+            }
+        } else {
+             targetCUs = allCUs;
+        }
+        return targetCUs;
     }
 
     /**
