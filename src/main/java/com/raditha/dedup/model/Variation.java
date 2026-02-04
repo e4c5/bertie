@@ -24,12 +24,4 @@ public record Variation(
     public Variation(VariationType type, int index1, int index2, String value1, String value2) {
         this(type, index1, index2, value1, value2, null);
     }
-
-    /**
-     * Check if this variation can be safely parameterized.
-     * Requires consistent types between values.
-     */
-    public boolean canParameterize() {
-        return inferredType != null && !inferredType.isEmpty();
-    }
 }

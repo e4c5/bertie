@@ -4,7 +4,11 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import sa.com.cloudsolutions.antikythera.configuration.Settings;
+import java.io.File;
+import java.io.IOException;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -13,6 +17,14 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScalabilityIntegrationTest {
+
+    @BeforeAll
+    static void setUpClass() throws IOException {
+        File configFile = new File("src/test/resources/analyzer-tests.yml");
+        if (configFile.exists()) {
+            Settings.loadConfigMap(configFile);
+        }
+    }
 
     @Test
     void comparePerformance() {

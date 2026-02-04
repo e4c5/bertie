@@ -17,17 +17,4 @@ public record TypeCompatibility(
         Map<String, String> parameterTypes,
         String inferredReturnType,
         List<String> warnings) {
-    /**
-     * Check if refactoring is type-safe.
-     */
-    public boolean isTypeSafe() {
-        return allVariationsTypeSafe && warnings.isEmpty();
-    }
-
-    /**
-     * Get number of parameters that would be extracted.
-     */
-    public int getParameterCount() {
-        return parameterTypes != null ? parameterTypes.size() : 0;
-    }
 }
