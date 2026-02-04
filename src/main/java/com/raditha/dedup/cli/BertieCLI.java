@@ -340,7 +340,6 @@ public class BertieCLI implements Callable<Integer> {
 
         // Initialize Orchestrator (requires analyzer with full project context)
         // We re-initialize analyzer here to ensure we have access to all CUs for re-analysis
-        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
         com.raditha.dedup.workflow.RefactoringOrchestrator orchestrator = 
                 new com.raditha.dedup.workflow.RefactoringOrchestrator(analyzer, engine);
@@ -354,16 +353,7 @@ public class BertieCLI implements Callable<Integer> {
             if (!report.clusters().isEmpty()) {
                 System.out.println("Processing file: " + report.sourceFile().getFileName());
                 
-                // Find valid CU for this report
-                // Keys in allCUs are class names, so we must check the Storage path of the CU itself
-                Path reportPath = report.sourceFile().toAbsolutePath().normalize();
-                 
-                CompilationUnit cu = allCUs.values().stream()
-                    .filter(unit -> unit.getStorage().map(s -> s.getPath().toAbsolutePath().normalize())
-                            .map(path -> path.equals(reportPath))
-                            .orElse(false))
-                    .findFirst()
-                    .orElse(null);
+                CompilationUnit cu = report.compilationUnit();
                     
                 if (cu != null) {
                     // Use Orchestrator instead of direct engine call

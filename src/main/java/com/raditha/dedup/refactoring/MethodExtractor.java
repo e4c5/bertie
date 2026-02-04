@@ -1118,9 +1118,9 @@ public class MethodExtractor extends AbstractExtractor {
         if (bodyStmts.size() != seqStmts.size()) {
             return false;
         }
-        
+
         if (bodyStmts.isEmpty()) return true;
-        
+
         // Robust check: all statements must be structurally equal
         return bodyStmts.equals(seqStmts);
     }

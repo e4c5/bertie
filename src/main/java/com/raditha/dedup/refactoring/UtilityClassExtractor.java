@@ -57,9 +57,11 @@ public class UtilityClassExtractor extends AbstractExtractor {
         this.utilityClassName = determineUtilityClassName(recommendation.getSuggestedMethodName());
 
         CompilationUnit utilityCu = createUtilityClass(callableToExtract);
+        Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
+        utilityCu.setStorage(utilityPath);
+
         String utilityFqn = packageName + ".util." + utilityClassName;
         AntikytheraRunTime.addCompilationUnit(utilityFqn, utilityCu);
-        Path utilityPath = sourceFile.getParent().resolve("util").resolve(utilityClassName + ".java");
         modifiedFiles.put(utilityPath, utilityCu.toString());
 
         for (CompilationUnit currentCu : involvedCus) {

@@ -62,7 +62,8 @@ class RefactoringEngineTest {
         Path sourceFile = tempDir.resolve("SimpleTest.java");
         Files.writeString(sourceFile, cu.toString());
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Should find duplicates
         assertTrue(report.hasDuplicates());
@@ -94,7 +95,8 @@ class RefactoringEngineTest {
         Path sourceFile = tempDir.resolve("Test.java");
         Files.writeString(sourceFile, cu.toString());
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Test batch mode
         engine = new RefactoringEngine(
@@ -116,7 +118,8 @@ class RefactoringEngineTest {
         Path sourceFile = tempDir.resolve("Service.java");
         Files.writeString(sourceFile, cu.toString());
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Should find duplicates and use EXTRACT_HELPER_METHOD strategy
         assertTrue(report.hasDuplicates());
@@ -136,7 +139,8 @@ class RefactoringEngineTest {
         Path sourceFile = tempDir.resolve("Calculator.java");
         Files.writeString(sourceFile, cu.toString());
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         assertTrue(report.hasDuplicates(), "Should find duplicate calculation logic");
 
@@ -172,7 +176,8 @@ class RefactoringEngineTest {
         Path sourceFile = tempDir.resolve("Test.java");
         Files.writeString(sourceFile, code);
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         engine = new RefactoringEngine(
                 tempDir,

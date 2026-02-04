@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
@@ -330,6 +331,9 @@ class ExtractParentClassRefactorerTest {
             String methodName1, String methodName2) {
         
         ClassOrInterfaceDeclaration clazz1 = cu1.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        Path path1 = Paths.get("src/main/java/com/example/" + clazz1.getNameAsString() + ".java");
+        cu1.setStorage(path1);
+
         MethodDeclaration method1 = clazz1.getMethods().stream()
                 .filter(m -> m.getNameAsString().equals(methodName1))
                 .findFirst()
@@ -341,9 +345,12 @@ class ExtractParentClassRefactorerTest {
                 0,
                 method1,
                 cu1,
-                Paths.get("src/main/java/com/example/ServiceA.java"));
+                path1);
 
         ClassOrInterfaceDeclaration clazz2 = cu2.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        Path path2 = Paths.get("src/main/java/com/example/" + clazz2.getNameAsString() + ".java");
+        cu2.setStorage(path2);
+
         MethodDeclaration method2 = clazz2.getMethods().stream()
                 .filter(m -> m.getNameAsString().equals(methodName2))
                 .findFirst()
@@ -355,7 +362,7 @@ class ExtractParentClassRefactorerTest {
                 0,
                 method2,
                 cu2,
-                Paths.get("src/main/java/com/example/ServiceB.java"));
+                path2);
 
         SimilarityResult sim = new SimilarityResult(1.0, 1.0, 1.0, 1.0, 10, 10, null, null, true);
         SimilarityPair pair = new SimilarityPair(seq1, seq2, sim);

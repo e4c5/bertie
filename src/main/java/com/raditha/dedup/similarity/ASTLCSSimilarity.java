@@ -12,7 +12,7 @@ public class ASTLCSSimilarity {
 
     /**
      * Calculate LCS-based similarity between two sequences of normalized nodes.
-     * 
+     *
      * @param nodes1 First sequence
      * @param nodes2 Second sequence
      * @return Similarity score between 0.0 and 1.0
@@ -35,7 +35,7 @@ public class ASTLCSSimilarity {
     /**
      * Compute the length of the longest common subsequence.
      * Uses dynamic programming approach.
-     * 
+     *
      * @param a First sequence
      * @param b Second sequence
      * @return Length of LCS
@@ -61,7 +61,7 @@ public class ASTLCSSimilarity {
 
     /**
      * Check if two normalized nodes match structurally.
-     * 
+     *
      * @param n1 First node
      * @param n2 Second node
      * @return true if nodes have same normalized structure

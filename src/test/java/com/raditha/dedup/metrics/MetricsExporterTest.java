@@ -51,7 +51,8 @@ class MetricsExporterTest {
         Files.writeString(testFile, code);
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "test-project");
 
@@ -79,7 +80,8 @@ class MetricsExporterTest {
         Files.writeString(testFile, code);
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "test");
 
@@ -109,7 +111,8 @@ class MetricsExporterTest {
         Files.writeString(testFile, code);
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "json- project");
 
@@ -150,8 +153,10 @@ class MetricsExporterTest {
         CompilationUnit cu1 = StaticJavaParser.parse(file1);
         CompilationUnit cu2 = StaticJavaParser.parse(file2);
 
-        DuplicationReport report1 = analyzer.analyzeFile(cu1, file1);
-        DuplicationReport report2 = analyzer.analyzeFile(cu2, file2);
+        cu1.setStorage(file1);
+        cu2.setStorage(file2);
+        DuplicationReport report1 = analyzer.analyzeFile(cu1);
+        DuplicationReport report2 = analyzer.analyzeFile(cu2);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(
                 List.of(report1, report2), "multi-file-test");
@@ -197,7 +202,8 @@ class MetricsExporterTest {
         Files.writeString(testFile, code);
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
+        cu.setStorage(testFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "accuracy-test");
 

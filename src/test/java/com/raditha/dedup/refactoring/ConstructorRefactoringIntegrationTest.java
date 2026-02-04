@@ -57,7 +57,8 @@ class ConstructorRefactoringIntegrationTest {
         assertNotNull(cu, "ConstructorReuseService should be in AntikytheraRunTime");
         
         Path sourcePath = Path.of("test-bed/src/main/java/com/raditha/bertie/testbed/aquarium/service/ConstructorReuseService.java");
-        DuplicationReport report = analyzer.analyzeFile(cu, sourcePath);
+        cu.setStorage(sourcePath);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         
         assertTrue(report.hasDuplicates(), "Should detect duplicates in ConstructorReuseService");
         
@@ -83,7 +84,8 @@ class ConstructorRefactoringIntegrationTest {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit(className);
         
         Path sourcePath = Path.of("test-bed/src/main/java/com/raditha/bertie/testbed/aquarium/service/TankConfigManager.java");
-        DuplicationReport report = analyzer.analyzeFile(cu, sourcePath);
+        cu.setStorage(sourcePath);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         
         assertTrue(report.hasDuplicates());
         

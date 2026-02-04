@@ -79,7 +79,7 @@ public class RefactoringRecommendationGenerator {
             effectivePrimary = truncator.createPrefixSequence(cluster.primary(), validStatementCount);
         }
         RefactoringStrategy strategy = determineStrategy(cluster, effectivePrimary, parameters);
-        
+
         // CRITICAL FIX: Exclude field variables from parameters for EXTRACT_HELPER_METHOD
         // For EXTRACT_PARENT_CLASS, fields need to be promoted to parent, so keep them as parameters
         if (strategy == RefactoringStrategy.EXTRACT_HELPER_METHOD) {

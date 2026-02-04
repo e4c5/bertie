@@ -35,7 +35,8 @@ class BertieLambdaIntegrationTest {
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
 
         // Analysis - this should NOT throw exception
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Assertions
         assertTrue(report.hasDuplicates(), "Should find duplicates");

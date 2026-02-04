@@ -12,7 +12,7 @@ public class ASTLevenshteinSimilarity {
 
     /**
      * Calculate Levenshtein-based similarity between two sequences.
-     * 
+     *
      * @param nodes1 First sequence
      * @param nodes2 Second sequence
      * @return Similarity score between 0.0 and 1.0
@@ -36,7 +36,7 @@ public class ASTLevenshteinSimilarity {
     /**
      * Compute Levenshtein edit distance between two sequences.
      * Uses dynamic programming approach.
-     * 
+     *
      * @param a First sequence
      * @param b Second sequence
      * @return Edit distance (number of insertions/deletions/substitutions needed)
@@ -77,7 +77,7 @@ public class ASTLevenshteinSimilarity {
 
     /**
      * Check if two normalized nodes match structurally.
-     * 
+     *
      * @param n1 First node
      * @param n2 Second node
      * @return true if nodes have same normalized structure

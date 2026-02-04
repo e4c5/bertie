@@ -44,7 +44,8 @@ class DuplicationAnalyzerTest {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.simple.DistinctOperations");
         assertNotNull(cu, "DistinctOperations class not found in test-bed");
 
-        DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("DistinctOperations.java"));
+        cu.setStorage(Paths.get("DistinctOperations.java"));
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         assertNotNull(report);
         assertFalse(report.hasDuplicates());
@@ -55,7 +56,8 @@ class DuplicationAnalyzerTest {
     void testSimpleDuplicate() {
         CompilationUnit cu = AntikytheraRunTime
                 .getCompilationUnit("com.raditha.bertie.testbed.wrongarguments.UserServiceWithDifferentValues");
-        DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("Test.java"));
+        cu.setStorage(Paths.get("Test.java"));
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         assertNotNull(report);
         assertTrue(report.hasDuplicates());
@@ -78,7 +80,8 @@ class DuplicationAnalyzerTest {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.partial.MixedResponsibilityService");
         assertNotNull(cu, "MixedResponsibilityService class not found in test-bed");
 
-        DuplicationReport report = partialAnalyzer.analyzeFile(cu, Paths.get("MixedResponsibilityService.java"));
+        cu.setStorage(Paths.get("MixedResponsibilityService.java"));
+        DuplicationReport report = partialAnalyzer.analyzeFile(cu);
 
         // Should find the duplicate despite one being inside a larger method
         assertTrue(report.hasDuplicates());
@@ -89,7 +92,8 @@ class DuplicationAnalyzerTest {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.report.ReportGenerator");
         assertNotNull(cu, "ReportGenerator class not found in test-bed");
 
-        DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("ReportGenerator.java"));
+        cu.setStorage(Paths.get("ReportGenerator.java"));
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Get detailed report
         String detailedReport = report.getDetailedReport();
@@ -109,7 +113,8 @@ class DuplicationAnalyzerTest {
         CompilationUnit cu = AntikytheraRunTime.getCompilationUnit("com.raditha.bertie.testbed.filter.ShapeVariations");
         assertNotNull(cu, "ShapeVariations class not found in test-bed");
 
-        DuplicationReport report = analyzer.analyzeFile(cu, Paths.get("ShapeVariations.java"));
+        cu.setStorage(Paths.get("ShapeVariations.java"));
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         // Should have analyzed fewer candidates than total possible pairs
         // due to pre-filtering

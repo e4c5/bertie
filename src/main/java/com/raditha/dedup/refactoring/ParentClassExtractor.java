@@ -90,6 +90,11 @@ public class ParentClassExtractor extends AbstractExtractor {
             });
         } else if (!isPeerParent) {
             CompilationUnit parentCu = createParentClass(callableToExtract);
+
+            // Set storage immediately
+            Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
+            parentCu.setStorage(parentPath);
+
             String parentFqn = packageName.isEmpty() ? parentClassName : packageName + "." + parentClassName;
             AntikytheraRunTime.addCompilationUnit(parentFqn, parentCu);
             
@@ -100,7 +105,6 @@ public class ParentClassExtractor extends AbstractExtractor {
                 AntikytheraRunTime.addType(parentFqn, wrapper);
                 
                 addFieldsToParent(parentClass, primaryCu);
-                Path parentPath = primary.sourceFilePath().getParent().resolve(parentClassName + ".java");
                 modifiedFiles.put(parentPath, parentCu.toString());
             });
         }
@@ -246,11 +250,11 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void validateStructuralCompatibility(CompilationUnit cu, CallableDeclaration<?> callable) {
         Optional<ClassOrInterfaceDeclaration> primaryClassOpt = findPrimaryClass(cu);
-        
+
         if (primaryClassOpt.isEmpty()) {
              throw new IllegalStateException("Skipped: No primary class found.");
         }
-        
+
         ClassOrInterfaceDeclaration primaryClass = primaryClassOpt.get();
         // Check if callable is a direct member of primaryClass
         // We use reference equality on the parent node
@@ -653,8 +657,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
                 .filter(seq -> seq.containingCallable().getNameAsString().equals(childMethod.getNameAsString()) &&
                         seq.sourceFilePath().equals(childMethod.findCompilationUnit()
-                                .flatMap(CompilationUnit::getStorage)
-                                .map(CompilationUnit.Storage::getPath)
+                                .map(com.raditha.dedup.util.ASTUtility::getSourcePath)
                                 .orElse(null)))
                 .findFirst();
 

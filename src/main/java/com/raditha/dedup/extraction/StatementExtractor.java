@@ -76,14 +76,14 @@ public class StatementExtractor {
      * Uses sliding window to extract overlapping sequences.
      * 
      * @param cu Compilation unit to extract from
-     * @param sourceFile Path to source file
      * @return List of statement sequences
      */
-    public List<StatementSequence> extractSequences(CompilationUnit cu, Path sourceFile) {
+    public List<StatementSequence> extractSequences(CompilationUnit cu) {
         List<StatementSequence> sequences = new ArrayList<>();
         
         // Normalize path once for all sequences from this file
-        Path normalizedSourceFile = sourceFile != null ? sourceFile.toAbsolutePath().normalize() : null;
+        Path normalizedSourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu)
+                .toAbsolutePath().normalize();
         
         // Visit all methods and constructors in the compilation unit
         cu.accept(new MethodVisitor(sequences, cu, normalizedSourceFile), null);

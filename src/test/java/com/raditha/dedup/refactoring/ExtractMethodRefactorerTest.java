@@ -53,7 +53,8 @@ class ExtractMethodRefactorerTest {
         Path sourceFile = tempDir.resolve("SimpleTest.java");
         Files.writeString(sourceFile, cu.toString());
 
-        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
+        cu.setStorage(sourceFile);
+        DuplicationReport report = analyzer.analyzeFile(cu);
 
         assertTrue(report.hasDuplicates(), "Should detect duplicates");
         assertEquals(1, report.clusters().size(), "Should have 1 cluster");

@@ -61,7 +61,8 @@ class StatementExtractorTest {
     @Test
     void testExtractFromMethodWith5Statements() {
         CompilationUnit cu = StaticJavaParser.parse(smallBoy);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         // Should extract exactly 1 sequence (5 statements minimum, only 5 total)
         // Window sizes: 5
@@ -72,7 +73,8 @@ class StatementExtractorTest {
     @Test
     void testExtractFromMethodWith10Statements() {
         CompilationUnit cu = StaticJavaParser.parse(bigBoy);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         // 10 statements, min 5
         // Possible start positions: 0-5 (6 positions)
@@ -101,7 +103,8 @@ class StatementExtractorTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         // Should only extract from largeMethod (1 sequence)
         assertEquals(1, sequences.size());
@@ -131,7 +134,8 @@ class StatementExtractorTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         // Each method contributes 1 sequence
         assertEquals(2, sequences.size());
@@ -152,7 +156,8 @@ class StatementExtractorTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         // Should extract 1 sequence (min 3, exactly 3 total)
         assertEquals(1, sequences.size());
@@ -162,7 +167,8 @@ class StatementExtractorTest {
     @Test
     void testSequenceHasCorrectMetadata() {
         CompilationUnit cu = StaticJavaParser.parse(smallBoy);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         assertEquals(1, sequences.size());
         StatementSequence seq = sequences.get(0);
@@ -184,7 +190,8 @@ class StatementExtractorTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = extractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
 
         assertEquals(0, sequences.size());
     }
@@ -221,7 +228,8 @@ class StatementExtractorTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu);
 
         // With maximalOnly=true:
         // Position 0: extract [0-5] (6 statements - maximal)
@@ -237,7 +245,8 @@ class StatementExtractorTest {
         StatementExtractor maximalExtractor = new StatementExtractor(5, 5, true);
 
         CompilationUnit cu = StaticJavaParser.parse(bigBoy);
-        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu);
 
         // With maximalOnly=true and maxWindowGrowth=5:
         // Position 0-4: extract 10 statements (min 5 + growth 5)
@@ -273,7 +282,8 @@ class StatementExtractorTest {
                 """;
 
         CompilationUnit cu = StaticJavaParser.parse(code);
-        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu, testFile);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = maximalExtractor.extractSequences(cu);
 
         // With maxWindowGrowth=2: max window size is 5+2=7
         // Position 0-1: extract 7 statements
