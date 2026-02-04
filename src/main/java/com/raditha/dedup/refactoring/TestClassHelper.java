@@ -47,6 +47,9 @@ public class TestClassHelper {
     /**
      * Check if a class is a test class (has @Test methods or test-related annotations).
      */
+    /**
+     * Check if a class is a test class (has @Test methods or test-related annotations).
+     */
     public static boolean isTestClass(ClassOrInterfaceDeclaration clazz) {
         // Check if any method has @Test annotation
         return clazz.getMethods().stream()

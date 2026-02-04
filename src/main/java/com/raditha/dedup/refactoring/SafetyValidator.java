@@ -45,12 +45,6 @@ public class SafetyValidator {
                             ") - consider refactoring to use a parameter object"));
         }
 
-        // 5. Check for final field assignments (not allowed in extracted methods)
-        if (recommendation.getStrategy() != RefactoringStrategy.CONSTRUCTOR_DELEGATION && hasFinalFieldAssignments(cluster.primary())) {
-            issues.add(ValidationIssue.error(
-                    "Cannot extract code that assigns to final fields into a separate method"));
-        }
-
         return new ValidationResult(issues);
     }
 
@@ -74,7 +68,7 @@ public class SafetyValidator {
     private boolean shouldCheckMethodNameConflict(RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD, EXTRACT_TO_PARAMETERIZED_TEST -> true;
-            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, CONSTRUCTOR_DELEGATION, MANUAL_REVIEW_REQUIRED -> false;
+            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, MANUAL_REVIEW_REQUIRED -> false;
         };
     }
 
@@ -141,31 +135,6 @@ public class SafetyValidator {
             )
         );
         return fieldNames;
-    }
-
-    private boolean hasFinalFieldAssignments(StatementSequence sequence) {
-        var method = sequence.containingCallable();
-        if (method == null) return false;
-        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
-        if (clazz == null) return false;
-
-        Set<String> finalFields = new java.util.HashSet<>();
-        clazz.getFields().stream()
-                .filter(com.github.javaparser.ast.body.FieldDeclaration::isFinal)
-                .forEach(f -> f.getVariables().forEach(v -> finalFields.add(v.getNameAsString())));
-
-        if (finalFields.isEmpty()) return false;
-
-        for (com.github.javaparser.ast.stmt.Statement stmt : sequence.statements()) {
-            List<com.github.javaparser.ast.expr.AssignExpr> assignments = stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class);
-            for (com.github.javaparser.ast.expr.AssignExpr assign : assignments) {
-                String target = assign.getTarget().toString();
-                if (finalFields.contains(target) || (target.startsWith("this.") && finalFields.contains(target.substring(5)))) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /**

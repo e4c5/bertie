@@ -89,7 +89,26 @@ public class DuplicationAnalyzer {
         String targetClass = DuplicationDetectorSettings.getTargetClass();
         Map<String, CompilationUnit> targetCUs;
 
-        targetCUs = identifyTargetClasses(targetClass, allCUs);
+        if (targetClass != null && !targetClass.isEmpty()) {
+            targetCUs = new java.util.HashMap<>(allCUs);
+            String[] targets = java.util.Arrays.stream(targetClass.split(","))
+                    .map(String::trim)
+                    .filter(t -> !t.isEmpty())
+                    .toArray(String[]::new);
+
+            if (targets.length > 0) {
+                targetCUs.entrySet().removeIf(entry -> {
+                    for (String t : targets) {
+                        if (entry.getKey().startsWith(t)) {
+                            return false; // Keep it
+                        }
+                    }
+                    return true; // Remove it
+                });
+            }
+        } else {
+             targetCUs = allCUs;
+        }
 
         List<StatementSequence> allSequences = new ArrayList<>();
         Map<CompilationUnit, List<StatementSequence>> fileSequences = new java.util.IdentityHashMap<>();
@@ -116,26 +135,6 @@ public class DuplicationAnalyzer {
 
         // 5. Group by File and Generate Reports
         return distributeReports(fileSequences, processed.duplicates, processed.clustersWithRecommendations, processed.candidatesCount);
-    }
-
-    private static Map<String, CompilationUnit> identifyTargetClasses(String targetClass, Map<String, CompilationUnit> allCUs) {
-        Map<String, CompilationUnit> targetCUs;
-        if (targetClass != null && !targetClass.isEmpty()) {
-            targetCUs = new java.util.HashMap<>(allCUs);
-            String[] targets = java.util.Arrays.stream(targetClass.split(","))
-                    .map(String::trim)
-                    .filter(t -> !t.isEmpty())
-                    .toArray(String[]::new);
-
-            if (targets.length > 0) {
-                final Set<String> availableClasses = allCUs.keySet();
-                targetCUs.entrySet().removeIf(entry ->
-                        !matchesTargetClass(entry.getKey(), targets, availableClasses));
-            }
-        } else {
-             targetCUs = allCUs;
-        }
-        return targetCUs;
     }
 
     /**
@@ -205,8 +204,10 @@ public class DuplicationAnalyzer {
             CompilationUnit cu1 = pair.seq1().compilationUnit();
             CompilationUnit cu2 = pair.seq2().compilationUnit();
 
-            fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
-            fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
+            if (cu1 != null)
+                fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
+            if (cu2 != null && cu2 != cu1)
+                fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
         }
 
         // Distribute clusters
@@ -254,35 +255,6 @@ public class DuplicationAnalyzer {
         return cluster;
     }
 
-    private static boolean matchesTargetClass(String className, String[] targets, Set<String> availableClasses) {
-        for (String target : targets) {
-            boolean targetIsExactClass = availableClasses.contains(target);
-            if (targetIsExactClass) {
-                if (className.equals(target) || className.startsWith(target + "$")) {
-                    return true;
-                }
-                continue;
-            }
-
-            String prefix = target;
-            boolean wildcard = false;
-            if (target.endsWith(".*")) {
-                prefix = target.substring(0, target.length() - 2);
-                wildcard = true;
-            } else if (target.endsWith("*")) {
-                prefix = target.substring(0, target.length() - 1);
-                wildcard = true;
-            }
-
-            if (!prefix.isEmpty() && className.startsWith(prefix)) {
-                if (wildcard || !availableClasses.contains(prefix)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
     /**
      * Helper record to hold a sequence with its pre-computed normalized AST.
      * Avoids redundant normalization during comparisons.
@@ -325,10 +297,11 @@ public class DuplicationAnalyzer {
         Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
 
         // 1. Initialize LSH Index
-        // Configuration: 25 bands × 4 rows = 100 hash functions
-        // rowsPerBand=4 is a balanced choice for precision/recall.
+        // Configuration: 50 bands × 2 rows = 100 hash functions
+        // Lower rows per band (2 vs 5) increases recall by making collision more likely
+        // P(collision) = 1 - (1 - J^r)^b, with r=2,b=50 even moderate similarity leads to collision
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
-        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 25, 4);
+        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 50, 2);
 
         // 2. Fused Loop: Query and Add
         for (StatementSequence currentSeq : sequences) {

@@ -70,4 +70,11 @@ public class LambdaClosureAnalyzer {
         }
         return false;
     }
+
+    /**
+     * Check if any lambda in the sequence captures the given variable.
+     */
+    public static boolean isVariableCaptured(StatementSequence sequence, String varName) {
+        return findAllCapturedVariables(sequence).contains(varName);
+    }
 }

@@ -30,6 +30,7 @@ public class ASTParameterExtractor {
     public ExtractionPlan extractParameters(
             VariationAnalysis analysis) {
         List<ParameterSpec> parameters = new ArrayList<>();
+        List<VariableReference> arguments = new ArrayList<>();
 
         for (VaryingExpression variation : analysis.varyingExpressions()) {
             String name = inferParameterName(variation.expr1());
@@ -54,7 +55,7 @@ public class ASTParameterExtractor {
         }
 
         // Variable references can be used directly as arguments
-        List<VariableReference> arguments = new ArrayList<>(analysis.variableReferences());
+        arguments.addAll(analysis.variableReferences());
 
         return new ExtractionPlan(parameters, arguments);
     }

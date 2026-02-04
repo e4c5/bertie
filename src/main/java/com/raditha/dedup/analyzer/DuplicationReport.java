@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.SimilarityPair;
+import com.raditha.dedup.model.StatementSequence;
 
 import java.nio.file.Path;
 import java.util.List;

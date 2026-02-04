@@ -16,7 +16,7 @@ class ConstructorExtractionTest {
 
     @Test
     void testExtractFromConstructors() throws Exception {
-        Path sourcePath = Paths.get("test-bed/src/main/java/com/raditha/bertie/testbed/partial/ConstructorDuplicates.java");
+        Path sourcePath = Paths.get("src/test/java/com/raditha/bertie/testbed_aux/ConstructorDuplicates.java");
         CompilationUnit cu = StaticJavaParser.parse(sourcePath);
 
         StatementExtractor extractor = new StatementExtractor(3, 5, false);

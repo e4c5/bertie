@@ -51,6 +51,7 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
                                       CompilationUnit cu) throws IOException, InterruptedException {
         
         RefactoringSession totalSession = new RefactoringSession();
+        Path sourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu);
 
         // --- PASS 1: Initial Clusters (Parameterized Tests Priority) ---
         System.out.println(">>> PASS 1: Prioritizing Parameterized Tests for " + clazz.getNameAsString());

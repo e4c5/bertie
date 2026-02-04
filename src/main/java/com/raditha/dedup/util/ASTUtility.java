@@ -9,9 +9,6 @@ import java.nio.file.Path;
  */
 public class ASTUtility {
 
-    private ASTUtility() {
-        /* this is only a utility class */
-    }
     /**
      * Get the source file path from a CompilationUnit.
      *
@@ -22,7 +19,6 @@ public class ASTUtility {
     public static Path getSourcePath(CompilationUnit cu) {
         return cu.getStorage()
                 .map(CompilationUnit.Storage::getPath)
-                .orElseThrow(() -> new IllegalStateException("CompilationUnit has no storage path"))
-                .toAbsolutePath().normalize();
+                .orElseThrow(() -> new IllegalStateException("CompilationUnit has no storage path"));
     }
 }

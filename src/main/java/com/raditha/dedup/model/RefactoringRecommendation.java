@@ -59,6 +59,33 @@ public class RefactoringRecommendation {
     }
 
     /**
+     * Creates a recommendation without variation analysis details.
+     *
+     * @param strategy              The refactoring strategy
+     * @param suggestedMethodName   Suggested name for the extracted method
+     * @param suggestedParameters   List of parameters
+     * @param suggestedReturnType   Return type
+     * @param targetLocation        Target class/file location
+     * @param confidenceScore       Confidence score (0.0-1.0)
+     * @param estimatedLOCReduction Estimated lines of code reduction
+     * @param primaryReturnVariable Variable to return (if any)
+     * @param validStatementCount   Number of valid statements to extract (for truncation)
+     */
+    public RefactoringRecommendation(
+            RefactoringStrategy strategy,
+            String suggestedMethodName,
+            List<ParameterSpec> suggestedParameters,
+            Type suggestedReturnType,
+            String targetLocation,
+            double confidenceScore,
+            long estimatedLOCReduction,
+            String primaryReturnVariable,
+            int validStatementCount) {
+        this(strategy, suggestedMethodName, suggestedParameters, suggestedReturnType, targetLocation, confidenceScore,
+                estimatedLOCReduction, primaryReturnVariable, validStatementCount, null);
+    }
+
+    /**
      * Creates a recommendation without truncation or variation details.
      *
      * @param strategy              The refactoring strategy

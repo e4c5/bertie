@@ -124,6 +124,7 @@ public class VariationAnalysis {
         private Set<String> declaredInternalVariables;
         private List<Variation> variations;
         private boolean hasControlFlowDifferences;
+        private Map<Integer, Map<StatementSequence, String>> valueBindings;
         private Map<Integer, Map<StatementSequence, ExprInfo>> exprBindings;
 
         /**

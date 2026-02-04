@@ -8,38 +8,81 @@ import java.util.List;
  * Calculates similarity using Levenshtein (edit distance) algorithm.
  * Operates on normalized AST nodes for structural comparison.
  */
-public class ASTLevenshteinSimilarity extends AbstractDPSimilarity {
+public class ASTLevenshteinSimilarity {
 
-    @Override
-    protected RowInitializer getRowInitializer() {
-        return row -> {
-            for (int i = 0; i < row.length; i++) {
-                row[i] = i;
-            }
-        };
+    /**
+     * Calculate Levenshtein-based similarity between two sequences.
+     *
+     * @param nodes1 First sequence
+     * @param nodes2 Second sequence
+     * @return Similarity score between 0.0 and 1.0
+     */
+    public double calculate(List<NormalizedNode> nodes1, List<NormalizedNode> nodes2) {
+        if (nodes1.isEmpty() && nodes2.isEmpty()) {
+            return 1.0;
+        }
+
+        int distance = computeEditDistance(nodes1, nodes2);
+        int maxLength = Math.max(nodes1.size(), nodes2.size());
+
+        if (maxLength == 0) {
+            return 1.0;
+        }
+
+        // Convert distance to similarity (0 distance = 1.0 similarity)
+        return 1.0 - ((double) distance / maxLength);
     }
 
-    @Override
-    protected RowProcessor getRowProcessor() {
-        return new RowProcessor() {
-            @Override
-            public void beforeRow(int[] currRow, int j) {
-                currRow[0] = j;
-            }
+    /**
+     * Compute Levenshtein edit distance between two sequences.
+     * Uses dynamic programming approach.
+     *
+     * @param a First sequence
+     * @param b Second sequence
+     * @return Edit distance (number of insertions/deletions/substitutions needed)
+     */
+    private int computeEditDistance(List<NormalizedNode> a, List<NormalizedNode> b) {
+        int m = a.size();
+        int n = b.size();
+        int[][] dp = new int[m + 1][n + 1];
 
-            @Override
-            public void processCell(int[] prevRow, int[] currRow, int i, int j, NormalizedNode nodeA, NormalizedNode nodeB) {
-                if (nodesMatch(nodeA, nodeB)) {
-                    currRow[i] = prevRow[i - 1];
+        // Initialize base cases
+        for (int i = 0; i <= m; i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= n; j++) {
+            dp[0][j] = j;
+        }
+
+        // Fill the DP table
+        for (int i = 1; i <= m; i++) {
+            for (int j = 1; j <= n; j++) {
+                if (nodesMatch(a.get(i - 1), b.get(j - 1))) {
+                    // No operation needed
+                    dp[i][j] = dp[i - 1][j - 1];
                 } else {
-                    currRow[i] = 1 + Math.min(prevRow[i], Math.min(currRow[i - 1], prevRow[i - 1]));
+                    // Take minimum of insert, delete, or substitute
+                    dp[i][j] = 1 + Math.min(
+                            dp[i - 1][j], // Delete
+                            Math.min(
+                                    dp[i][j - 1], // Insert
+                                    dp[i - 1][j - 1] // Substitute
+                            ));
                 }
             }
-        };
+        }
+
+        return dp[m][n];
     }
 
-    @Override
-    protected double convertResultToScore(int result, int maxLength) {
-        return 1.0 - ((double) result / maxLength);
+    /**
+     * Check if two normalized nodes match structurally.
+     *
+     * @param n1 First node
+     * @param n2 Second node
+     * @return true if nodes have same normalized structure
+     */
+    private boolean nodesMatch(NormalizedNode n1, NormalizedNode n2) {
+        return n1.structurallyEquals(n2);
     }
 }

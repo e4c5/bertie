@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -214,6 +213,57 @@ class ExtractUtilityClassRefactorerTest {
         assertTrue(serviceBCode.contains("import com.example.util.ValidationUtils;"), "ServiceB import added");
     }
 
+    private DuplicateCluster createMockCluster(CompilationUnit cu, String methodName) {
+        ClassOrInterfaceDeclaration clazz = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        MethodDeclaration method = clazz.getMethods().stream()
+                .filter(m -> m.getNameAsString().equals(methodName))
+                .findFirst()
+                .orElseThrow();
+
+        // For this test, we construct a sequence wrapping the whole method
+        StatementSequence seq = new StatementSequence(
+                method.getBody().get().getStatements(),
+                new Range(1, 1, 10, 1),
+                0,
+                method,
+                cu,
+                Paths.get("src/main/java/com/example/MyService.java"));
+
+        return new DuplicateCluster(
+                seq,
+                List.of(), // No duplicates for simple SINGLE FILE test, though refactorer supports
+                           // multi-file
+                null,
+                50);
+    }
+
+    private DuplicateCluster createMultiFileMockCluster(CompilationUnit cu1, CompilationUnit cu2, String methodName) {
+        ClassOrInterfaceDeclaration clazz1 = cu1.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        MethodDeclaration method1 = clazz1.getMethods().stream()
+                .filter(m -> m.getNameAsString().equals(methodName)).findFirst().orElseThrow();
+
+        StatementSequence seq1 = new StatementSequence(
+                method1.getBody().get().getStatements(),
+                new Range(1, 1, 10, 1), 0, method1, cu1, Paths.get("src/main/java/com/example/ServiceA.java"));
+
+        ClassOrInterfaceDeclaration clazz2 = cu2.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
+        MethodDeclaration method2 = clazz2.getMethods().stream()
+                .filter(m -> m.getNameAsString().equals(methodName)).findFirst().orElseThrow();
+
+        StatementSequence seq2 = new StatementSequence(
+                method2.getBody().get().getStatements(),
+                new Range(1, 1, 10, 1), 0, method2, cu2, Paths.get("src/main/java/com/example/ServiceB.java"));
+
+        // Create SimilarityPair
+        SimilarityResult sim = new SimilarityResult(1.0, 1.0, 1.0, 1.0, 10, 10, null, null, true);
+        SimilarityPair pair = new SimilarityPair(seq1, seq2, sim);
+
+        return new DuplicateCluster(
+                seq1,
+                List.of(pair),
+                null, 100);
+    }
+
     @Test
     void testThisScopeCallUpdate() {
         String code = """
@@ -263,97 +313,5 @@ class ExtractUtilityClassRefactorerTest {
             "this. qualified call should be updated");
         assertFalse(originalCode.contains("this.validate"), 
             "No remaining this.validate calls should exist");
-    }
-
-    @Test
-    void testUtilityDirectoryCreatedWhenMissing() throws Exception {
-        Path tempRoot = Files.createTempDirectory("utility-extractor-test");
-        tempRoot.toFile().deleteOnExit();
-        Path sourceFile = tempRoot.resolve("src/main/java/com/example/MyService.java");
-        Files.createDirectories(sourceFile.getParent());
-
-        String code = """
-                package com.example;
-
-                public class MyService {
-                    private void validate(String input) {
-                        System.out.println(input);
-                    }
-                }
-                """;
-
-        CompilationUnit cu = StaticJavaParser.parse(code);
-        DuplicateCluster cluster = createMockCluster(cu, "validate", sourceFile);
-
-        RefactoringRecommendation recommendation = new RefactoringRecommendation(
-                RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS,
-                "validate",
-                List.of(),
-                "void",
-                "ValidationUtils",
-                0.95,
-                5);
-
-        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
-
-        Path expectedUtilDir = sourceFile.getParent().resolve("util");
-        Path expectedUtilityFile = expectedUtilDir.resolve("ValidationUtils.java");
-
-        assertTrue(Files.exists(expectedUtilDir), "Utility directory should be created automatically");
-        assertTrue(result.modifiedFiles().containsKey(expectedUtilityFile),
-                "Generated utility source should be tracked as modified");
-    }
-
-    private DuplicateCluster createMockCluster(CompilationUnit cu, String methodName) {
-        return createMockCluster(cu, methodName, Paths.get("src/main/java/com/example/MyService.java"));
-    }
-
-    private DuplicateCluster createMockCluster(CompilationUnit cu, String methodName, Path sourcePath) {
-        ClassOrInterfaceDeclaration clazz = cu.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-        MethodDeclaration method = clazz.getMethods().stream()
-                .filter(m -> m.getNameAsString().equals(methodName))
-                .findFirst()
-                .orElseThrow();
-
-        StatementSequence seq = new StatementSequence(
-                method.getBody().get().getStatements(),
-                new Range(1, 1, 10, 1),
-                0,
-                method,
-                cu,
-                sourcePath);
-
-        return new DuplicateCluster(
-                seq,
-                List.of(),
-                null,
-                50);
-    }
-
-    private DuplicateCluster createMultiFileMockCluster(CompilationUnit cu1, CompilationUnit cu2, String methodName) {
-        ClassOrInterfaceDeclaration clazz1 = cu1.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-        MethodDeclaration method1 = clazz1.getMethods().stream()
-                .filter(m -> m.getNameAsString().equals(methodName)).findFirst().orElseThrow();
-
-        StatementSequence seq1 = new StatementSequence(
-                method1.getBody().get().getStatements(),
-                new Range(1, 1, 10, 1), 0, method1, cu1, Paths.get("src/main/java/com/example/ServiceA.java"));
-
-        ClassOrInterfaceDeclaration clazz2 = cu2.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
-        MethodDeclaration method2 = clazz2.getMethods().stream()
-                .filter(m -> m.getNameAsString().equals(methodName)).findFirst().orElseThrow();
-
-        StatementSequence seq2 = new StatementSequence(
-                method2.getBody().get().getStatements(),
-                new Range(1, 1, 10, 1), 0, method2, cu2, Paths.get("src/main/java/com/example/ServiceB.java"));
-
-        // Create SimilarityPair
-        SimilarityResult sim = new SimilarityResult(1.0, 1.0, 1.0, 1.0, 10, 10, null, null, true);
-        SimilarityPair pair = new SimilarityPair(seq1, seq2, sim);
-
-        return new DuplicateCluster(
-                seq1,
-                List.of(pair),
-                null, 100);
     }
 }

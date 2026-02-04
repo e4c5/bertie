@@ -3,7 +3,6 @@ package com.raditha.dedup.clustering;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
-import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
@@ -41,7 +40,6 @@ public class RefactoringRecommendationGenerator {
     private final ReturnTypeResolver returnTypeResolver;
     private final RefactoringConfidenceCalculator confidenceCalculator;
     private final MethodNameGenerator nameGenerator;
-    private final Map<CompilationUnit, Boolean> testFileCache = new java.util.IdentityHashMap<>();
 
     /**
      * Creates a new generator with default configuration.
@@ -171,14 +169,6 @@ public class RefactoringRecommendationGenerator {
             }
         }
 
-        // Strategy: Constructor Delegation
-        // If all duplicates are constructors in the same class, and at least one starts at the beginning or is a full body
-        if (!isCrossFile && cluster.allSequences().stream().allMatch(s -> s.containingCallable() instanceof ConstructorDeclaration)) {
-            if (cluster.allSequences().stream().anyMatch(s -> s.startOffset() == 0 || isMethodBody(s))) {
-                return RefactoringStrategy.CONSTRUCTOR_DELEGATION;
-            }
-        }
-
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
     }
 
@@ -189,8 +179,13 @@ public class RefactoringRecommendationGenerator {
         }
         var bodyStmts = seq.getCallableBody().get().getStatements();
         var seqStmts = seq.statements();
-
-        return bodyStmts.size() == seqStmts.size();
+        if (bodyStmts.size() != seqStmts.size()) {
+            return false;
+        }
+        if (bodyStmts.isEmpty()) {
+            return true;
+        }
+        return bodyStmts.equals(seqStmts);
     }
 
     private boolean isCrossFileDuplication(DuplicateCluster cluster) {
@@ -245,30 +240,28 @@ public class RefactoringRecommendationGenerator {
             return false;
         }
 
-        return testFileCache.computeIfAbsent(cu, unit -> {
-            // Optimization: check imports first as it's faster than full AST traversal
-            boolean hasJunitImport = unit.getImports().stream()
-                    .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
-            if (hasJunitImport) {
-                return true;
-            }
+        // Optimization: check imports first as it's faster than full AST traversal
+        boolean hasJunitImport = cu.getImports().stream()
+                .anyMatch(i -> i.getNameAsString().startsWith("org.junit"));
+        if (hasJunitImport) {
+            return true;
+        }
 
-            class TestAnnotationVisitor extends com.github.javaparser.ast.visitor.GenericVisitorAdapter<Boolean, Void> {
-                @Override
-                public Boolean visit(com.github.javaparser.ast.body.MethodDeclaration m, Void arg) {
-                    for (com.github.javaparser.ast.expr.AnnotationExpr a : m.getAnnotations()) {
-                        String name = a.getNameAsString();
-                        if (name.equals("Test") || name.equals("ParameterizedTest") ||
-                                name.equals("RepeatedTest") || name.equals("TestFactory")) {
-                            return true;
-                        }
+        class TestAnnotationVisitor extends com.github.javaparser.ast.visitor.GenericVisitorAdapter<Boolean, Void> {
+            @Override
+            public Boolean visit(com.github.javaparser.ast.body.MethodDeclaration m, Void arg) {
+                for (com.github.javaparser.ast.expr.AnnotationExpr a : m.getAnnotations()) {
+                    String name = a.getNameAsString();
+                    if (name.equals("Test") || name.equals("ParameterizedTest") ||
+                            name.equals("RepeatedTest") || name.equals("TestFactory")) {
+                        return true;
                     }
-                    return super.visit(m, arg);
                 }
+                return super.visit(m, arg);
             }
+        }
 
-            return Boolean.TRUE.equals(unit.accept(new TestAnnotationVisitor(), null));
-        });
+        return Boolean.TRUE.equals(cu.accept(new TestAnnotationVisitor(), null));
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
