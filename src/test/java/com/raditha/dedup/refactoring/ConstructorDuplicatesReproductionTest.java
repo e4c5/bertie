@@ -45,7 +45,7 @@ class ConstructorDuplicatesReproductionTest {
         
         Path sourcePath = Path.of("test-bed/src/main/java/com/raditha/bertie/testbed/partial/ConstructorDuplicates.java");
         DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
-        DuplicationReport report = analyzer.analyzeFile(cu, sourcePath);
+        DuplicationReport report = analyzer.analyzeFile(cu);
         
         assertTrue(report.hasDuplicates(), "Should detect duplicates in ConstructorDuplicates");
         
