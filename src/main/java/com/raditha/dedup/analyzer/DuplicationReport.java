@@ -1,12 +1,11 @@
 package com.raditha.dedup.analyzer;
 
-import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.SimilarityPair;
-import com.raditha.dedup.model.StatementSequence;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -15,18 +14,11 @@ import java.util.List;
  * recommendations.
  */
 public record DuplicationReport(
-        CompilationUnit compilationUnit,
+        Path sourceFile,
         List<SimilarityPair> duplicates,
         List<DuplicateCluster> clusters,
         int totalSequences,
         int candidatesAnalyzed) {
-
-    /**
-     * Get the source file path from the compilation unit.
-     */
-    public Path sourceFile() {
-        return com.raditha.dedup.util.ASTUtility.getSourcePath(compilationUnit);
-    }
 
     /**
      * Get count of duplicate pairs found.
@@ -73,7 +65,7 @@ public record DuplicationReport(
         sb.append("DUPLICATION DETECTION REPORT%n");
         sb.append("=".repeat(80)).append("%n%n");
 
-        sb.append("File: ").append(sourceFile()).append("%n");
+        sb.append("File: ").append(sourceFile).append("%n");
         sb.append("Min Lines: ").append(DuplicationDetectorSettings.getMinLines()).append("%n");
         sb.append("Threshold: ").append(String.format("%.0f%%", DuplicationDetectorSettings.getThreshold() * 100)).append("%n");
         sb.append("%n");

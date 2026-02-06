@@ -13,6 +13,7 @@ import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringEngine.RefactoringSession;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -141,8 +142,12 @@ public class RefactoringOrchestrator {
         if (classOpt.isPresent()) {
             clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
         } else {
-            logger.warn("DEBUG: Cluster orphaned because no ClassOrInterfaceDeclaration ancestor found for callable: {}",
-                primary.containingCallable().getNameAsString());
+            // primaryPath is already defined in outer scope
+            Path primaryPath = primary.sourceFilePath();
+            String callableName = primary.containingCallable().getNameAsString();
+            logger.warn("DEBUG: Cluster orphaned. Callable: {}. Primary Path: {}. CU passed to orchestrate: {}",
+                callableName, primaryPath, 
+                cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null));
             orphanedClusters.add(cluster);
         }
     }

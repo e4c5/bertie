@@ -1524,21 +1524,25 @@ public class MethodExtractor extends AbstractExtractor {
         for (ParameterSpec param : effectiveParams) {
             String paramName = paramNameOverrides.getOrDefault(param, param.getName());
 
-            if (tryLocationBasedReplace(stmt, param, paramName)) {
-                continue;
-            }
+            substituteEffectiveParameter(stmt, param, paramName);
+        }
+        return stmt;
+    }
 
-            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
-                for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(paramName));
-                        break;
-                    }
+    private static void substituteEffectiveParameter(Statement stmt, ParameterSpec param, String paramName) {
+        if (tryLocationBasedReplace(stmt, param, paramName)) {
+            return;
+        }
+
+        if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
+            String exampleValue = param.getExampleValues().getFirst();
+            for (Expression expr : stmt.findAll(Expression.class)) {
+                if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
+                    expr.replace(new NameExpr(paramName));
+                    break;
                 }
             }
         }
-        return stmt;
     }
 
     /**
@@ -1550,26 +1554,7 @@ public class MethodExtractor extends AbstractExtractor {
         for (ParameterSpec param : recommendation.getSuggestedParameters()) {
             String paramName = resolveParamNameStatic(param, nameOverrides);
 
-            // 1) Prefer exact location-based replacement to avoid accidental collisions
-            if (tryLocationBasedReplace(stmt, param, paramName)) {
-                continue; // done for this parameter
-            }
-
-            // 2) Value-based fallback: replace matching expressions that lack location
-            // metadata
-            // FIXED: Only use fallback if we genuinely don't have location info.
-            // If we have location info but didn't find it (step 1 failed), it probably means
-            // the node isn't in this statement (which is fine).
-            // We should NOT fallback to value replacement in that case, as it risks replacing invariants.
-            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
-                for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(paramName));
-                        break; // Replace first occurrence only to avoid over-substitution
-                    }
-                }
-            }
+            substituteEffectiveParameter(stmt, param, paramName);
         }
         return stmt;
     }
@@ -1747,5 +1732,92 @@ public class MethodExtractor extends AbstractExtractor {
     private boolean hasExplicitConstructorCall(ConstructorDeclaration caller) {
         return caller.getBody().getStatements().stream()
                 .anyMatch(s -> s instanceof ExplicitConstructorInvocationStmt);
+    }
+
+    private ConstructorDeclaration createMasterConstructor(MethodDeclaration helperMethod) {
+        CallableDeclaration<?> containingCallable = cluster.primary().containingCallable();
+        if (!(containingCallable instanceof ConstructorDeclaration original)) {
+            throw new IllegalStateException("Primary sequence must be in a constructor for CONSTRUCTOR_DELEGATION");
+        }
+
+        ConstructorDeclaration master = new ConstructorDeclaration();
+        master.setName(original.getNameAsString());
+        master.setPublic(false);
+        master.setPrivate(true);
+        
+        for (com.github.javaparser.ast.body.Parameter p : helperMethod.getParameters()) {
+            master.addParameter(p.clone());
+        }
+        
+        master.setBody(helperMethod.getBody().get().clone());
+        return master;
+    }
+
+    private void ensureMasterConstructorAttached(ConstructorDeclaration master) {
+        CallableDeclaration<?> primary = cluster.primary().containingCallable();
+        com.github.javaparser.ast.body.TypeDeclaration<?> type = primary.findAncestor(com.github.javaparser.ast.body.TypeDeclaration.class)
+                .orElseThrow(() -> new IllegalStateException("No containing type found"));
+
+        if (type.getParentNode().isEmpty()) {
+            final String typeName = type.getNameAsString();
+            com.github.javaparser.ast.CompilationUnit cu = cluster.primary().compilationUnit();
+            type = cu.findFirst(com.github.javaparser.ast.body.TypeDeclaration.class, t -> t.getNameAsString().equals(typeName))
+                    .orElse(type);
+        }
+
+        boolean exists = type.getMembers().stream()
+                .filter(m -> m instanceof ConstructorDeclaration)
+                .map(m -> (ConstructorDeclaration) m)
+                .anyMatch(c -> c.getParameters().equals(master.getParameters()));
+
+        if (!exists) {
+            type.addMember(master);
+        }
+    }
+
+    private int inlinePrecedingVariables(BlockStmt block, int startIdx, MethodCallExpr methodCall) {
+        while (startIdx > 0) {
+            Statement stmt = block.getStatement(startIdx - 1);
+            if (canInline(stmt, methodCall)) {
+                inline(stmt, methodCall);
+                stmt.remove();
+                startIdx--;
+            } else {
+                break;
+            }
+        }
+        return startIdx;
+    }
+
+    private boolean canInline(Statement stmt, MethodCallExpr methodCall) {
+        if (!stmt.isExpressionStmt()) return false;
+        Expression expr = stmt.asExpressionStmt().getExpression();
+        if (!expr.isVariableDeclarationExpr()) return false;
+        
+        VariableDeclarationExpr vde = expr.asVariableDeclarationExpr();
+        if (vde.getVariables().size() != 1) return false;
+        
+        com.github.javaparser.ast.body.VariableDeclarator var = vde.getVariables().get(0);
+        if (var.getInitializer().isEmpty()) return false;
+        
+        String varName = var.getNameAsString();
+        boolean usedInArgs = methodCall.getArguments().stream()
+                .anyMatch(arg -> arg.isNameExpr() && arg.asNameExpr().getNameAsString().equals(varName));
+                
+        return usedInArgs;
+    }
+
+    private void inline(Statement stmt, MethodCallExpr methodCall) {
+        VariableDeclarationExpr vde = stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr();
+        com.github.javaparser.ast.body.VariableDeclarator var = vde.getVariables().get(0);
+        String varName = var.getNameAsString();
+        Expression initializer = var.getInitializer().get();
+        
+        for (int i = 0; i < methodCall.getArguments().size(); i++) {
+            Expression arg = methodCall.getArgument(i);
+            if (arg.isNameExpr() && arg.asNameExpr().getNameAsString().equals(varName)) {
+                methodCall.setArgument(i, initializer.clone());
+            }
+        }
     }
 }

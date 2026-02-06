@@ -132,6 +132,12 @@ public class RefactoringRecommendationGenerator {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
         }
 
+        // Check for Constructor Delegation
+        // If all sequences are constructors in the same class and at the start of the body
+        if (areAllConstructorsAtStart(cluster) && !isCrossFileDuplication(cluster)) {
+            return RefactoringStrategy.CONSTRUCTOR_DELEGATION;
+        }
+
         // Check if this is a cross-file duplication scenario
         boolean isCrossFile = isCrossFileDuplication(cluster);
 
@@ -262,6 +268,20 @@ public class RefactoringRecommendationGenerator {
         }
 
         return Boolean.TRUE.equals(cu.accept(new TestAnnotationVisitor(), null));
+    }
+
+    private boolean areAllConstructorsAtStart(DuplicateCluster cluster) {
+        for (StatementSequence seq : cluster.allSequences()) {
+            CallableDeclaration<?> callable = seq.containingCallable();
+            if (!(callable instanceof com.github.javaparser.ast.body.ConstructorDeclaration)) {
+                return false;
+            }
+            // Must be at the start of the constructor body (offset 0)
+            if (seq.startOffset() != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {

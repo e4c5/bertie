@@ -353,7 +353,16 @@ public class BertieCLI implements Callable<Integer> {
             if (!report.clusters().isEmpty()) {
                 System.out.println("Processing file: " + report.sourceFile().getFileName());
                 
-                CompilationUnit cu = report.compilationUnit();
+                // Find valid CU for this report
+                // Keys in allCUs are class names, so we must check the Storage path of the CU itself
+                Path reportPath = report.sourceFile().toAbsolutePath().normalize();
+                 
+                CompilationUnit cu = analyzer.getAllCUs().values().stream()
+                    .filter(unit -> unit.getStorage().map(s -> s.getPath().toAbsolutePath().normalize())
+                            .map(path -> path.equals(reportPath))
+                            .orElse(false))
+                    .findFirst()
+                    .orElse(null);
                     
                 if (cu != null) {
                     // Use Orchestrator instead of direct engine call

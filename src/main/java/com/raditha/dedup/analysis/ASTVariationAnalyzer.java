@@ -341,8 +341,8 @@ public class ASTVariationAnalyzer {
         if (t1.describe().equals(t2.describe())) return t1;
 
         // Check subtype relationships
-        if (t1.isAssignableBy(t2)) return t1;
-        if (t2.isAssignableBy(t1)) return t2;
+        if (isAssignable(t1, t2)) return t1;
+        if (isAssignable(t2, t1)) return t2;
 
         // Handle Reference Types
         if (t1 instanceof ResolvedReferenceType && t2 instanceof ResolvedReferenceType) {
@@ -371,7 +371,7 @@ public class ASTVariationAnalyzer {
         for (ResolvedReferenceType t : ancestors2) {
             // Must check name match AND assignability to handle generics correctly
             // e.g. List<String> vs List<Integer> -> List (raw) or Collection
-            if (ancestors1.contains(t.getQualifiedName()) && t.isAssignableBy(r1)) {
+            if (ancestors1.contains(t.getQualifiedName()) && isAssignable(t, r1)) {
                 common.add(t);
             }
         }
@@ -396,6 +396,15 @@ public class ASTVariationAnalyzer {
 
     private boolean isInterface(ResolvedReferenceType t) {
         return t.getTypeDeclaration().map(ResolvedReferenceTypeDeclaration::isInterface).orElse(false);
+    }
+
+    private boolean isAssignable(ResolvedType target, ResolvedType source) {
+        try {
+            return target.isAssignableBy(source);
+        } catch (UnsupportedOperationException e) {
+            // NullType.isAssignableBy(Other) throws this
+            return false;
+        }
     }
 
     /**

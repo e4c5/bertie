@@ -33,24 +33,34 @@ public class DuplicationAnalyzer {
     private final DuplicateClusterer clusterer;
     private final RefactoringRecommendationGenerator recommendationGenerator;
     private final BoundaryRefiner boundaryRefiner;
+    private final Map<String, CompilationUnit> allCUs;
 
     /**
      * Create analyzer with default configuration.
      */
     public DuplicationAnalyzer() {
+        this(AntikytheraRunTime.getResolvedCompilationUnits());
+    }
+
+    public DuplicationAnalyzer(Map<String, CompilationUnit> allCUs) {
+        this.allCUs = allCUs;
         this.extractor = new StatementExtractor(
                 DuplicationDetectorSettings.getMinLines(),
                 DuplicationDetectorSettings.getMaxWindowGrowth(),
                 DuplicationDetectorSettings.getMaximalOnly());
         this.preFilter = new PreFilterChain();
-        this.astNormalizer = new com.raditha.dedup.normalization.ASTNormalizer(); // NEW
-        this.astSimilarityCalculator = new com.raditha.dedup.similarity.ASTSimilarityCalculator(); // NEW
+        this.astNormalizer = new com.raditha.dedup.normalization.ASTNormalizer();
+        this.astSimilarityCalculator = new com.raditha.dedup.similarity.ASTSimilarityCalculator();
         this.clusterer = new DuplicateClusterer(DuplicationDetectorSettings.getThreshold());
         this.recommendationGenerator = new RefactoringRecommendationGenerator();
         this.boundaryRefiner = new BoundaryRefiner(
                 new DataFlowAnalyzer(),
                 DuplicationDetectorSettings.getMinLines(),
                 DuplicationDetectorSettings.getThreshold());
+    }
+
+    public Map<String, CompilationUnit> getAllCUs() {
+        return allCUs;
     }
 
     /**
@@ -60,16 +70,16 @@ public class DuplicationAnalyzer {
      * @return Analysis report with clustered duplicates and refactoring
      *         recommendations
      */
-    public DuplicationReport analyzeFile(CompilationUnit cu) {
+    public DuplicationReport analyzeFile(CompilationUnit cu, Path sourceFile) {
         // Step 1: Extract all statement sequences
-        List<StatementSequence> sequences = extractor.extractSequences(cu);
+        List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
 
         // Step 2-5: Process sequences through the duplicate detection pipeline
         ProcessedDuplicates processed = processDuplicatePipeline(sequences);
 
         // Step 6: Create report
         return new DuplicationReport(
-                cu,
+                sourceFile,
                 processed.duplicates,
                 processed.clustersWithRecommendations,
                 sequences.size(),
@@ -83,8 +93,6 @@ public class DuplicationAnalyzer {
      * @return List of reports, one per file involved in duplicates
      */
     public List<DuplicationReport> analyzeProject() {
-        Map<String, CompilationUnit> allCUs = AntikytheraRunTime.getResolvedCompilationUnits();
-
         // Filter map based on target class
         String targetClass = DuplicationDetectorSettings.getTargetClass();
         Map<String, CompilationUnit> targetCUs;
@@ -111,19 +119,27 @@ public class DuplicationAnalyzer {
         }
 
         List<StatementSequence> allSequences = new ArrayList<>();
-        Map<CompilationUnit, List<StatementSequence>> fileSequences = new java.util.IdentityHashMap<>();
+        Map<Path, List<StatementSequence>> fileSequences = new java.util.LinkedHashMap<>();
         Set<CompilationUnit> processedCUs = Collections.newSetFromMap(new IdentityHashMap<>());
 
         // 1. Extract from all files (Lazily normalized)
         List<CompilationUnit> sortedCUs = new ArrayList<>(targetCUs.values());
         sortedCUs.sort(java.util.Comparator.comparing(
-                com.raditha.dedup.util.ASTUtility::getSourcePath,
+                unit -> unit.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null),
                 java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
         for (CompilationUnit cu : sortedCUs) {
             if (processedCUs.add(cu)) {
 
-                List<StatementSequence> sequences = extractor.extractSequences(cu);
-                fileSequences.put(cu, sequences);
+                Path sourceFile = cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath)
+                        .orElse(null);
+
+                if (sourceFile == null) {
+                    // Skip files without storage information (can't track source path)
+                    continue;
+                }
+
+                List<StatementSequence> sequences = extractor.extractSequences(cu, sourceFile);
+                fileSequences.put(sourceFile, sequences);
                 allSequences.addAll(sequences);
             }
         }
@@ -185,52 +201,52 @@ public class DuplicationAnalyzer {
     }
 
     private List<DuplicationReport> distributeReports(
-            Map<CompilationUnit, List<StatementSequence>> fileSequences,
+            Map<Path, List<StatementSequence>> fileSequences,
             List<SimilarityPair> duplicates,
             List<DuplicateCluster> clusters,
             int totalCandidates) {
 
-        Map<CompilationUnit, List<SimilarityPair>> fileToDuplicates = new java.util.IdentityHashMap<>();
-        Map<CompilationUnit, List<DuplicateCluster>> fileToClusters = new java.util.IdentityHashMap<>();
+        Map<Path, List<SimilarityPair>> fileToDuplicates = new java.util.HashMap<>();
+        Map<Path, List<DuplicateCluster>> fileToClusters = new java.util.HashMap<>();
 
         // Initialize with empty lists for all files
-        for (CompilationUnit cu : fileSequences.keySet()) {
-            fileToDuplicates.put(cu, new ArrayList<>());
-            fileToClusters.put(cu, new ArrayList<>());
+        for (Path p : fileSequences.keySet()) {
+            fileToDuplicates.put(p, new ArrayList<>());
+            fileToClusters.put(p, new ArrayList<>());
         }
 
         // Distribute duplicates
         for (SimilarityPair pair : duplicates) {
-            CompilationUnit cu1 = pair.seq1().compilationUnit();
-            CompilationUnit cu2 = pair.seq2().compilationUnit();
+            Path p1 = pair.seq1().sourceFilePath();
+            Path p2 = pair.seq2().sourceFilePath();
 
-            if (cu1 != null)
-                fileToDuplicates.computeIfAbsent(cu1, k -> new ArrayList<>()).add(pair);
-            if (cu2 != null && cu2 != cu1)
-                fileToDuplicates.computeIfAbsent(cu2, k -> new ArrayList<>()).add(pair);
+            if (p1 != null)
+                fileToDuplicates.computeIfAbsent(p1, k -> new ArrayList<>()).add(pair);
+            if (p2 != null && !p2.equals(p1))
+                fileToDuplicates.computeIfAbsent(p2, k -> new ArrayList<>()).add(pair);
         }
 
         // Distribute clusters
         for (DuplicateCluster cluster : clusters) {
             cluster.allSequences().stream()
-                    .map(StatementSequence::compilationUnit)
+                    .map(StatementSequence::sourceFilePath)
                     .distinct()
-                    .forEach(cu -> {
-                        if (cu != null) {
-                            fileToClusters.computeIfAbsent(cu, k -> new ArrayList<>()).add(cluster);
+                    .forEach(path -> {
+                        if (path != null) {
+                            fileToClusters.computeIfAbsent(path, k -> new ArrayList<>()).add(cluster);
                         }
                     });
         }
 
         List<DuplicationReport> reports = new ArrayList<>();
-        for (Map.Entry<CompilationUnit, List<StatementSequence>> entry : fileSequences.entrySet()) {
-            CompilationUnit cu = entry.getKey();
+        for (Map.Entry<Path, List<StatementSequence>> entry : fileSequences.entrySet()) {
+            Path path = entry.getKey();
             List<StatementSequence> seqs = entry.getValue();
-            List<SimilarityPair> fileDups = fileToDuplicates.getOrDefault(cu, Collections.emptyList());
-            List<DuplicateCluster> fileClusters = fileToClusters.getOrDefault(cu, Collections.emptyList());
+            List<SimilarityPair> fileDups = fileToDuplicates.getOrDefault(path, Collections.emptyList());
+            List<DuplicateCluster> fileClusters = fileToClusters.getOrDefault(path, Collections.emptyList());
 
             reports.add(new DuplicationReport(
-                    cu,
+                    path,
                     fileDups,
                     fileClusters,
                     seqs.size(),
@@ -297,11 +313,10 @@ public class DuplicationAnalyzer {
         Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
 
         // 1. Initialize LSH Index
-        // Configuration: 50 bands × 2 rows = 100 hash functions
-        // Lower rows per band (2 vs 5) increases recall by making collision more likely
-        // P(collision) = 1 - (1 - J^r)^b, with r=2,b=50 even moderate similarity leads to collision
+        // Configuration: 25 bands × 4 rows = 100 hash functions
+        // rowsPerBand=4 is a balanced choice for precision/recall.
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
-        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 50, 2);
+        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 25, 4);
 
         // 2. Fused Loop: Query and Add
         for (StatementSequence currentSeq : sequences) {
