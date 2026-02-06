@@ -201,7 +201,10 @@ public class RefactoringRecommendationGenerator {
                 filePaths.add(seq.sourceFilePath().toString());
             }
         }
-        return filePaths.size() > 1;
+        if (filePaths.size() > 1) {
+            return true;
+        }
+        return false;
     }
 
     private boolean usesInstanceState(StatementSequence seq) {

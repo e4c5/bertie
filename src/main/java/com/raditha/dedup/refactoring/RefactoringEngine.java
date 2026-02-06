@@ -228,8 +228,12 @@ public class RefactoringEngine {
     MethodExtractor.RefactoringResult applyRefactoring(
             DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
-            case EXTRACT_HELPER_METHOD, CONSTRUCTOR_DELEGATION -> {
+            case EXTRACT_HELPER_METHOD -> {
                 MethodExtractor refactorer = new MethodExtractor();
+                yield refactorer.refactor(cluster, recommendation);
+            }
+            case CONSTRUCTOR_DELEGATION -> {
+                ConstructorRefactorer refactorer = new ConstructorRefactorer();
                 yield refactorer.refactor(cluster, recommendation);
             }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
