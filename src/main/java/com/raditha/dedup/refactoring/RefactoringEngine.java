@@ -11,9 +11,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 /**
  * Main orchestrator for automated refactoring.
@@ -130,6 +132,20 @@ public class RefactoringEngine {
                 return;
             }
 
+            // Calculate diff stats before applying changes (per file)
+            Map<Path, DiffGenerator.DiffStats> diffStatsByFile = new LinkedHashMap<>();
+            for (Map.Entry<Path, String> fileEntry : result.modifiedFiles().entrySet()) {
+                try {
+                    String originalContent = Files.exists(fileEntry.getKey())
+                            ? Files.readString(fileEntry.getKey())
+                            : "";
+                    DiffGenerator.DiffStats stats = diffGenerator.calculateDiffStats(originalContent, fileEntry.getValue());
+                    diffStatsByFile.put(fileEntry.getKey(), stats);
+                } catch (IOException e) {
+                    logger.warn("Could not compute diff stats for {}: {}", fileEntry.getKey(), e.getMessage());
+                }
+            }
+
             // Write refactored code to all files
             result.apply();
             System.out.printf("  ✓ Refactoring applied to %d file(s)%n", result.modifiedFiles().size());
@@ -138,7 +154,7 @@ public class RefactoringEngine {
             RefactoringVerifier.VerificationResult verify = verifier.verify();
             if (verify.isSuccess()) {
                 System.out.println("  ✓ Verification passed");
-                session.addSuccess(cluster, result.description());
+                session.addSuccess(cluster, result.description(), diffStatsByFile);
                 verifier.clearBackups();
             } else {
                 System.out.println("  ❌ Verification failed:");
@@ -357,26 +373,44 @@ public class RefactoringEngine {
      */
     public static class RefactoringSession {
         private final List<RefactoringResult> results = new ArrayList<>();
+        private int addedLines;
+        private int removedLines;
 
         /**
          * Record a successful refactoring.
          */
         public void addSuccess(DuplicateCluster cluster, String details) {
-            results.add(new RefactoringResult(cluster, RefactoringStatus.SUCCESS, details));
+            addSuccess(cluster, details, (DiffGenerator.DiffStats) null);
+        }
+
+        /**
+         * Record a successful refactoring with diff stats.
+         */
+        public void addSuccess(DuplicateCluster cluster, String details, Map<Path, DiffGenerator.DiffStats> diffStats) {
+            DiffGenerator.DiffStats aggregate = aggregateStats(diffStats);
+            addSuccess(cluster, details, aggregate);
+        }
+
+        /**
+         * Record a successful refactoring with aggregated diff stats.
+         */
+        public void addSuccess(DuplicateCluster cluster, String details, DiffGenerator.DiffStats diffStats) {
+            results.add(new RefactoringResult(cluster, RefactoringStatus.SUCCESS, details, diffStats));
+            addDiffStats(diffStats);
         }
 
         /**
          * Record a skipped refactoring.
          */
         public void addSkipped(DuplicateCluster cluster, String reason) {
-            results.add(new RefactoringResult(cluster, RefactoringStatus.SKIPPED, reason));
+            results.add(new RefactoringResult(cluster, RefactoringStatus.SKIPPED, reason, null));
         }
 
         /**
          * Record a failed refactoring.
          */
         public void addFailed(DuplicateCluster cluster, String error) {
-            results.add(new RefactoringResult(cluster, RefactoringStatus.FAILED, error));
+            results.add(new RefactoringResult(cluster, RefactoringStatus.FAILED, error, null));
         }
 
         /**
@@ -419,6 +453,51 @@ public class RefactoringEngine {
         public int getTotalProcessed() {
             return results.size();
         }
+
+        /**
+         * Total lines added across successful refactorings.
+         */
+        public int getAddedLines() {
+            return addedLines;
+        }
+
+        /**
+         * Total lines removed across successful refactorings.
+         */
+        public int getRemovedLines() {
+            return removedLines;
+        }
+
+        /**
+         * Net line change across successful refactorings.
+         */
+        public int getNetLineChange() {
+            return addedLines - removedLines;
+        }
+
+        private void addDiffStats(DiffGenerator.DiffStats stats) {
+            if (stats == null) {
+                return;
+            }
+            addedLines += stats.addedLines();
+            removedLines += stats.removedLines();
+        }
+
+        private DiffGenerator.DiffStats aggregateStats(Map<Path, DiffGenerator.DiffStats> diffStats) {
+            if (diffStats == null || diffStats.isEmpty()) {
+                return null;
+            }
+            int added = 0;
+            int removed = 0;
+            for (DiffGenerator.DiffStats stats : diffStats.values()) {
+                if (stats == null) {
+                    continue;
+                }
+                added += stats.addedLines();
+                removed += stats.removedLines();
+            }
+            return new DiffGenerator.DiffStats(added, removed);
+        }
     }
 
     /**
@@ -431,7 +510,8 @@ public class RefactoringEngine {
     /**
      * Result of a single refactoring operation.
      */
-    public record RefactoringResult(DuplicateCluster cluster, RefactoringStatus status, String message) {
+    public record RefactoringResult(DuplicateCluster cluster, RefactoringStatus status, String message,
+                                    DiffGenerator.DiffStats diffStats) {
         /**
          * Details of the operation (alias for message).
          */

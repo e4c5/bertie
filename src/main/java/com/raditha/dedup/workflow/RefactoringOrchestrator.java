@@ -237,7 +237,7 @@ public class RefactoringOrchestrator {
     }
 
     private void mergeSessions(RefactoringSession target, RefactoringSession source) {
-        source.getSuccessful().forEach(s -> target.addSuccess(s.cluster(), s.details()));
+        source.getSuccessful().forEach(s -> target.addSuccess(s.cluster(), s.details(), s.diffStats()));
         source.getSkipped().forEach(s -> target.addSkipped(s.cluster(), s.reason()));
         source.getFailed().forEach(s -> target.addFailed(s.cluster(), s.error()));
     }

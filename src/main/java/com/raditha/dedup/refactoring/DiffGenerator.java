@@ -3,6 +3,7 @@ package com.raditha.dedup.refactoring;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
+import com.github.difflib.patch.AbstractDelta;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -89,5 +90,34 @@ public class DiffGenerator {
         }
 
         return result.toString();
+    }
+
+    /**
+     * Calculate added/removed line counts between original and revised content.
+     *
+     * @param originalContent The current file content
+     * @param revisedContent  The refactored content
+     * @return DiffStats with added and removed line counts
+     */
+    public DiffStats calculateDiffStats(String originalContent, String revisedContent) {
+        List<String> original = Arrays.asList(originalContent.split("\\R", -1));
+        List<String> revised = Arrays.asList(revisedContent.split("\\R", -1));
+        Patch<String> patch = DiffUtils.diff(original, revised);
+        int added = 0;
+        int removed = 0;
+        for (AbstractDelta<String> delta : patch.getDeltas()) {
+            removed += delta.getSource().size();
+            added += delta.getTarget().size();
+        }
+        return new DiffStats(added, removed);
+    }
+
+    /**
+     * Line-level diff statistics.
+     */
+    public record DiffStats(int addedLines, int removedLines) {
+        public int netLines() {
+            return addedLines - removedLines;
+        }
     }
 }
