@@ -146,10 +146,10 @@ public class SafetyValidator {
             return java.util.Collections.emptySet();
         }
 
-        return collectFinalFieldNames(type);
+        return collectAllFieldNames(type);
     }
 
-    private java.util.Set<String> collectFinalFieldNames(com.github.javaparser.ast.body.TypeDeclaration<?> type) {
+    private java.util.Set<String> collectAllFieldNames(com.github.javaparser.ast.body.TypeDeclaration<?> type) {
         java.util.Set<String> fieldNames = new java.util.HashSet<>();
 
         if (type instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz) {
@@ -167,6 +167,30 @@ public class SafetyValidator {
         }
 
         return fieldNames;
+    }
+
+    private java.util.Set<String> collectFinalFieldNames(com.github.javaparser.ast.body.TypeDeclaration<?> type) {
+        java.util.Set<String> finalFields = new java.util.HashSet<>();
+
+        if (type instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz) {
+            clazz.getFields().stream()
+                    .filter(com.github.javaparser.ast.body.FieldDeclaration::isFinal)
+                    .forEach(field ->
+                            field.getVariables().forEach(vd ->
+                                    finalFields.add(vd.getNameAsString())
+                            )
+                    );
+        } else if (type instanceof com.github.javaparser.ast.body.EnumDeclaration enumDecl) {
+            enumDecl.getFields().stream()
+                    .filter(com.github.javaparser.ast.body.FieldDeclaration::isFinal)
+                    .forEach(field ->
+                            field.getVariables().forEach(vd ->
+                                    finalFields.add(vd.getNameAsString())
+                            )
+                    );
+        }
+
+        return finalFields;
     }
 
     private boolean hasFinalFieldAssignments(StatementSequence sequence) {
@@ -234,15 +258,6 @@ public class SafetyValidator {
             }
         }
         return false;
-    }
-
-    private Set<String> collectFinalFieldNames(
-            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz) {
-        Set<String> finalFields = new java.util.HashSet<>();
-        clazz.getFields().stream()
-                .filter(com.github.javaparser.ast.body.FieldDeclaration::isFinal)
-                .forEach(f -> f.getVariables().forEach(v -> finalFields.add(v.getNameAsString())));
-        return finalFields;
     }
 
     private Set<String> collectLocalAndParameterNames(com.github.javaparser.ast.body.CallableDeclaration<?> method) {
