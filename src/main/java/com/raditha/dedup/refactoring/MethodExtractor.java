@@ -303,47 +303,44 @@ public class MethodExtractor extends AbstractExtractor {
                     "Skipped: Could not substitute calls for extracted method " + methodNameToUse);
         }
 
-        // Ensure helper exists in every containing class for cross-file clusters
-        ensureHelperInContainingTypes(helperMethod, modifiedCUs);
+        if (!isCrossFileCluster()) {
+            // Ensure helper exists in every containing class for cross-file clusters
+            ensureHelperInContainingTypes(helperMethod, modifiedCUs);
+        }
 
         return buildRefactoringResult(modifiedCUs);
     }
 
     private void ensureHelperInContainingTypes(MethodDeclaration helperMethod,
             Map<CompilationUnit, Path> modifiedCUs) {
-        if (!isCrossFileCluster()) {
-            return;
-        }
 
         for (StatementSequence seq : cluster.allSequences()) {
             CallableDeclaration<?> containingCallable = seq.containingCallable();
-            if (containingCallable == null) {
-                continue;
-            }
-            TypeDeclaration<?> containingType = containingCallable.findAncestor(TypeDeclaration.class)
-                    .orElse(null);
-            if (containingType == null) {
-                continue;
-            }
-
-            boolean alreadyInType = containingType.getMethodsByName(methodNameToUse).stream()
-                    .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
-                            && m.getType().asString().equals(helperMethod.getType().asString()));
-
-            if (alreadyInType) {
-                MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
-                        cluster.getContainingMethods());
-                if (equivalent == null) {
-                    throw new IllegalStateException(
-                            "Method name '" + methodNameToUse + "' already exists in class " +
-                                    containingType.getNameAsString());
+            if (containingCallable != null){
+                TypeDeclaration<?> containingType = containingCallable.findAncestor(TypeDeclaration.class)
+                        .orElse(null);
+                if (containingType == null) {
+                    continue;
                 }
-            }
-            else {
-                MethodDeclaration clone = helperMethod.clone();
-                clone.setName(methodNameToUse);
-                containingType.addMember(clone);
-                modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
+
+                boolean alreadyInType = containingType.getMethodsByName(methodNameToUse).stream()
+                        .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                                && m.getType().asString().equals(helperMethod.getType().asString()));
+
+                if (alreadyInType) {
+                    MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
+                            cluster.getContainingMethods());
+                    if (equivalent == null) {
+                        throw new IllegalStateException(
+                                "Method name '" + methodNameToUse + "' already exists in class " +
+                                        containingType.getNameAsString());
+                    }
+                } else {
+                    MethodDeclaration clone = helperMethod.clone();
+                    clone.setName(methodNameToUse);
+                    containingType.addMember(clone);
+                    modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
+                }
             }
         }
     }
@@ -938,8 +935,16 @@ public class MethodExtractor extends AbstractExtractor {
             }
         }
 
-        insertValueReplacement(block, startIdx, methodCall, originalReturnValues, varName,
-                shouldReturnDirectly, nextIsReturn, returnType);
+        if (varName != null && shouldReturnDirectly) {
+            insertDirectReturn(block, startIdx, methodCall, nextIsReturn);
+        } else if (varName != null) {
+            insertVariableDeclaration(block, startIdx, methodCall, varName, returnType);
+            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
+                block.getStatements().add(startIdx + 1, originalReturnValues.clone());
+            }
+        } else {
+            insertExpressionStatement(block, startIdx, methodCall, originalReturnValues);
+        }
 
         // Critical Fix: Even if we return a value, other literal-initialized variables
         // might be needed by the caller code. We must re-declare them.
@@ -948,29 +953,21 @@ public class MethodExtractor extends AbstractExtractor {
         }
     }
 
-    private void insertValueReplacement(BlockStmt block, int startIdx,
-            MethodCallExpr methodCall, ReturnStmt originalReturnValues, String varName,
-            boolean shouldReturnDirectly, boolean nextIsReturn, com.github.javaparser.ast.type.Type returnType) {
-
-        if (varName != null && shouldReturnDirectly) {
-            if (nextIsReturn) {
-                block.getStatements().remove(startIdx);
-            }
-            block.getStatements().add(startIdx, new ReturnStmt(methodCall));
-            return;
+    private void insertDirectReturn(BlockStmt block, int startIdx, MethodCallExpr methodCall, boolean nextIsReturn) {
+        if (nextIsReturn) {
+            block.getStatements().remove(startIdx);
         }
+        block.getStatements().add(startIdx, new ReturnStmt(methodCall));
+    }
 
-        if (varName != null) {
-            VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                    returnType.clone(), varName);
-            varDecl.getVariable(0).setInitializer(methodCall);
-            block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
-            if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
-                block.getStatements().add(startIdx + 1, originalReturnValues.clone());
-            }
-            return;
-        }
+    private void insertVariableDeclaration(BlockStmt block, int startIdx, MethodCallExpr methodCall, String varName, com.github.javaparser.ast.type.Type returnType) {
+        VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
+                returnType.clone(), varName);
+        varDecl.getVariable(0).setInitializer(methodCall);
+        block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+    }
 
+    private void insertExpressionStatement(BlockStmt block, int startIdx, MethodCallExpr methodCall, ReturnStmt originalReturnValues) {
         if (originalReturnValues != null && originalReturnValues.getExpression().isPresent()) {
             block.getStatements().add(startIdx, new ReturnStmt(methodCall));
         } else {
@@ -1014,22 +1011,26 @@ public class MethodExtractor extends AbstractExtractor {
         if (varName == null) {
             List<String> typedCandidates = new ArrayList<>();
             for (Statement stmt : sequence.statements()) {
-                stmt.findAll(VariableDeclarationExpr.class).forEach(vde -> {
-                    vde.getVariables().forEach(v -> {
-                        if (v.getType().asString()
-                                .equals(recommendation.getSuggestedReturnType() != null
-                                        ? recommendation.getSuggestedReturnType().asString()
-                                        : "")) {
-                            typedCandidates.add(v.getNameAsString());
-                        }
-                    });
-                });
+                stmt.findAll(VariableDeclarationExpr.class).forEach(vde ->
+                    inferReturnFromStatement(vde, typedCandidates)
+                );
             }
             if (typedCandidates.size() == 1) {
                 varName = typedCandidates.getFirst();
             }
         }
         return varName;
+    }
+
+    private void inferReturnFromStatement(VariableDeclarationExpr vde, List<String> typedCandidates) {
+        vde.getVariables().forEach(v -> {
+            if (v.getType().asString()
+                    .equals(recommendation.getSuggestedReturnType() != null
+                            ? recommendation.getSuggestedReturnType().asString()
+                            : "")) {
+                typedCandidates.add(v.getNameAsString());
+            }
+        });
     }
 
     /**
@@ -1524,21 +1525,25 @@ public class MethodExtractor extends AbstractExtractor {
         for (ParameterSpec param : effectiveParams) {
             String paramName = paramNameOverrides.getOrDefault(param, param.getName());
 
-            if (tryLocationBasedReplace(stmt, param, paramName)) {
-                continue;
-            }
+            substituteEffectiveParameter(stmt, param, paramName);
+        }
+        return stmt;
+    }
 
-            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
-                for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(paramName));
-                        break;
-                    }
+    private static void substituteEffectiveParameter(Statement stmt, ParameterSpec param, String paramName) {
+        if (tryLocationBasedReplace(stmt, param, paramName)) {
+            return;
+        }
+
+        if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
+            String exampleValue = param.getExampleValues().getFirst();
+            for (Expression expr : stmt.findAll(Expression.class)) {
+                if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
+                    expr.replace(new NameExpr(paramName));
+                    break;
                 }
             }
         }
-        return stmt;
     }
 
     /**
@@ -1550,26 +1555,7 @@ public class MethodExtractor extends AbstractExtractor {
         for (ParameterSpec param : recommendation.getSuggestedParameters()) {
             String paramName = resolveParamNameStatic(param, nameOverrides);
 
-            // 1) Prefer exact location-based replacement to avoid accidental collisions
-            if (tryLocationBasedReplace(stmt, param, paramName)) {
-                continue; // done for this parameter
-            }
-
-            // 2) Value-based fallback: replace matching expressions that lack location
-            // metadata
-            // FIXED: Only use fallback if we genuinely don't have location info.
-            // If we have location info but didn't find it (step 1 failed), it probably means
-            // the node isn't in this statement (which is fine).
-            // We should NOT fallback to value replacement in that case, as it risks replacing invariants.
-            if (param.getStartLine() == null && !param.getExampleValues().isEmpty()) {
-                String exampleValue = param.getExampleValues().getFirst();
-                for (Expression expr : stmt.findAll(Expression.class)) {
-                    if (expr.toString().equals(exampleValue) && expr.getParentNode().isPresent()) {
-                        expr.replace(new NameExpr(paramName));
-                        break; // Replace first occurrence only to avoid over-substitution
-                    }
-                }
-            }
+            substituteEffectiveParameter(stmt, param, paramName);
         }
         return stmt;
     }
@@ -1618,37 +1604,43 @@ public class MethodExtractor extends AbstractExtractor {
         String newBodyNorm = normalizeMethodBody(newHelper);
 
         for (MethodDeclaration candidate : containingType.getMethods()) {
-            // CRITICAL FIX: Never reuse ANY method that is part of the cluster being refactored!
-            if (excludedMethods.contains(candidate) || !candidate.getModifiers().contains(Modifier.privateModifier()))
-                continue;
-
-            // Only consider private helpers (or same staticness and signature) to be
-            // conservative
-            boolean candIsStatic = candidate.getModifiers().stream()
-                    .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-            if (candIsStatic != newIsStatic)
-                continue;
-            if (!candidate.getType().asString().equals(newReturnType))
-                continue;
-            if (candidate.getParameters().size() != newParamTypes.size())
-                continue;
-            if (candidate.getBody().isPresent() && newHelper.getBody().isPresent()) {
-                if (candidate.getBody().get().getStatements().size() != newHelper.getBody().get().getStatements().size()) {
-                    continue;
-                }
-            }
-
-            if (!isParamsMatch(candidate, newParamTypes))
-                continue;
-
-            // Compare normalized bodies
-            String candNorm = normalizeMethodBody(candidate);
-            if (candNorm != null && candNorm.equals(newBodyNorm)) {
-                return candidate; // Reuse this
+            if (isMethodEquivalent(candidate, newHelper, excludedMethods, newIsStatic, newReturnType, newParamTypes, newBodyNorm)) {
+                return candidate;
             }
         }
 
         return null;
+    }
+
+    private boolean isMethodEquivalent(MethodDeclaration candidate, MethodDeclaration newHelper,
+            Set<MethodDeclaration> excludedMethods, boolean newIsStatic, String newReturnType,
+            List<String> newParamTypes, String newBodyNorm) {
+        // CRITICAL FIX: Never reuse ANY method that is part of the cluster being refactored!
+        if (excludedMethods.contains(candidate) || !candidate.getModifiers().contains(Modifier.privateModifier()))
+            return false;
+
+        // Only consider private helpers (or same staticness and signature) to be
+        // conservative
+        boolean candIsStatic = candidate.getModifiers().stream()
+                .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+        if (candIsStatic != newIsStatic)
+            return false;
+        if (!candidate.getType().asString().equals(newReturnType))
+            return false;
+        if (candidate.getParameters().size() != newParamTypes.size())
+            return false;
+        if (candidate.getBody().isPresent() && newHelper.getBody().isPresent()) {
+            if (candidate.getBody().get().getStatements().size() != newHelper.getBody().get().getStatements().size()) {
+                return false;
+            }
+        }
+
+        if (!isParamsMatch(candidate, newParamTypes))
+            return false;
+
+        // Compare normalized bodies
+        String candNorm = normalizeMethodBody(candidate);
+        return candNorm != null && candNorm.equals(newBodyNorm);
     }
 
     private static boolean isParamsMatch(MethodDeclaration candidate, List<String> newParamTypes) {
@@ -1746,6 +1738,6 @@ public class MethodExtractor extends AbstractExtractor {
 
     private boolean hasExplicitConstructorCall(ConstructorDeclaration caller) {
         return caller.getBody().getStatements().stream()
-                .anyMatch(s -> s instanceof ExplicitConstructorInvocationStmt);
+                .anyMatch(ExplicitConstructorInvocationStmt.class::isInstance);
     }
 }

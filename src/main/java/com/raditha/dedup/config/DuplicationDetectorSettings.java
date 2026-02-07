@@ -338,6 +338,24 @@ public class DuplicationDetectorSettings {
     }
 
     /**
+     * Get number of bands for LSH.
+     * Default: 25
+     * @return number of bands
+     */
+    public static int getNumBands() {
+        return getOverriddenInt("num_bands", 25);
+    }
+
+    /**
+     * Get rows per band for LSH.
+     * Default: 4
+     * @return rows per band
+     */
+    public static int getRowsPerBand() {
+        return getOverriddenInt("rows_per_band", 4);
+    }
+
+    /**
      * Get target Java version for compilation.
      * Priority: CLI -> YAML "java_version" -> System property "java.version"
      * @return Java version string (e.g. "17", "21")

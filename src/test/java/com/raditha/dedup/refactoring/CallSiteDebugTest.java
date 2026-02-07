@@ -42,7 +42,7 @@ class CallSiteDebugTest {
 
         // When: We analyze the file for duplicates
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         // Then: At least one duplicate cluster should be detected
         assertNotNull(report, "Report should not be null");
@@ -64,7 +64,7 @@ class CallSiteDebugTest {
 
         // When: We analyze and generate recommendations
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         // Then: Each cluster should have a refactoring recommendation
         for (DuplicateCluster cluster : report.clusters()) {
@@ -87,7 +87,7 @@ class CallSiteDebugTest {
 
         // When: We analyze for duplicates
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         // Then: Line ranges should be valid
         for (DuplicateCluster cluster : report.clusters()) {

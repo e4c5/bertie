@@ -3,6 +3,7 @@ package com.raditha.dedup.clustering;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
@@ -18,7 +19,6 @@ import com.raditha.dedup.refactoring.MethodNameGenerator;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -130,6 +130,12 @@ public class RefactoringRecommendationGenerator {
         // Check for risky control flow (conditional returns)
         if (hasNestedReturn(primarySeq)) {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+        }
+
+        // Check for Constructor Delegation
+        // If all sequences are constructors in the same class and at the start of the body
+        if (areAllConstructorsAtStart(cluster) && !isCrossFileDuplication(cluster)) {
+            return RefactoringStrategy.CONSTRUCTOR_DELEGATION;
         }
 
         // Check if this is a cross-file duplication scenario
@@ -262,6 +268,41 @@ public class RefactoringRecommendationGenerator {
         }
 
         return Boolean.TRUE.equals(cu.accept(new TestAnnotationVisitor(), null));
+    }
+
+    private boolean areAllConstructorsAtStart(DuplicateCluster cluster) {
+        String firstClassName = null;
+        int duplicateSize = cluster.primary().statements().size();
+        boolean hasPerfectMaster = false;
+
+        for (StatementSequence seq : cluster.allSequences()) {
+            CallableDeclaration<?> callable = seq.containingCallable();
+            if (!(callable instanceof com.github.javaparser.ast.body.ConstructorDeclaration)) {
+                return false;
+            }
+
+            ConstructorDeclaration cd = (ConstructorDeclaration) callable;
+            if (cd.getBody().getStatements().size() == duplicateSize) {
+                hasPerfectMaster = true;
+            }
+
+            // Get enclosing class name to ensure they are all in the same class
+            var clazz = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+            if (clazz == null) return false;
+            String className = clazz.getFullyQualifiedName().orElse(clazz.getNameAsString());
+
+            if (firstClassName == null) {
+                firstClassName = className;
+            } else if (!firstClassName.equals(className)) {
+                return false;
+            }
+
+            // Must be at the start of the constructor body (offset 0)
+            if (seq.startOffset() != 0) {
+                return false;
+            }
+        }
+        return hasPerfectMaster;
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {

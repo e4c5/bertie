@@ -63,7 +63,7 @@ class RefactoringEngineTest {
         Files.writeString(sourceFile, cu.toString());
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         // Should find duplicates
         assertTrue(report.hasDuplicates());
@@ -96,7 +96,7 @@ class RefactoringEngineTest {
         Files.writeString(sourceFile, cu.toString());
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         // Test batch mode
         engine = new RefactoringEngine(
@@ -119,7 +119,7 @@ class RefactoringEngineTest {
         Files.writeString(sourceFile, cu.toString());
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         // Should find duplicates and use EXTRACT_HELPER_METHOD strategy
         assertTrue(report.hasDuplicates());
@@ -140,7 +140,7 @@ class RefactoringEngineTest {
         Files.writeString(sourceFile, cu.toString());
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         assertTrue(report.hasDuplicates(), "Should find duplicate calculation logic");
 
@@ -177,7 +177,7 @@ class RefactoringEngineTest {
         Files.writeString(sourceFile, code);
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         engine = new RefactoringEngine(
                 tempDir,

@@ -78,17 +78,20 @@ public class StatementExtractor {
      * @param cu Compilation unit to extract from
      * @return List of statement sequences
      */
-    public List<StatementSequence> extractSequences(CompilationUnit cu) {
+    public List<StatementSequence> extractSequences(CompilationUnit cu, Path sourceFile) {
         List<StatementSequence> sequences = new ArrayList<>();
         
         // Normalize path once for all sequences from this file
-        Path normalizedSourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu)
-                .toAbsolutePath().normalize();
+        Path normalizedSourceFile = sourceFile != null ? sourceFile.toAbsolutePath().normalize() : null;
         
         // Visit all methods and constructors in the compilation unit
         cu.accept(new MethodVisitor(sequences, cu, normalizedSourceFile), null);
         
         return sequences;
+    }
+    
+    public List<StatementSequence> extractSequences(CompilationUnit cu) {
+        return extractSequences(cu, com.raditha.dedup.util.ASTUtility.getSourcePath(cu));
     }
     
     /**

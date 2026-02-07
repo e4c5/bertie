@@ -13,6 +13,7 @@ import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringEngine.RefactoringSession;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,7 @@ import java.util.Optional;
 public class RefactoringOrchestrator {
 
     private final WorkflowFactory workflowFactory;
+    private final com.raditha.dedup.clustering.RefactoringRecommendationGenerator recommendationGenerator;
 
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RefactoringOrchestrator.class);
 
@@ -36,6 +38,7 @@ public class RefactoringOrchestrator {
      */
     public RefactoringOrchestrator(DuplicationAnalyzer analyzer, RefactoringEngine engine) {
         this.workflowFactory = new WorkflowFactory(analyzer, engine);
+        this.recommendationGenerator = new com.raditha.dedup.clustering.RefactoringRecommendationGenerator();
     }
 
     /**
@@ -98,7 +101,12 @@ public class RefactoringOrchestrator {
             List<DuplicateCluster> orphanedClusters) {
         
         for (DuplicateCluster cluster : report.clusters()) {
-            groupCluster(cu, clustersByClass, orphanedClusters, cluster);
+            // Split cross-file constructor clusters into per-file clusters
+            List<DuplicateCluster> clustersToProcess = splitConstructorClusters(cluster);
+            
+            for (DuplicateCluster clusterToGroup : clustersToProcess) {
+                groupCluster(cu, clustersByClass, orphanedClusters, clusterToGroup);
+            }
         }
         logger.info("DEBUG: Grouping complete. Clusters by class: {}. Orphaned: {}", clustersByClass.size(), orphanedClusters.size());
     }
@@ -141,10 +149,91 @@ public class RefactoringOrchestrator {
         if (classOpt.isPresent()) {
             clustersByClass.computeIfAbsent(classOpt.get(), k -> new ArrayList<>()).add(cluster);
         } else {
-            logger.warn("DEBUG: Cluster orphaned because no ClassOrInterfaceDeclaration ancestor found for callable: {}",
-                primary.containingCallable().getNameAsString());
+            // primaryPath is already defined in outer scope
+            Path primaryPath = primary.sourceFilePath();
+            String callableName = primary.containingCallable().getNameAsString();
+            logger.warn("DEBUG: Cluster orphaned. Callable: {}. Primary Path: {}. CU passed to orchestrate: {}",
+                callableName, primaryPath, 
+                cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null));
             orphanedClusters.add(cluster);
         }
+    }
+
+    /**
+     * Split cross-file constructor clusters into per-file clusters.
+     * This allows constructor delegation to work within each file independently.
+     * 
+     * @param cluster The cluster to potentially split
+     * @return List of clusters (original if not split, or multiple per-file clusters)
+     */
+    List<DuplicateCluster> splitConstructorClusters(DuplicateCluster cluster) {
+        // Check if all sequences are constructors
+        boolean allConstructors = cluster.allSequences().stream()
+                .allMatch(seq -> seq.containingCallable() instanceof ConstructorDeclaration);
+        
+        if (!allConstructors) {
+            // Not a constructor cluster, return as-is
+            return List.of(cluster);
+        }
+        
+        // Group sequences by file path
+        Map<Path, List<StatementSequence>> byFile = new java.util.HashMap<>();
+        for (StatementSequence seq : cluster.allSequences()) {
+            Path filePath = seq.sourceFilePath();
+            if (filePath != null) {
+                byFile.computeIfAbsent(filePath, k -> new ArrayList<>()).add(seq);
+            }
+        }
+        
+        // If only one file, return as-is
+        if (byFile.size() <= 1) {
+            return List.of(cluster);
+        }
+        
+        // Create separate clusters for each file
+        List<DuplicateCluster> result = new ArrayList<>();
+        for (Map.Entry<Path, List<StatementSequence>> entry : byFile.entrySet()) {
+            List<StatementSequence> sequences = entry.getValue();
+            if (sequences.size() >= 2) { // Need at least 2 constructors to delegate
+                // Filter similarity pairs to only include those within this file
+                List<com.raditha.dedup.model.SimilarityPair> filePairs = cluster.duplicates().stream()
+                        .filter(pair -> sequences.contains(pair.seq1()) && sequences.contains(pair.seq2()))
+                        .toList();
+                
+                if (!filePairs.isEmpty()) {
+                    // Use the first sequence as primary
+                    StatementSequence primary = sequences.get(0);
+                    
+                    // Calculate LOC reduction (proportional to cluster size)
+                    int locReduction = cluster.estimatedLOCReduction() * sequences.size() / cluster.allSequences().size();
+                    
+                    // Create the cluster with a NEW recommendation (regenerated for this file)
+                    DuplicateCluster tempCluster = new DuplicateCluster(
+                            primary, 
+                            filePairs, 
+                            null,  // Will be replaced
+                            locReduction
+                    );
+                    
+                    // Regenerate the recommendation for this file-specific cluster
+                    com.raditha.dedup.model.RefactoringRecommendation newRecommendation = 
+                            recommendationGenerator.generateRecommendation(tempCluster);
+                    
+                    DuplicateCluster fileCluster = new DuplicateCluster(
+                            primary, 
+                            filePairs, 
+                            newRecommendation, 
+                            locReduction
+                    );
+                    result.add(fileCluster);
+                    logger.info("Split constructor cluster for file: {} ({} constructors)", 
+                               entry.getKey().getFileName(), sequences.size());
+                }
+            }
+        }
+        
+        // If we couldn't create any valid clusters, return the original
+        return result.isEmpty() ? List.of(cluster) : result;
     }
 
     private void mergeSessions(RefactoringSession target, RefactoringSession source) {

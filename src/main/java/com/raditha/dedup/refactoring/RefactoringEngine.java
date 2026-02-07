@@ -232,6 +232,10 @@ public class RefactoringEngine {
                 MethodExtractor refactorer = new MethodExtractor();
                 yield refactorer.refactor(cluster, recommendation);
             }
+            case CONSTRUCTOR_DELEGATION -> {
+                ConstructorExtractor refactorer = new ConstructorExtractor();
+                yield refactorer.refactor(cluster, recommendation);
+            }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {
                 ExtractParameterizedTestRefactorer refactorer = new ExtractParameterizedTestRefactorer();
                 ExtractParameterizedTestRefactorer.RefactoringResult result = refactorer.refactor(cluster,

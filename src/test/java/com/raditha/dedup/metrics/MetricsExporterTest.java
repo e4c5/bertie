@@ -52,7 +52,7 @@ class MetricsExporterTest {
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "test-project");
 
@@ -81,7 +81,7 @@ class MetricsExporterTest {
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "test");
 
@@ -112,7 +112,7 @@ class MetricsExporterTest {
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "json- project");
 
@@ -155,8 +155,8 @@ class MetricsExporterTest {
 
         cu1.setStorage(file1);
         cu2.setStorage(file2);
-        DuplicationReport report1 = analyzer.analyzeFile(cu1);
-        DuplicationReport report2 = analyzer.analyzeFile(cu2);
+        DuplicationReport report1 = analyzer.analyzeFile(cu1, file1);
+        DuplicationReport report2 = analyzer.analyzeFile(cu2, file2);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(
                 List.of(report1, report2), "multi-file-test");
@@ -203,7 +203,7 @@ class MetricsExporterTest {
 
         CompilationUnit cu = StaticJavaParser.parse(testFile);
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         MetricsExporter.ProjectMetrics metrics = exporter.buildMetrics(List.of(report), "accuracy-test");
 

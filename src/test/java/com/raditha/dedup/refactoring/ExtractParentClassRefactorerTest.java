@@ -326,6 +326,56 @@ class ExtractParentClassRefactorerTest {
         assertFalse(parentCode.contains("private void secret()"));
     }
 
+    @Test
+    void testFieldImportCopyingWithConstants() {
+        // Setup: Class with field using constants from another class (statically imported)
+        String code1 = """
+                package com.example;
+                import com.util.Constants;
+                import static com.util.Util.CONFIG;
+                public class ServiceA {
+                    private static final String VALUE = Constants.VERSION;
+                    private static final int PORT = CONFIG;
+                    public void process() { System.out.println(VALUE + PORT); }
+                }
+                """;
+        String code2 = """
+                package com.example;
+                import com.util.Constants;
+                import static com.util.Util.CONFIG;
+                public class ServiceB {
+                    private static final String VALUE = Constants.VERSION;
+                    private static final int PORT = CONFIG;
+                    public void process() { System.out.println(VALUE + PORT); }
+                }
+                """;
+
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+
+        DuplicateCluster cluster = createMultiFileMockCluster(cu1, cu2, "process", "process");
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.EXTRACT_PARENT_CLASS,
+                "process",
+                List.of(),
+                "void",
+                "BaseService",
+                0.95,
+                5);
+
+        MethodExtractor.RefactoringResult result = refactorer.refactor(cluster, recommendation);
+
+        // Check Parent Class - should contain imports for Constants and CONFIG
+        String parentCode = result.modifiedFiles().values().stream()
+                .filter(s -> s.contains("abstract class"))
+                .findFirst()
+                .orElse(null);
+
+        assertNotNull(parentCode);
+        assertTrue(parentCode.contains("import com.util.Constants;"), "Should copy regular import for field initializer");
+        assertTrue(parentCode.contains("import static com.util.Util.CONFIG;"), "Should copy static import for field initializer");
+    }
+
     private DuplicateCluster createMultiFileMockCluster(
             CompilationUnit cu1, CompilationUnit cu2, 
             String methodName1, String methodName2) {

@@ -58,7 +58,7 @@ class ConstructorRefactoringIntegrationTest {
         
         Path sourcePath = Path.of("test-bed/src/main/java/com/raditha/bertie/testbed/aquarium/service/ConstructorReuseService.java");
         cu.setStorage(sourcePath);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourcePath);
         
         assertTrue(report.hasDuplicates(), "Should detect duplicates in ConstructorReuseService");
         
@@ -85,7 +85,7 @@ class ConstructorRefactoringIntegrationTest {
         
         Path sourcePath = Path.of("test-bed/src/main/java/com/raditha/bertie/testbed/aquarium/service/TankConfigManager.java");
         cu.setStorage(sourcePath);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourcePath);
         
         assertTrue(report.hasDuplicates());
         

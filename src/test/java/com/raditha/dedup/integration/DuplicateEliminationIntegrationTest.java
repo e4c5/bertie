@@ -63,7 +63,7 @@ class DuplicateEliminationIntegrationTest {
                 DuplicationAnalyzer analyzer = new DuplicationAnalyzer();
 
                 cu.setStorage(sourceFile);
-                DuplicationReport report = analyzer.analyzeFile(cu);
+                DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
                 assertTrue(report.hasDuplicates(), "Should have found duplicates");
 
                 // 4. Refactor

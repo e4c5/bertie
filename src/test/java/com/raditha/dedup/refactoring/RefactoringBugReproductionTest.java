@@ -73,7 +73,7 @@ class RefactoringBugReproductionTest {
         CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
         cu.setStorage(sourceFile); // Ensure storage is set
 
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         assertTrue(report.hasDuplicates(), "Should detect duplicates in ReportGenerator with threshold 75");
         assertEquals(1, report.clusters().size(), "Should have 1 cluster");
@@ -104,7 +104,7 @@ class RefactoringBugReproductionTest {
         CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
         cu.setStorage(sourceFile);
         
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertFalse(report.clusters().isEmpty(), "Should detect duplicates");
         DuplicateCluster cluster = report.clusters().get(0);
         
@@ -158,7 +158,7 @@ class RefactoringBugReproductionTest {
         cu.setStorage(sourceFile);
         
         // Analyze to get clusters
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         if (report.clusters().isEmpty()) {
              System.out.println("Warning: No duplicates detected in reproduction test!");
         }

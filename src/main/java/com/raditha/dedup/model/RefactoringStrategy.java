@@ -17,6 +17,9 @@ public enum RefactoringStrategy {
     /** Extract to a common parent class (cross-class instance method duplicates) */
     EXTRACT_PARENT_CLASS,
 
+    /** Refactor constructor to delegate to another constructor using this(...) */
+    CONSTRUCTOR_DELEGATION,
+
     /** Too complex for automated refactoring - requires manual review */
     MANUAL_REVIEW_REQUIRED
 }
