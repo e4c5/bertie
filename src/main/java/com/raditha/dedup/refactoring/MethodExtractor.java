@@ -1046,7 +1046,8 @@ public class MethodExtractor extends AbstractExtractor {
         if (helperMethodStatic) {
             methodCall.setScope(new com.github.javaparser.ast.expr.NameExpr(className));
         } else {
-            methodCall.setScope(new com.github.javaparser.ast.expr.ThisExpr(className));
+            methodCall.setScope(new com.github.javaparser.ast.expr.ThisExpr(
+                    new com.github.javaparser.ast.expr.Name(className)));
         }
     }
 
