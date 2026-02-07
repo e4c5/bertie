@@ -19,7 +19,6 @@ import com.raditha.dedup.refactoring.MethodNameGenerator;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -202,10 +201,7 @@ public class RefactoringRecommendationGenerator {
                 filePaths.add(seq.sourceFilePath().toString());
             }
         }
-        if (filePaths.size() > 1) {
-            return true;
-        }
-        return false;
+        return filePaths.size() > 1;
     }
 
     private boolean usesInstanceState(StatementSequence seq) {

@@ -5,7 +5,6 @@ import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.SimilarityPair;
 
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 
 /**

@@ -29,8 +29,8 @@ import org.slf4j.LoggerFactory;
  * final fields are assigned), this refactorer identifies a master constructor and delegates
  * to it from other constructors using this(...) calls.
  */
-public class ConstructorExtractr extends AbstractExtractor {
-    private static final Logger logger = LoggerFactory.getLogger(ConstructorExtractr.class);
+public class ConstructorExtractor extends AbstractExtractor {
+    private static final Logger logger = LoggerFactory.getLogger(ConstructorExtractor.class);
 
     /**
      * Refactor constructors to use delegation.
@@ -64,12 +64,7 @@ public class ConstructorExtractr extends AbstractExtractor {
             ConstructorDeclaration constructor = (ConstructorDeclaration) sequence.containingCallable();
             
             // Skip the master constructor
-            if (constructor == masterConstructor) {
-                continue;
-            }
-
-            // Skip if already refactored
-            if (refactoredConstructors.contains(constructor)) {
+            if (constructor == masterConstructor || refactoredConstructors.contains(constructor)) {
                 continue;
             }
 

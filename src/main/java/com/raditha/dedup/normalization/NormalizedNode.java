@@ -1,6 +1,5 @@
 package com.raditha.dedup.normalization;
 
-import com.github.javaparser.ast.stmt.Statement;
 
 /**
  * Holds both normalized and original AST for a statement.

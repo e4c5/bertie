@@ -5,7 +5,6 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.*;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,7 +19,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
@@ -243,7 +241,7 @@ class ConstructorRefactoringTest {
                 null, Collections.emptyList(), null, "TestClass", 1.0, 1, null);
 
         // Fix: Use ConstructorExtractr directly as it handles CONSTRUCTOR_DELEGATION
-        ConstructorExtractr refactorer = new ConstructorExtractr();
+        ConstructorExtractor refactorer = new ConstructorExtractor();
         refactorer.refactor(cluster, recommendation);
 
         // Verify: delegating constructor should NOT have been modified
@@ -280,7 +278,7 @@ class ConstructorRefactoringTest {
         // s2 is primary, m2 is master
         DuplicateCluster cluster = new DuplicateCluster(s2, List.of(new SimilarityPair(s2, s1, null), new SimilarityPair(s2, sd, null)), null, 0);
         
-        ConstructorExtractr refactorer = new ConstructorExtractr();
+        ConstructorExtractor refactorer = new ConstructorExtractor();
         RefactoringRecommendation recommendation = new RefactoringRecommendation(
                 RefactoringStrategy.CONSTRUCTOR_DELEGATION,
                 null, Collections.emptyList(), null, "TestClassPriority", 1.0, 1, null);
@@ -318,7 +316,7 @@ class ConstructorRefactoringTest {
         // Note: s1.statements() should be the ENTIRE body for perfect master check.
         DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
         
-        ConstructorExtractr refactorer = new ConstructorExtractr();
+        ConstructorExtractor refactorer = new ConstructorExtractor();
         RefactoringRecommendation recommendation = new RefactoringRecommendation(
                 RefactoringStrategy.CONSTRUCTOR_DELEGATION,
                 null, Collections.emptyList(), null, "TestClass", 1.0, 1, null);
@@ -352,7 +350,7 @@ class ConstructorRefactoringTest {
         StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 0, delegating, cu, sourcePath);
 
         DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
-        ConstructorExtractr refactorer = new ConstructorExtractr();
+        ConstructorExtractor refactorer = new ConstructorExtractor();
         refactorer.refactor(cluster, new RefactoringRecommendation(RefactoringStrategy.CONSTRUCTOR_DELEGATION, null, Collections.emptyList(), null, "TestClass", 1.0, 1, null));
 
         // Verify: delegating constructor should NOT have been modified
@@ -383,7 +381,7 @@ class ConstructorRefactoringTest {
         StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 1, delegating, cu, sourcePath);
 
         DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
-        ConstructorExtractr refactorer = new ConstructorExtractr();
+        ConstructorExtractor refactorer = new ConstructorExtractor();
         refactorer.refactor(cluster, new RefactoringRecommendation(RefactoringStrategy.CONSTRUCTOR_DELEGATION, null, Collections.emptyList(), null, "TestClass", 1.0, 1, null));
 
         // Verify: delegating constructor should NOT have been modified

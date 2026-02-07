@@ -3,7 +3,11 @@ package com.raditha.dedup.clustering;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
-import com.raditha.dedup.model.*;
+import com.raditha.dedup.model.DuplicateCluster;
+import com.raditha.dedup.model.Range;
+import com.raditha.dedup.model.RefactoringRecommendation;
+import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.StatementSequence;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Paths;
@@ -34,8 +38,8 @@ class RefactoringRecommendationGeneratorTest {
         ConstructorDeclaration ctor1 = cu1.getClassByName("A").get().getConstructors().get(0);
         ConstructorDeclaration ctor2 = cu2.getClassByName("B").get().getConstructors().get(0);
 
-        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1,1,1,1), 0, ctor1, cu1, Paths.get("A.java"));
-        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1,1,1,1), 0, ctor2, cu2, Paths.get("B.java"));
+        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor1, cu1, Paths.get("A.java"));
+        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor2, cu2, Paths.get("B.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
@@ -49,29 +53,30 @@ class RefactoringRecommendationGeneratorTest {
     void testStrategyForMultiClassConstructorDuplicateInSameFile() {
         // Setup a case where two constructors are in the same file but DIFFERENT classes
         // RefactoringRecommendationGenerator should NOT choose CONSTRUCTOR_DELEGATION
-        
+
         RefactoringRecommendationGenerator generator = new RefactoringRecommendationGenerator();
 
-        String code = "class Container {\n" +
-                      "  class A { A() { int x=1; } }\n" +
-                      "  class B { B() { int x=1; } }\n" +
-                      "}";
+        String code = """
+                class Container {
+                  class A { A() { int x=1; } }\n
+                 class B { B() { int x=1; } }\n
+                }""";
 
         CompilationUnit cu = StaticJavaParser.parse(code);
         ConstructorDeclaration ctor1 = cu.getClassByName("Container").get()
                 .getMembers().stream()
-                .filter(m -> m instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration && ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration)m).getNameAsString().equals("A"))
-                .map(m -> ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration)m).getConstructors().get(0))
-                .findFirst().get();
-        
-        ConstructorDeclaration ctor2 = cu.getClassByName("Container").get()
-                .getMembers().stream()
-                .filter(m -> m instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration && ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration)m).getNameAsString().equals("B"))
-                .map(m -> ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration)m).getConstructors().get(0))
+                .filter(m -> m instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration && ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration) m).getNameAsString().equals("A"))
+                .map(m -> ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration) m).getConstructors().get(0))
                 .findFirst().get();
 
-        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1,1,1,1), 0, ctor1, cu, Paths.get("SameFile.java"));
-        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1,1,1,1), 0, ctor2, cu, Paths.get("SameFile.java"));
+        ConstructorDeclaration ctor2 = cu.getClassByName("Container").get()
+                .getMembers().stream()
+                .filter(m -> m instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration && ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration) m).getNameAsString().equals("B"))
+                .map(m -> ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration) m).getConstructors().get(0))
+                .findFirst().get();
+
+        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor1, cu, Paths.get("SameFile.java"));
+        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor2, cu, Paths.get("SameFile.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
@@ -79,7 +84,7 @@ class RefactoringRecommendationGeneratorTest {
         when(cluster.estimatedLOCReduction()).thenReturn(5);
 
         RefactoringRecommendation recommendation = generator.generateRecommendation(cluster);
-        
+
         // Should NOT be CONSTRUCTOR_DELEGATION because they are in different classes
         // Since it's in the same file and they are constructors, it should fallback to EXTRACT_HELPER_METHOD
         assertEquals(RefactoringStrategy.EXTRACT_HELPER_METHOD, recommendation.getStrategy());
@@ -90,7 +95,7 @@ class RefactoringRecommendationGeneratorTest {
         // Setup: Two constructors in the same class
         // Duplicate is 'int x = 1;'
         // BOTH have extra statements after the duplicate
-        
+
         RefactoringRecommendationGenerator generator = new RefactoringRecommendationGenerator();
 
         String code = """
@@ -111,10 +116,10 @@ class RefactoringRecommendationGeneratorTest {
         ConstructorDeclaration ctor2 = cu.getClassByName("A").get().getConstructors().get(1);
 
         // Sequence is only the first statement
-        StatementSequence seq1 = new StatementSequence(List.of(ctor1.getBody().getStatements().get(0)), 
-                new Range(1,1,1,1), 0, ctor1, cu, Paths.get("A.java"));
-        StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)), 
-                new Range(1,1,1,1), 0, ctor2, cu, Paths.get("A.java"));
+        StatementSequence seq1 = new StatementSequence(List.of(ctor1.getBody().getStatements().get(0)),
+                new Range(1, 1, 1, 1), 0, ctor1, cu, Paths.get("A.java"));
+        StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)),
+                new Range(1, 1, 1, 1), 0, ctor2, cu, Paths.get("A.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
@@ -122,7 +127,7 @@ class RefactoringRecommendationGeneratorTest {
         when(cluster.estimatedLOCReduction()).thenReturn(5);
 
         RefactoringRecommendation recommendation = generator.generateRecommendation(cluster);
-        
+
         // Should NOT be CONSTRUCTOR_DELEGATION because no constructor is a 'perfect' master
         // (both have trailing statements)
         assertEquals(RefactoringStrategy.EXTRACT_HELPER_METHOD, recommendation.getStrategy());
@@ -134,7 +139,7 @@ class RefactoringRecommendationGeneratorTest {
         // Duplicate is 'int x = 1;'
         // ctor1 is perfect (only has the duplicate)
         // ctor2 has extra statements
-        
+
         RefactoringRecommendationGenerator generator = new RefactoringRecommendationGenerator();
 
         String code = """
@@ -153,10 +158,10 @@ class RefactoringRecommendationGeneratorTest {
         ConstructorDeclaration ctor1 = cu.getClassByName("A").get().getConstructors().get(0);
         ConstructorDeclaration ctor2 = cu.getClassByName("A").get().getConstructors().get(1);
 
-        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), 
-                new Range(1,1,1,1), 0, ctor1, cu, Paths.get("A.java"));
-        StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)), 
-                new Range(1,1,1,1), 0, ctor2, cu, Paths.get("A.java"));
+        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(),
+                new Range(1, 1, 1, 1), 0, ctor1, cu, Paths.get("A.java"));
+        StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)),
+                new Range(1, 1, 1, 1), 0, ctor2, cu, Paths.get("A.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
@@ -164,7 +169,7 @@ class RefactoringRecommendationGeneratorTest {
         when(cluster.estimatedLOCReduction()).thenReturn(5);
 
         RefactoringRecommendation recommendation = generator.generateRecommendation(cluster);
-        
+
         // Should be CONSTRUCTOR_DELEGATION because ctor1 is a perfect master
         assertEquals(RefactoringStrategy.CONSTRUCTOR_DELEGATION, recommendation.getStrategy());
     }
