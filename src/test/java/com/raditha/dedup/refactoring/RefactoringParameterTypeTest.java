@@ -100,7 +100,7 @@ public class ServiceWithTryCatchBlocks {
         CompilationUnit cu = com.github.javaparser.StaticJavaParser.parse(code);
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         assertTrue(report.hasDuplicates(), "Should detect duplicates between calculateSum and calculateProduct");
         

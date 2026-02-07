@@ -10,7 +10,6 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExplicitConstructorInvocationStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
-import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
 
@@ -24,11 +23,7 @@ import java.util.*;
  * final fields are assigned), this refactorer identifies a master constructor and delegates
  * to it from other constructors using this(...) calls.
  */
-public class ConstructorRefactorer {
-
-    private DuplicateCluster cluster;
-    private RefactoringRecommendation recommendation;
-
+public class ConstructorExtractr extends AbstractExtractor {
     /**
      * Refactor constructors to use delegation.
      *

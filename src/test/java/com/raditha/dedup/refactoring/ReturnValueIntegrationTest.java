@@ -66,7 +66,7 @@ class ReturnValueIntegrationTest {
         Path sourceFile = tempDir.resolve("ServiceWithSimpleReturn.java");
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithSimpleReturn");
         assertFalse(report.clusters().isEmpty(), "Should have at least one cluster");
 
@@ -89,7 +89,7 @@ class ReturnValueIntegrationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithNoReturn");
 
         DuplicateCluster cluster = report.clusters().get(0);
@@ -111,7 +111,7 @@ class ReturnValueIntegrationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithPrimitiveReturns");
 
         // File has BOTH int and boolean duplicates - find the int one (calculateTotal
@@ -137,7 +137,7 @@ class ReturnValueIntegrationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
 
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
 
         // Lambda/stream code is complex - if no duplicates found, skip test
         if (!report.hasDuplicates() || report.clusters().isEmpty()) {
@@ -159,7 +159,7 @@ class ReturnValueIntegrationTest {
                 .getCompilationUnit("com.raditha.bertie.testbed.wrongreturnvalue.ServiceWithMultipleReturnCandidates");
         Path sourceFile = tempDir.resolve("ServiceWithMultipleReturnCandidates.java");
         cu.setStorage(sourceFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, sourceFile);
         assertTrue(report.hasDuplicates(), "Should find duplicates in ServiceWithMultipleReturnCandidates");
 
         DuplicateCluster cluster = report.clusters().get(0);

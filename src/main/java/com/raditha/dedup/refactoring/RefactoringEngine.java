@@ -233,7 +233,7 @@ public class RefactoringEngine {
                 yield refactorer.refactor(cluster, recommendation);
             }
             case CONSTRUCTOR_DELEGATION -> {
-                ConstructorRefactorer refactorer = new ConstructorRefactorer();
+                ConstructorExtractr refactorer = new ConstructorExtractr();
                 yield refactorer.refactor(cluster, recommendation);
             }
             case EXTRACT_TO_PARAMETERIZED_TEST -> {

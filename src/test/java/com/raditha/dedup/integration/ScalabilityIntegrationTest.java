@@ -46,11 +46,11 @@ class ScalabilityIntegrationTest {
 
         // Warmup run to eliminate JVM startup effects
         cu.setStorage(dummyPath);
-        analyzerBF.analyzeFile(cu);
+        analyzerBF.analyzeFile(cu, dummyPath);
 
         long startBF = System.currentTimeMillis();
         cu.setStorage(dummyPath);
-        analyzerBF.analyzeFile(cu);
+        analyzerBF.analyzeFile(cu, dummyPath);
         long durationBF = System.currentTimeMillis() - startBF;
 
         // 3. Measure LSH (LSH enabled)
@@ -64,11 +64,11 @@ class ScalabilityIntegrationTest {
 
         // Warmup run to eliminate JVM startup effects
         cu.setStorage(dummyPath);
-        analyzerLSH.analyzeFile(cu);
+        analyzerLSH.analyzeFile(cu, dummyPath);
 
         long startLSH = System.currentTimeMillis();
         cu.setStorage(dummyPath);
-        analyzerLSH.analyzeFile(cu);
+        analyzerLSH.analyzeFile(cu, dummyPath);
         long durationLSH = System.currentTimeMillis() - startLSH;
 
         double tolerance = 1.5; // Allow LSH to be up to 50% slower (conservative for small datasets)

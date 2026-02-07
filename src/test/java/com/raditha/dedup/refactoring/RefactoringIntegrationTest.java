@@ -66,7 +66,7 @@ class RefactoringIntegrationTest {
         Files.writeString(testFile, original);
 
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         // Should find duplicates
         assertTrue(report.hasDuplicates(), "Should detect duplicates");
@@ -138,7 +138,7 @@ class RefactoringIntegrationTest {
 
         CompilationUnit cu = StaticJavaParser.parse(badCode);
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         // With recursive block extraction, duplicates inside if/while blocks ARE detected
         assertTrue(report.hasDuplicates(), "Should detect duplicates in nested blocks");
@@ -165,7 +165,7 @@ class RefactoringIntegrationTest {
         Files.writeString(testFile, cu.toString());
 
         cu.setStorage(testFile);
-        DuplicationReport report = analyzer.analyzeFile(cu);
+        DuplicationReport report = analyzer.analyzeFile(cu, testFile);
 
         engine = new RefactoringEngine(
                 tempDir,
