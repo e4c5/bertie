@@ -106,8 +106,10 @@ public class DuplicationAnalyzer {
 
             if (targets.length > 0) {
                 targetCUs.entrySet().removeIf(entry -> {
+                    String key = entry.getKey();
                     for (String t : targets) {
-                        if (entry.getKey().startsWith(t)) {
+                        // Exact match or followed by '.' (inner class) or '$' (nested class)
+                        if (key.equals(t) || key.startsWith(t + ".") || key.startsWith(t + "$")) {
                             return false; // Keep it
                         }
                     }
@@ -215,25 +217,25 @@ public class DuplicationAnalyzer {
             fileToClusters.put(p, new ArrayList<>());
         }
 
-        // Distribute duplicates
+        // Distribute duplicates (only for files in the filtered set)
         for (SimilarityPair pair : duplicates) {
             Path p1 = pair.seq1().sourceFilePath();
             Path p2 = pair.seq2().sourceFilePath();
 
-            if (p1 != null)
-                fileToDuplicates.computeIfAbsent(p1, k -> new ArrayList<>()).add(pair);
-            if (p2 != null && !p2.equals(p1))
-                fileToDuplicates.computeIfAbsent(p2, k -> new ArrayList<>()).add(pair);
+            if (p1 != null && fileToDuplicates.containsKey(p1))
+                fileToDuplicates.get(p1).add(pair);
+            if (p2 != null && !p2.equals(p1) && fileToDuplicates.containsKey(p2))
+                fileToDuplicates.get(p2).add(pair);
         }
 
-        // Distribute clusters
+        // Distribute clusters (only for files in the filtered set)
         for (DuplicateCluster cluster : clusters) {
             cluster.allSequences().stream()
                     .map(StatementSequence::sourceFilePath)
                     .distinct()
                     .forEach(path -> {
-                        if (path != null) {
-                            fileToClusters.computeIfAbsent(path, k -> new ArrayList<>()).add(cluster);
+                        if (path != null && fileToClusters.containsKey(path)) {
+                            fileToClusters.get(path).add(cluster);
                         }
                     });
         }
