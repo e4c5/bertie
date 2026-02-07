@@ -202,4 +202,52 @@ class ConstructorRefactoringTest {
         assertTrue(ctor1.getBody().getStatements().get(0).toString().contains("helperMethod1()"),
                 "Constructor should call the renamed helper method");
     }
+
+    @Test
+    void testRefactorConstructorDuplicate_RejectsUnmappableParameters() {
+        // Setup: Master has a parameter 'unmappable' that doesn't exist in delegating ctor
+        // and isn't assigned in the duplicate sequence.
+        
+        String code = """
+                class TestClass {
+                    public TestClass(int unmappable) {
+                        int a = 1;
+                    }
+                    public TestClass() {
+                        int a = 1;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration classDecl = cu.getClassByName("TestClass").orElseThrow();
+        ConstructorDeclaration master = classDecl.getConstructors().get(0);
+        ConstructorDeclaration delegating = classDecl.getConstructors().get(1);
+
+        StatementSequence seqMaster = new StatementSequence(
+                master.getBody().getStatements(),
+                new Range(1,1,1,1), 0, master, cu, sourcePath);
+        
+        StatementSequence seqDelegating = new StatementSequence(
+                delegating.getBody().getStatements(),
+                new Range(1,1,1,1), 0, delegating, cu, sourcePath);
+
+        DuplicateCluster cluster = mock(DuplicateCluster.class);
+        when(cluster.primary()).thenReturn(seqMaster);
+        when(cluster.allSequences()).thenReturn(List.of(seqMaster, seqDelegating));
+        when(cluster.duplicates()).thenReturn(List.of(new SimilarityPair(seqMaster, seqDelegating, null)));
+        when(cluster.getContainingMethods()).thenReturn(Collections.emptySet());
+
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.CONSTRUCTOR_DELEGATION,
+                null, Collections.emptyList(), null, "TestClass", 1.0, 1, null);
+
+        // Fix: Use ConstructorExtractr directly as it handles CONSTRUCTOR_DELEGATION
+        ConstructorExtractr refactorer = new ConstructorExtractr();
+        refactorer.refactor(cluster, recommendation);
+
+        // Verify: delegating constructor should NOT have been modified
+        assertEquals(1, delegating.getBody().getStatements().size());
+        assertFalse(delegating.getBody().getStatements().get(0).toString().contains("this("));
+    }
 }

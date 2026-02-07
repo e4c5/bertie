@@ -315,10 +315,12 @@ public class DuplicationAnalyzer {
         Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
 
         // 1. Initialize LSH Index
-        // Configuration: 25 bands × 4 rows = 100 hash functions
-        // rowsPerBand=4 is a balanced choice for precision/recall.
-        com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(100, 3);
-        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, 25, 4);
+        int numBands = DuplicationDetectorSettings.getNumBands();
+        int rowsPerBand = DuplicationDetectorSettings.getRowsPerBand();
+        int numHashes = numBands * rowsPerBand;
+        
+        com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(numHashes, 3);
+        com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, numBands, rowsPerBand);
 
         // 2. Fused Loop: Query and Add
         for (StatementSequence currentSeq : sequences) {

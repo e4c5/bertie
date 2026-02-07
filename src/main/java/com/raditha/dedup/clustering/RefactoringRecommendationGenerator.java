@@ -3,6 +3,7 @@ package com.raditha.dedup.clustering;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
@@ -275,10 +276,18 @@ public class RefactoringRecommendationGenerator {
 
     private boolean areAllConstructorsAtStart(DuplicateCluster cluster) {
         String firstClassName = null;
+        int duplicateSize = cluster.primary().statements().size();
+        boolean hasPerfectMaster = false;
+
         for (StatementSequence seq : cluster.allSequences()) {
             CallableDeclaration<?> callable = seq.containingCallable();
             if (!(callable instanceof com.github.javaparser.ast.body.ConstructorDeclaration)) {
                 return false;
+            }
+
+            ConstructorDeclaration cd = (ConstructorDeclaration) callable;
+            if (cd.getBody().getStatements().size() == duplicateSize) {
+                hasPerfectMaster = true;
             }
 
             // Get enclosing class name to ensure they are all in the same class
@@ -297,7 +306,7 @@ public class RefactoringRecommendationGenerator {
                 return false;
             }
         }
-        return true;
+        return hasPerfectMaster;
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {

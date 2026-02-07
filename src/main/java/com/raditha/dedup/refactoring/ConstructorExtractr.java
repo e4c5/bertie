@@ -101,13 +101,22 @@ public class ConstructorExtractr extends AbstractExtractor {
      * 3. Otherwise, use the primary sequence's constructor
      */
     private ConstructorDeclaration selectMasterConstructor() {
+        int duplicateCount = cluster.primary().statements().size();
+
         List<ConstructorDeclaration> constructors = new ArrayList<>();
-        
         for (StatementSequence sequence : cluster.allSequences()) {
-            constructors.add((ConstructorDeclaration) sequence.containingCallable());
+            ConstructorDeclaration cd = (ConstructorDeclaration) sequence.containingCallable();
+            // A perfect master is one where the duplicate sequence is the ENTIRE body
+            if (cd.getBody().getStatements().size() == duplicateCount) {
+                constructors.add(cd);
+            }
         }
 
-        // Try to find no-arg constructor
+        if (constructors.isEmpty()) {
+            return null;
+        }
+
+        // Try to find no-arg constructor among perfect candidates
         ConstructorDeclaration noArgConstructor = constructors.stream()
                 .filter(c -> c.getParameters().isEmpty())
                 .findFirst()
@@ -120,7 +129,7 @@ public class ConstructorExtractr extends AbstractExtractor {
         // Otherwise, select the one with the most parameters
         return constructors.stream()
                 .max(Comparator.comparingInt(c -> c.getParameters().size()))
-                .orElse((ConstructorDeclaration) cluster.primary().containingCallable());
+                .get();
     }
 
     /**
@@ -148,6 +157,11 @@ public class ConstructorExtractr extends AbstractExtractor {
 
         // Create the this() call with appropriate arguments
         ExplicitConstructorInvocationStmt thisCall = createThisCall(sequence, masterConstructor);
+        
+        if (thisCall == null) {
+            // Cannot safely delegate due to unmappable parameters
+            return;
+        }
 
         // Use the duplicate sequence length detected by the algorithm
         // The sequence already represents what was identified as duplicate
@@ -206,8 +220,8 @@ public class ConstructorExtractr extends AbstractExtractor {
                 if (value != null) {
                     arguments.add(value);
                 } else {
-                    // Fallback: use parameter name as variable reference
-                    arguments.add(new NameExpr(paramName));
+                    // Fix: Reject delegation if we cannot satisfy a parameter
+                    return null;
                 }
             }
         }

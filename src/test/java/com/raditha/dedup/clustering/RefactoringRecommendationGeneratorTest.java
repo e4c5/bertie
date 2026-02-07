@@ -84,4 +84,88 @@ class RefactoringRecommendationGeneratorTest {
         // Since it's in the same file and they are constructors, it should fallback to EXTRACT_HELPER_METHOD
         assertEquals(RefactoringStrategy.EXTRACT_HELPER_METHOD, recommendation.getStrategy());
     }
+
+    @Test
+    void testStrategyForConstructorDuplicate_NoPerfectMaster() {
+        // Setup: Two constructors in the same class
+        // Duplicate is 'int x = 1;'
+        // BOTH have extra statements after the duplicate
+        
+        RefactoringRecommendationGenerator generator = new RefactoringRecommendationGenerator();
+
+        String code = """
+                class A {
+                    A(int p1) {
+                        int x = 1;
+                        System.out.println(1);
+                    }
+                    A(String p2) {
+                        int x = 1;
+                        System.out.println(2);
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ConstructorDeclaration ctor1 = cu.getClassByName("A").get().getConstructors().get(0);
+        ConstructorDeclaration ctor2 = cu.getClassByName("A").get().getConstructors().get(1);
+
+        // Sequence is only the first statement
+        StatementSequence seq1 = new StatementSequence(List.of(ctor1.getBody().getStatements().get(0)), 
+                new Range(1,1,1,1), 0, ctor1, cu, Paths.get("A.java"));
+        StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)), 
+                new Range(1,1,1,1), 0, ctor2, cu, Paths.get("A.java"));
+
+        DuplicateCluster cluster = mock(DuplicateCluster.class);
+        when(cluster.primary()).thenReturn(seq1);
+        when(cluster.allSequences()).thenReturn(List.of(seq1, seq2));
+        when(cluster.estimatedLOCReduction()).thenReturn(5);
+
+        RefactoringRecommendation recommendation = generator.generateRecommendation(cluster);
+        
+        // Should NOT be CONSTRUCTOR_DELEGATION because no constructor is a 'perfect' master
+        // (both have trailing statements)
+        assertEquals(RefactoringStrategy.EXTRACT_HELPER_METHOD, recommendation.getStrategy());
+    }
+
+    @Test
+    void testStrategyForConstructorDuplicate_WithPerfectMaster() {
+        // Setup: Two constructors in the same class
+        // Duplicate is 'int x = 1;'
+        // ctor1 is perfect (only has the duplicate)
+        // ctor2 has extra statements
+        
+        RefactoringRecommendationGenerator generator = new RefactoringRecommendationGenerator();
+
+        String code = """
+                class A {
+                    A() {
+                        int x = 1;
+                    }
+                    A(int p1) {
+                        int x = 1;
+                        System.out.println(1);
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ConstructorDeclaration ctor1 = cu.getClassByName("A").get().getConstructors().get(0);
+        ConstructorDeclaration ctor2 = cu.getClassByName("A").get().getConstructors().get(1);
+
+        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), 
+                new Range(1,1,1,1), 0, ctor1, cu, Paths.get("A.java"));
+        StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)), 
+                new Range(1,1,1,1), 0, ctor2, cu, Paths.get("A.java"));
+
+        DuplicateCluster cluster = mock(DuplicateCluster.class);
+        when(cluster.primary()).thenReturn(seq1);
+        when(cluster.allSequences()).thenReturn(List.of(seq1, seq2));
+        when(cluster.estimatedLOCReduction()).thenReturn(5);
+
+        RefactoringRecommendation recommendation = generator.generateRecommendation(cluster);
+        
+        // Should be CONSTRUCTOR_DELEGATION because ctor1 is a perfect master
+        assertEquals(RefactoringStrategy.CONSTRUCTOR_DELEGATION, recommendation.getStrategy());
+    }
 }
