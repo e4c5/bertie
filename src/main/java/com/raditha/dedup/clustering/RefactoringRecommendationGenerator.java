@@ -274,11 +274,24 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean areAllConstructorsAtStart(DuplicateCluster cluster) {
+        String firstClassName = null;
         for (StatementSequence seq : cluster.allSequences()) {
             CallableDeclaration<?> callable = seq.containingCallable();
             if (!(callable instanceof com.github.javaparser.ast.body.ConstructorDeclaration)) {
                 return false;
             }
+
+            // Get enclosing class name to ensure they are all in the same class
+            var clazz = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+            if (clazz == null) return false;
+            String className = clazz.getFullyQualifiedName().orElse(clazz.getNameAsString());
+
+            if (firstClassName == null) {
+                firstClassName = className;
+            } else if (!firstClassName.equals(className)) {
+                return false;
+            }
+
             // Must be at the start of the constructor body (offset 0)
             if (seq.startOffset() != 0) {
                 return false;
