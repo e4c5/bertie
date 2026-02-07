@@ -140,35 +140,49 @@ public class SafetyValidator {
             return java.util.Collections.emptySet();
         }
         
-        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+        var type = method.findAncestor(com.github.javaparser.ast.body.TypeDeclaration.class)
                 .orElse(null);
-        if (clazz == null) {
+        if (type == null) {
             return java.util.Collections.emptySet();
         }
-        
-        Set<String> fieldNames = new java.util.HashSet<>();
-        clazz.getFields().forEach(field -> 
-            field.getVariables().forEach(vd ->
-                fieldNames.add(vd.getNameAsString())
-            )
-        );
+
+        return collectFinalFieldNames(type);
+    }
+
+    private java.util.Set<String> collectFinalFieldNames(com.github.javaparser.ast.body.TypeDeclaration<?> type) {
+        java.util.Set<String> fieldNames = new java.util.HashSet<>();
+
+        if (type instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz) {
+            clazz.getFields().forEach(field ->
+                    field.getVariables().forEach(vd ->
+                            fieldNames.add(vd.getNameAsString())
+                    )
+            );
+        } else if (type instanceof com.github.javaparser.ast.body.EnumDeclaration enumDecl) {
+            enumDecl.getFields().forEach(field ->
+                    field.getVariables().forEach(vd ->
+                            fieldNames.add(vd.getNameAsString())
+                    )
+            );
+        }
+
         return fieldNames;
     }
 
     private boolean hasFinalFieldAssignments(StatementSequence sequence) {
         var method = sequence.containingCallable();
         if (method == null) return false;
-        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
-        if (clazz == null) return false;
+        var type = method.findAncestor(com.github.javaparser.ast.body.TypeDeclaration.class).orElse(null);
+        if (type == null) return false;
 
-        Set<String> finalFields = collectFinalFieldNames(clazz);
+        Set<String> finalFields = collectFinalFieldNames(type);
 
         if (finalFields.isEmpty()) return false;
 
         // Collect local variables and parameters to avoid false positives from shadowing
         Set<String> localsAndParams = collectLocalAndParameterNames(method);
 
-        String className = clazz.getNameAsString();
+        String className = type.getNameAsString();
 
         for (com.github.javaparser.ast.stmt.Statement stmt : sequence.statements()) {
             List<com.github.javaparser.ast.expr.AssignExpr> assignments = stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class);
