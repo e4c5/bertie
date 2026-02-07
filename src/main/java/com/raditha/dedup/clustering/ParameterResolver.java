@@ -81,7 +81,7 @@ public class ParameterResolver extends AbstractResolver {
                  
              effectiveSequence = new StatementSequence(
                  prefixStmts, prefixRange, cluster.primary().startOffset(),
-                 cluster.primary().containingCallable(), cluster.primary().compilationUnit(),
+                 cluster.primary().container(), cluster.primary().containerType(), cluster.primary().compilationUnit(),
                  cluster.primary().sourceFilePath());
         }
 

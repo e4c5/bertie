@@ -1,5 +1,6 @@
 package com.raditha.dedup.filter;
 
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.StatementSequence;
 
 /**
@@ -53,6 +54,11 @@ public class PreFilterChain {
      * @return true if sequences should be compared, false if should be skipped
      */
     public boolean shouldCompare(StatementSequence seq1, StatementSequence seq2) {
+        // Stage 0: Container compatibility (fast, prevents cross-context clustering)
+        if (!areContainersCompatible(seq1, seq2)) {
+            return false; // Skip: incompatible container contexts
+        }
+
         // Stage 1: Size filter (fast, O(1))
         if (!sizeFilter.shouldCompare(seq1, seq2)) {
             return false; // Skip: size difference too large
@@ -60,6 +66,26 @@ public class PreFilterChain {
 
         // Stage 2: Structural filter (moderate cost, if enabled)
         return !useStructuralFilter || structuralFilter.shouldCompare(seq1, seq2); // Skip: structural dissimilarity
+    }
+
+    private boolean areContainersCompatible(StatementSequence seq1, StatementSequence seq2) {
+        if (seq1 == null || seq2 == null) {
+            return true;
+        }
+        ContainerType t1 = seq1.containerType();
+        ContainerType t2 = seq2.containerType();
+        if (t1 == null || t2 == null) {
+            return true;
+        }
+        if (t1 == t2) {
+            return true;
+        }
+        // Allow cross-comparison only for callable containers (methods/constructors)
+        return isCallableContainer(t1) && isCallableContainer(t2);
+    }
+
+    private boolean isCallableContainer(ContainerType type) {
+        return type == ContainerType.METHOD || type == ContainerType.CONSTRUCTOR;
     }
 
     /**
