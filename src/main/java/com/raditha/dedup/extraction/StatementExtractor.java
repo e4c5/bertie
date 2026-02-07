@@ -246,7 +246,7 @@ public class StatementExtractor {
             // BUT: Only add it here if the normal window logic WON'T capture it (i.e., if it's too long).
             if (totalStatements >= effectiveMin) {
                 // Check if this is indeed the full body of the container (not a nested block)
-                Optional<BlockStmt> bodyOpt = getContainerBody(container);
+                Optional<BlockStmt> bodyOpt = StatementSequence.getContainerBody(container);
                 if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements
                         && totalStatements > effectiveMin + maxWindowGrowth) {
                     sequences.add(createSequence(statements, container, containerType));
@@ -331,7 +331,7 @@ public class StatementExtractor {
          * Calculate the actual 0-based index of a statement within its containing node.
          */
         private int calculateStatementIndex(Statement targetStmt, Node container) {
-            Optional<BlockStmt> body = getContainerBody(container);
+            Optional<BlockStmt> body = StatementSequence.getContainerBody(container);
             if (body.isEmpty() || body.get().getStatements().isEmpty()) {
                 return 0;
             }
@@ -343,21 +343,6 @@ public class StatementExtractor {
             }
 
             return findRangeStatementIndex(methodStmts, targetStmt);
-        }
-
-        private Optional<BlockStmt> getContainerBody(Node container) {
-            if (container instanceof MethodDeclaration m) {
-                return m.getBody();
-            } else if (container instanceof ConstructorDeclaration c) {
-                return Optional.of(c.getBody());
-            } else if (container instanceof InitializerDeclaration init) {
-                return Optional.of(init.getBody());
-            } else if (container instanceof LambdaExpr lambda) {
-                if (lambda.getBody().isBlockStmt()) {
-                    return Optional.of(lambda.getBody().asBlockStmt());
-                }
-            }
-            return Optional.empty();
         }
 
         private int findExactStatementIndex(List<Statement> stmts, Statement target) {

@@ -118,6 +118,17 @@ public final class StatementSequence {
      * Helper to get the body of the container.
      */
     public Optional<BlockStmt> getCallableBody() {
+        return getContainerBody(container);
+    }
+
+    /**
+     * Static utility to get the body of a container node.
+     * Can be used without a StatementSequence instance.
+     * 
+     * @param container The container node (method, constructor, initializer, or lambda)
+     * @return The BlockStmt body if available
+     */
+    public static Optional<BlockStmt> getContainerBody(Node container) {
         if (container instanceof MethodDeclaration m) {
             return m.getBody();
         } else if (container instanceof ConstructorDeclaration c) {
