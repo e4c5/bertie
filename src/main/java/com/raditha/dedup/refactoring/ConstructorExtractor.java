@@ -180,7 +180,7 @@ public class ConstructorExtractor extends AbstractExtractor {
      */
     private boolean hasExplicitConstructorCall(ConstructorDeclaration constructor) {
         return constructor.getBody().getStatements().stream()
-                .anyMatch(s -> s instanceof ExplicitConstructorInvocationStmt);
+                .anyMatch(ExplicitConstructorInvocationStmt.class::isInstance);
     }
 
     /**
