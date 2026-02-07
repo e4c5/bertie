@@ -560,9 +560,30 @@ public class MethodExtractor extends AbstractExtractor {
     private void applyMethodModifiers(MethodDeclaration method) {
         boolean shouldBeStatic = false;
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingCallable() != null && seq.containingCallable().isStatic()) {
-                shouldBeStatic = true;
-                break;
+            // Check if any sequence is in a static context
+            // Use container type to determine static context
+            switch (seq.containerType()) {
+                case STATIC_INITIALIZER:
+                    shouldBeStatic = true;
+                    break;
+                case METHOD:
+                    if (seq.containingCallable() != null && seq.containingCallable().isStatic()) {
+                        shouldBeStatic = true;
+                    }
+                    break;
+                case LAMBDA:
+                    // For lambdas, check if the enclosing callable is static
+                    if (seq.container() instanceof com.github.javaparser.ast.expr.LambdaExpr lambda) {
+                        var enclosingCallable = lambda.findAncestor(CallableDeclaration.class);
+                        if (enclosingCallable.isPresent() && enclosingCallable.get().isStatic()) {
+                            shouldBeStatic = true;
+                        }
+                    }
+                    break;
+                // INSTANCE_INITIALIZER, CONSTRUCTOR, and ANONYMOUS_CLASS_INITIALIZER are non-static
+            }
+            if (shouldBeStatic) {
+                break;  // Early exit if we found a static context
             }
         }
 
@@ -584,7 +605,8 @@ public class MethodExtractor extends AbstractExtractor {
                     new com.raditha.dedup.model.Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(),
                             fullRange.startColumn()),
                     fullSequence.startOffset(),
-                    fullSequence.containingCallable(),
+                    fullSequence.container(),
+                    fullSequence.containerType(),
                     fullSequence.compilationUnit(),
                     fullSequence.sourceFilePath());
         }
@@ -602,7 +624,8 @@ public class MethodExtractor extends AbstractExtractor {
                 prefixStmts,
                 prefixRange,
                 fullSequence.startOffset(),
-                fullSequence.containingCallable(),
+                fullSequence.container(),
+                fullSequence.containerType(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
     }
@@ -986,7 +1009,10 @@ public class MethodExtractor extends AbstractExtractor {
                     new Range(sequence.range().startLine(), sequence.range().startColumn(),
                             stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
                             stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
-                    sequence.startOffset(), sequence.containingCallable(), sequence.compilationUnit(),
+                    sequence.startOffset(), 
+                    sequence.container(), 
+                    sequence.containerType(), 
+                    sequence.compilationUnit(),
                     sequence.sourceFilePath());
         }
 
