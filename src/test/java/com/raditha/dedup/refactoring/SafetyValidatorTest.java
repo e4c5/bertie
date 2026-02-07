@@ -270,6 +270,34 @@ class SafetyValidatorTest {
     }
 
     @Test
+    void testFinalFieldAssignmentIgnoresShadowedLocal() {
+        CompilationUnit cu = StaticJavaParser.parse(
+            "class A { " +
+            "  private final int value = 1; " +
+            "  void method() { int value = 2; value = 3; } " +
+            "}"
+        );
+        ClassOrInterfaceDeclaration clazz = cu.getClassByName("A").get();
+        MethodDeclaration method = clazz.getMethodsByName("method").get(0);
+        List<Statement> stmts = method.getBody().get().getStatements();
+
+        StatementSequence seq = new StatementSequence(
+            stmts,
+            new Range(1, 1, 1, 1),
+            0,
+            method,
+            cu,
+            null
+        );
+
+        when(cluster.primary()).thenReturn(seq);
+
+        SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
+
+        assertTrue(result.isValid());
+    }
+
+    @Test
     void testAnonymousClassIssue() {
         CompilationUnit cu = StaticJavaParser.parse(
             "class A { " +
