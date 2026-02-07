@@ -219,14 +219,22 @@ public class ParameterResolver extends AbstractResolver {
         Map<String, FieldInfo> classFields = new HashMap<>();
         
         // Find the enclosing class declaration from the container node
-        var classDecl = sequence.container().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        // Handle both new container-based sequences and old callable-based sequences
+        Node containerNode = sequence.container();
+        if (containerNode == null && sequence.containingCallable() != null) {
+            containerNode = sequence.containingCallable();
+        }
         
-        classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {
-            boolean isStatic = fd.getModifiers().stream()
-                    .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-            fd.getVariables().forEach(v -> 
-                classFields.put(v.getNameAsString(), new FieldInfo(resolveTypeToAST(v.getType(), v, sequence), isStatic)));
-        }));
+        if (containerNode != null) {
+            var classDecl = containerNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+            
+            classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {
+                boolean isStatic = fd.getModifiers().stream()
+                        .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+                fd.getVariables().forEach(v -> 
+                    classFields.put(v.getNameAsString(), new FieldInfo(resolveTypeToAST(v.getType(), v, sequence), isStatic)));
+            }));
+        }
         
         return classFields;
     }
