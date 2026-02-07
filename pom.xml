@@ -26,9 +26,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>sa.com.cloudsolutions</groupId>
+            <groupId>com.github.Cloud-Solutions-International</groupId>
             <artifactId>antikythera</artifactId>
-         <version>${antikythera.version}</version>
+            <version>${antikythera.version}</version>
         </dependency>
 
         <!-- Picocli for command-line parsing -->

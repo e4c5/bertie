@@ -1,13 +1,17 @@
 package com.raditha.dedup.extraction;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithBody;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.raditha.dedup.analysis.BoundaryRefiner;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.StatementSequence;
 
@@ -119,13 +123,32 @@ public class StatementExtractor {
         public void visit(MethodDeclaration method, Void arg) {
             super.visit(method, arg);
             // Skip methods without body (abstract, interface methods)
-            method.getBody().ifPresent(body -> extractFromBlock(body, method));
+            method.getBody().ifPresent(body -> extractFromBlock(body, method, ContainerType.METHOD));
         }
 
         @Override
         public void visit(ConstructorDeclaration constructor, Void arg) {
             super.visit(constructor, arg);
-            extractFromBlock(constructor.getBody(), constructor);
+            extractFromBlock(constructor.getBody(), constructor, ContainerType.CONSTRUCTOR);
+        }
+
+        @Override
+        public void visit(InitializerDeclaration initializer, Void arg) {
+            // Don't call super.visit() to prevent descending into nested constructs
+            // They will be visited separately in their own context
+            ContainerType type = initializer.isStatic() 
+                ? ContainerType.STATIC_INITIALIZER 
+                : ContainerType.INSTANCE_INITIALIZER;
+            extractFromBlock(initializer.getBody(), initializer, type);
+        }
+
+        @Override
+        public void visit(LambdaExpr lambda, Void arg) {
+            // Don't call super.visit() to prevent descending into nested constructs
+            // Only process block-bodied lambdas
+            if (lambda.getBody().isBlockStmt()) {
+                extractFromBlock(lambda.getBody().asBlockStmt(), lambda, ContainerType.LAMBDA);
+            }
         }
         
         /**
@@ -133,76 +156,80 @@ public class StatementExtractor {
          * This allows detection of duplicates inside try/catch/finally, if/else, loops, etc.
          * 
          * @param block The block to extract from
-         * @param callable The containing method or constructor
+         * @param container The containing node (method, constructor, initializer, or lambda)
+         * @param containerType The type of container
          */
-        private void extractFromBlock(BlockStmt block, CallableDeclaration<?> callable) {
+        private void extractFromBlock(BlockStmt block, Node container, ContainerType containerType) {
             List<Statement> statements = block.getStatements();
             
             // Extract sliding windows from this block's statements
-            extractSlidingWindows(statements, callable);
+            extractSlidingWindows(statements, container, containerType);
             
             // Recursively process nested blocks in each statement
             for (Statement stmt : statements) {
-                processNestedBlocks(stmt, callable);
+                processNestedBlocks(stmt, container, containerType);
             }
         }
         
         /**
          * Process nested blocks within a statement.
          * Handles all statement types that can contain blocks.
+         * IMPORTANT: Does NOT descend into InitializerDeclaration or LambdaExpr nodes
+         * as they are handled separately by their own visitor methods.
          * 
          * @param stmt The statement to process
-         * @param callable The containing method or constructor
+         * @param container The containing node
+         * @param containerType The type of container
          */
-        private void processNestedBlocks(Statement stmt, CallableDeclaration<?> callable) {
+        private void processNestedBlocks(Statement stmt, Node container, ContainerType containerType) {
             if (stmt instanceof TryStmt tryStmt) {
-                processTryBlock(callable, tryStmt);
+                processTryBlock(container, containerType, tryStmt);
             } else if (stmt instanceof IfStmt ifStmt) {
-                processIfBlock(callable, ifStmt);
+                processIfBlock(container, containerType, ifStmt);
             } else if (stmt instanceof SwitchStmt switchStmt) {
-                processSwitchBlock(callable, switchStmt);
+                processSwitchBlock(container, containerType, switchStmt);
             } else if (stmt instanceof NodeWithBody<?> block && block.getBody() instanceof BlockStmt blockStmt) {
-                extractFromBlock(blockStmt, callable);
+                extractFromBlock(blockStmt, container, containerType);
             }
         }
 
-        private void processSwitchBlock(CallableDeclaration<?> callable, SwitchStmt switchStmt) {
+        private void processSwitchBlock(Node container, ContainerType containerType, SwitchStmt switchStmt) {
             switchStmt.getEntries().forEach(entry -> {
                 // Extract from each switch case's statements
                 List<Statement> caseStatements = entry.getStatements();
                 if (!caseStatements.isEmpty()) {
-                    extractSlidingWindows(caseStatements, callable);
+                    extractSlidingWindows(caseStatements, container, containerType);
                     // Recursively process nested blocks in case statements
-                    caseStatements.forEach(s -> processNestedBlocks(s, callable));
+                    caseStatements.forEach(s -> processNestedBlocks(s, container, containerType));
                 }
             });
         }
 
-        private void processTryBlock(CallableDeclaration<?> callable, TryStmt tryStmt) {
+        private void processTryBlock(Node container, ContainerType containerType, TryStmt tryStmt) {
             // Extract from try block
-            extractFromBlock(tryStmt.getTryBlock(), callable);
+            extractFromBlock(tryStmt.getTryBlock(), container, containerType);
             // Extract from each catch clause
             tryStmt.getCatchClauses().forEach(catchClause ->
-                extractFromBlock(catchClause.getBody(), callable)
+                extractFromBlock(catchClause.getBody(), container, containerType)
             );
             // Extract from finally block if present
             tryStmt.getFinallyBlock().ifPresent(finallyBlock ->
-                extractFromBlock(finallyBlock, callable)
+                extractFromBlock(finallyBlock, container, containerType)
             );
         }
 
-        private void processIfBlock(CallableDeclaration<?> callable, IfStmt ifStmt) {
+        private void processIfBlock(Node container, ContainerType containerType, IfStmt ifStmt) {
             // Extract from then branch
             if (ifStmt.getThenStmt() instanceof BlockStmt blockStmt) {
-                extractFromBlock(blockStmt, callable);
+                extractFromBlock(blockStmt, container, containerType);
             }
             // Extract from else branch if present
             ifStmt.getElseStmt().ifPresent(elseStmt -> {
                 if (elseStmt instanceof BlockStmt blockStmt) {
-                    extractFromBlock(blockStmt, callable);
+                    extractFromBlock(blockStmt, container, containerType);
                 } else if (elseStmt instanceof IfStmt) {
                     // Handle else-if chains
-                    processNestedBlocks(elseStmt, callable);
+                    processNestedBlocks(elseStmt, container, containerType);
                 }
             });
         }
@@ -210,7 +237,7 @@ public class StatementExtractor {
         /**
          * Extract sliding windows of statements with optimized strategy.
          */
-        private void extractSlidingWindows(List<Statement> statements, CallableDeclaration<?> callable) {
+        private void extractSlidingWindows(List<Statement> statements, Node container, ContainerType containerType) {
             int totalStatements = statements.size();
             int effectiveMin = minStatements;
 
@@ -218,11 +245,11 @@ public class StatementExtractor {
             // This is critical for constructor/method reuse even when one body is longer than another.
             // BUT: Only add it here if the normal window logic WON'T capture it (i.e., if it's too long).
             if (totalStatements >= effectiveMin) {
-                // Check if this is indeed the full body of the callable (not a nested block)
-                Optional<BlockStmt> bodyOpt = getCallableBody(callable);
+                // Check if this is indeed the full body of the container (not a nested block)
+                Optional<BlockStmt> bodyOpt = StatementSequence.getContainerBody(container);
                 if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements
                         && totalStatements > effectiveMin + maxWindowGrowth) {
-                    sequences.add(createSequence(statements, callable));
+                    sequences.add(createSequence(statements, container, containerType));
                 }
             }
 
@@ -233,14 +260,14 @@ public class StatementExtractor {
             
             // Targeted Relaxation: Allow windowed extraction for constructors to support prefix reuse (this())
             // even if global setting is maximal_only. Methods stay maximal to prevent regression.
-            if (StatementExtractor.this.maximalOnly && !(callable instanceof ConstructorDeclaration)) {
-                extractMaximalSequences(statements, callable, totalStatements, effectiveMin);
+            if (StatementExtractor.this.maximalOnly && containerType != ContainerType.CONSTRUCTOR) {
+                extractMaximalSequences(statements, container, containerType, totalStatements, effectiveMin);
             } else {
-                extractLimitedWindowSizes(statements, callable, totalStatements, effectiveMin);
+                extractLimitedWindowSizes(statements, container, containerType, totalStatements, effectiveMin);
             }
         }
         
-        private void extractMaximalSequences(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements, int effectiveMin) {
+        private void extractMaximalSequences(List<Statement> statements, Node container, ContainerType containerType, int totalStatements, int effectiveMin) {
             // For each starting position, create the longest possible sequence
             for (int start = 0; start <= totalStatements - effectiveMin; start++) {
                 // Calculate the maximum size we can extract from this position
@@ -252,12 +279,12 @@ public class StatementExtractor {
                 
                 // Only create the largest window from this position
                 List<Statement> window = statements.subList(start, start + maxPossibleSize);
-                StatementSequence sequence = createSequence(window, callable);
+                StatementSequence sequence = createSequence(window, container, containerType);
                 sequences.add(sequence);
             }
         }
         
-        private void extractLimitedWindowSizes(List<Statement> statements, CallableDeclaration<?> callable, int totalStatements, int effectiveMin) {
+        private void extractLimitedWindowSizes(List<Statement> statements, Node container, ContainerType containerType, int totalStatements, int effectiveMin) {
             // Limit window size growth to prevent exponential explosion
             final int maxWindowSize = Math.min(
                 effectiveMin + StatementExtractor.this.maxWindowGrowth,
@@ -270,7 +297,7 @@ public class StatementExtractor {
                     int end = start + windowSize;
                     
                     List<Statement> window = statements.subList(start, end);
-                    StatementSequence sequence = createSequence(window, callable);
+                    StatementSequence sequence = createSequence(window, container, containerType);
                     sequences.add(sequence);
                 }
             }
@@ -279,31 +306,32 @@ public class StatementExtractor {
         /**
          * Create a StatementSequence from a list of statements.
          */
-        private StatementSequence createSequence(List<Statement> statements, CallableDeclaration<?> callable) {
+        private StatementSequence createSequence(List<Statement> statements, Node container, ContainerType containerType) {
             // Get range from first to last statement
             Statement first = statements.getFirst();
             Statement last = statements.getLast();
 
             Range range = BoundaryRefiner.createRange(first, last);
 
-            // Calculate actual statement index within the method (0-based)
-            int startOffset = calculateStatementIndex(first, callable);
+            // Calculate actual statement index within the container (0-based)
+            int startOffset = calculateStatementIndex(first, container);
             
             return new StatementSequence(
                 new ArrayList<>(statements),  // Defensive copy
                 range,
                 startOffset,
-                callable,
+                container,
+                containerType,
                 cu,
                 sourceFile
             );
         }
         
         /**
-         * Calculate the actual 0-based index of a statement within its containing method.
+         * Calculate the actual 0-based index of a statement within its containing node.
          */
-        private int calculateStatementIndex(Statement targetStmt, CallableDeclaration<?> callable) {
-            Optional<BlockStmt> body = getCallableBody(callable);
+        private int calculateStatementIndex(Statement targetStmt, Node container) {
+            Optional<BlockStmt> body = StatementSequence.getContainerBody(container);
             if (body.isEmpty() || body.get().getStatements().isEmpty()) {
                 return 0;
             }
@@ -315,15 +343,6 @@ public class StatementExtractor {
             }
 
             return findRangeStatementIndex(methodStmts, targetStmt);
-        }
-
-        private Optional<BlockStmt> getCallableBody(CallableDeclaration<?> callable) {
-            if (callable instanceof MethodDeclaration m) {
-                return m.getBody();
-            } else if (callable instanceof ConstructorDeclaration c) {
-                return Optional.of(c.getBody());
-            }
-            return Optional.empty();
         }
 
         private int findExactStatementIndex(List<Statement> stmts, Statement target) {

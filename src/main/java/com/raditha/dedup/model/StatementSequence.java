@@ -1,9 +1,12 @@
 package com.raditha.dedup.model;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
+import com.github.javaparser.ast.body.InitializerDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 
@@ -16,36 +19,126 @@ import java.util.Optional;
  * Uses JavaParser classes directly - no custom wrappers needed!
  * Leverages Antikythera's AbstractCompiler for CompilationUnit parsing.
  * 
- * @param statements       The actual statement nodes from JavaParser AST
- * @param range            Source code range
- * @param startOffset      Statement index within the containing method (0-based)
- * @param containingCallable The method or constructor containing these statements
- * @param compilationUnit  The parsed file (from AbstractCompiler)
- * @param sourceFilePath   Path to the source file
+ * Now supports various container types beyond just methods/constructors:
+ * - Methods and Constructors
+ * - Static and Instance Initializers
+ * - Lambda Expressions
+ * - Anonymous Classes
  */
-public record StatementSequence(
-        List<Statement> statements,
-        Range range,
-        int startOffset,
-        CallableDeclaration<?> containingCallable,
-        CompilationUnit compilationUnit,
-        Path sourceFilePath) {
+public final class StatementSequence {
+    private final List<Statement> statements;
+    private final Range range;
+    private final int startOffset;
+    private final Node container;
+    private final ContainerType containerType;
+    private final CompilationUnit compilationUnit;
+    private final Path sourceFilePath;
 
     /**
-     * Get method/constructor name.
+     * Constructor for backward compatibility with CallableDeclaration containers.
      */
-    public String getMethodName() {
-        return containingCallable != null ? containingCallable.getNameAsString() : "unknown";
+    public StatementSequence(
+            List<Statement> statements,
+            Range range,
+            int startOffset,
+            CallableDeclaration<?> containingCallable,
+            CompilationUnit compilationUnit,
+            Path sourceFilePath) {
+        this(statements, range, startOffset, containingCallable, 
+             inferContainerType(containingCallable), compilationUnit, sourceFilePath);
     }
 
     /**
-     * Helper to get the body of the containing callable.
+     * Full constructor with container type support.
+     */
+    public StatementSequence(
+            List<Statement> statements,
+            Range range,
+            int startOffset,
+            Node container,
+            ContainerType containerType,
+            CompilationUnit compilationUnit,
+            Path sourceFilePath) {
+        this.statements = statements;
+        this.range = range;
+        this.startOffset = startOffset;
+        this.container = container;
+        this.containerType = containerType;
+        this.compilationUnit = compilationUnit;
+        this.sourceFilePath = sourceFilePath;
+    }
+
+    /**
+     * Infer container type from a CallableDeclaration for backward compatibility.
+     */
+    private static ContainerType inferContainerType(CallableDeclaration<?> callable) {
+        if (callable instanceof MethodDeclaration) {
+            return ContainerType.METHOD;
+        } else if (callable instanceof ConstructorDeclaration) {
+            return ContainerType.CONSTRUCTOR;
+        }
+        return ContainerType.METHOD; // Default fallback
+    }
+
+    // Record-style getters for backward compatibility
+    public List<Statement> statements() { return statements; }
+    public Range range() { return range; }
+    public int startOffset() { return startOffset; }
+    public Node container() { return container; }
+    public ContainerType containerType() { return containerType; }
+    public CompilationUnit compilationUnit() { return compilationUnit; }
+    public Path sourceFilePath() { return sourceFilePath; }
+
+    /**
+     * Get the containing callable (for backward compatibility).
+     * Returns null for non-callable containers like initializers and lambdas.
+     */
+    public CallableDeclaration<?> containingCallable() {
+        if (container instanceof CallableDeclaration<?> callable) {
+            return callable;
+        }
+        return null;
+    }
+
+    /**
+     * Get method/constructor/container name.
+     */
+    public String getMethodName() {
+        if (container instanceof CallableDeclaration<?> callable) {
+            return callable.getNameAsString();
+        } else if (container instanceof InitializerDeclaration init) {
+            return init.isStatic() ? "<static-init>" : "<init>";
+        } else if (container instanceof LambdaExpr) {
+            return "<lambda>";
+        }
+        return "unknown";
+    }
+
+    /**
+     * Helper to get the body of the container.
      */
     public Optional<BlockStmt> getCallableBody() {
-        if (containingCallable instanceof MethodDeclaration m) {
+        return getContainerBody(container);
+    }
+
+    /**
+     * Static utility to get the body of a container node.
+     * Can be used without a StatementSequence instance.
+     * 
+     * @param container The container node (method, constructor, initializer, or lambda)
+     * @return The BlockStmt body if available
+     */
+    public static Optional<BlockStmt> getContainerBody(Node container) {
+        if (container instanceof MethodDeclaration m) {
             return m.getBody();
-        } else if (containingCallable instanceof ConstructorDeclaration c) {
+        } else if (container instanceof ConstructorDeclaration c) {
             return Optional.of(c.getBody());
+        } else if (container instanceof InitializerDeclaration init) {
+            return Optional.of(init.getBody());
+        } else if (container instanceof LambdaExpr lambda) {
+            if (lambda.getBody().isBlockStmt()) {
+                return Optional.of(lambda.getBody().asBlockStmt());
+            }
         }
         return Optional.empty();
     }
