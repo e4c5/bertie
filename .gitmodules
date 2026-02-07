@@ -1,4 +1,5 @@
 [submodule "test-bed"]
 	path = test-bed
-	url = git@github.com:e4c5/bertie-test-bed.git
+	url = https://github.com/e4c5/bertie-test-bed.git
 	branch = main
+	update = checkout
