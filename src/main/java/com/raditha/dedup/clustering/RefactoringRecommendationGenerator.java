@@ -5,8 +5,11 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
+import com.raditha.dedup.analysis.AnonymousClassDependencyAnalyzer;
+import com.raditha.dedup.analysis.AnonymousClassDependencyAnalyzer.DependencyResult;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -132,6 +135,12 @@ public class RefactoringRecommendationGenerator {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
         }
 
+        // Check for anonymous class duplicate extraction (specialized strategies)
+        RefactoringStrategy anonymousStrategy = determineAnonymousClassStrategy(cluster);
+        if (anonymousStrategy != null) {
+            return anonymousStrategy;
+        }
+
         // Check for Constructor Delegation
         // If all sequences are constructors in the same class and at the start of the body
         if (areAllConstructorsAtStart(cluster) && !isCrossFileDuplication(cluster)) {
@@ -249,6 +258,104 @@ public class RefactoringRecommendationGenerator {
         }
         
         return false;
+    }
+
+    private RefactoringStrategy determineAnonymousClassStrategy(DuplicateCluster cluster) {
+        StatementSequence primary = cluster.primary();
+        if (!isAnonymousClassCluster(cluster)) {
+            return null;
+        }
+
+        var primaryMethod = primary.containingCallable();
+        if (!(primaryMethod instanceof MethodDeclaration anonMethod)) {
+            return null;
+        }
+
+        var outerClass = findEnclosingOuterClass(primary);
+        if (outerClass == null) {
+            return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+        }
+
+        DependencyResult deps = AnonymousClassDependencyAnalyzer.analyze(anonMethod, outerClass);
+        if (deps.usesOuterMethods()) {
+            return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+        }
+
+        if (deps.usesOuterFields()) {
+            return RefactoringStrategy.EXTRACT_ANONYMOUS_TO_PARENT_INNER_CLASS;
+        }
+
+        return RefactoringStrategy.EXTRACT_ANONYMOUS_TO_PUBLIC_CLASS;
+    }
+
+    private boolean isAnonymousClassCluster(DuplicateCluster cluster) {
+        String typeKey = null;
+        String signature = null;
+
+        for (StatementSequence seq : cluster.allSequences()) {
+            CallableDeclaration<?> callable = seq.containingCallable();
+            if (!(callable instanceof MethodDeclaration method)) {
+                return false;
+            }
+            ObjectCreationExpr oc = findEnclosingAnonymousCreation(seq);
+            if (oc == null) {
+                return false;
+            }
+            String currentTypeKey = buildAnonymousTypeKey(oc, seq);
+            if (typeKey == null) {
+                typeKey = currentTypeKey;
+            } else if (!typeKey.equals(currentTypeKey)) {
+                return false;
+            }
+            String currentSignature = method.getSignature().asString();
+            if (signature == null) {
+                signature = currentSignature;
+            } else if (!signature.equals(currentSignature)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private ObjectCreationExpr findEnclosingAnonymousCreation(StatementSequence seq) {
+        if (seq.container() == null) {
+            return null;
+        }
+        return seq.container()
+                .findAncestor(ObjectCreationExpr.class)
+                .filter(oc -> oc.getAnonymousClassBody().isPresent())
+                .orElse(null);
+    }
+
+    private com.github.javaparser.ast.body.ClassOrInterfaceDeclaration findEnclosingOuterClass(StatementSequence seq) {
+        ObjectCreationExpr oc = findEnclosingAnonymousCreation(seq);
+        if (oc == null) {
+            return null;
+        }
+        return oc.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+    }
+
+    private String buildAnonymousTypeKey(ObjectCreationExpr oc, StatementSequence seq) {
+        com.github.javaparser.ast.type.ClassOrInterfaceType type = oc.getType();
+        String baseName = type.getNameAsString();
+        var outerClass = findEnclosingOuterClass(seq);
+        boolean isNestedInOuter = outerClass != null
+                && outerClass.getMembers().stream()
+                .filter(m -> m instanceof com.github.javaparser.ast.body.TypeDeclaration)
+                .map(m -> (com.github.javaparser.ast.body.TypeDeclaration<?>) m)
+                .anyMatch(t -> t.getNameAsString().equals(baseName));
+
+        String qualifier = null;
+        if (type.getScope().isPresent()) {
+            qualifier = type.getScope().get().toString();
+        } else if (isNestedInOuter && outerClass != null) {
+            qualifier = outerClass.getNameAsString();
+        }
+
+        String typeArgs = type.getTypeArguments()
+                .map(args -> args.toString())
+                .orElse("");
+        return (qualifier != null ? qualifier + "." : "") + baseName + typeArgs;
     }
 
     private boolean hasNestedReturn(StatementSequence seq) {

@@ -86,7 +86,9 @@ public class SafetyValidator {
     private boolean shouldCheckMethodNameConflict(RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD, EXTRACT_TO_PARAMETERIZED_TEST -> true;
-            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, CONSTRUCTOR_DELEGATION, MANUAL_REVIEW_REQUIRED -> false;
+            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS,
+                    EXTRACT_ANONYMOUS_TO_PUBLIC_CLASS, EXTRACT_ANONYMOUS_TO_PARENT_INNER_CLASS,
+                    CONSTRUCTOR_DELEGATION, MANUAL_REVIEW_REQUIRED -> false;
         };
     }
 

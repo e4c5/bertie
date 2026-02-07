@@ -270,6 +270,10 @@ public class RefactoringEngine {
                 ParentClassExtractor refactorer = new ParentClassExtractor();
                 yield refactorer.refactor(cluster, recommendation);
             }
+            case EXTRACT_ANONYMOUS_TO_PUBLIC_CLASS, EXTRACT_ANONYMOUS_TO_PARENT_INNER_CLASS -> {
+                AnonymousClassExtractor refactorer = new AnonymousClassExtractor();
+                yield refactorer.refactor(cluster, recommendation);
+            }
             default -> throw new UnsupportedOperationException(
                     "Refactoring strategy not yet implemented: " + recommendation.getStrategy());
         };
@@ -534,6 +538,8 @@ public class RefactoringEngine {
             case EXTRACT_TO_PARAMETERIZED_TEST -> 100;
             case EXTRACT_PARENT_CLASS -> 90;
             case EXTRACT_TO_UTILITY_CLASS -> 80;
+            case EXTRACT_ANONYMOUS_TO_PARENT_INNER_CLASS -> 85;
+            case EXTRACT_ANONYMOUS_TO_PUBLIC_CLASS -> 75;
             case EXTRACT_HELPER_METHOD -> 50;
             default -> 0;
         };
