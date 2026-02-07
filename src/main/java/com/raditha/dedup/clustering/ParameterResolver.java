@@ -185,27 +185,49 @@ public class ParameterResolver extends AbstractResolver {
     }
 
     private boolean isContainingMethodStatic(StatementSequence sequence) {
-        var methodOpt = sequence.containingCallable();
-        if (methodOpt == null) return false;
-
-        if (methodOpt instanceof MethodDeclaration m) {
-            return m.isStatic();
+        // Handle different container types
+        switch (sequence.containerType()) {
+            case STATIC_INITIALIZER:
+                return true;  // Static initializers are always in static context
+            case INSTANCE_INITIALIZER:
+                return false;  // Instance initializers are always in instance context
+            case LAMBDA:
+                // For lambdas, walk up the AST to find the enclosing callable
+                if (sequence.container() instanceof com.github.javaparser.ast.expr.LambdaExpr lambda) {
+                    var enclosingCallable = lambda.findAncestor(com.github.javaparser.ast.body.CallableDeclaration.class);
+                    if (enclosingCallable.isPresent() && enclosingCallable.get() instanceof MethodDeclaration m) {
+                        return m.isStatic();
+                    }
+                    // If we can't find an enclosing callable, assume non-static
+                    return false;
+                }
+                return false;
+            case METHOD:
+                var methodOpt = sequence.containingCallable();
+                if (methodOpt instanceof MethodDeclaration m) {
+                    return m.isStatic();
+                }
+                return false;
+            case CONSTRUCTOR:
+                return false;  // Constructors are never static
+            default:
+                return false;
         }
-        return false;
     }
 
     private Map<String, FieldInfo> getFieldInfoMap(StatementSequence sequence) {
         Map<String, FieldInfo> classFields = new HashMap<>();
-        var methodOpt = sequence.containingCallable();
-        if (methodOpt != null) {
-            var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {
-                boolean isStatic = fd.getModifiers().stream()
-                        .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
-                fd.getVariables().forEach(v -> 
-                    classFields.put(v.getNameAsString(), new FieldInfo(resolveTypeToAST(v.getType(), v, sequence), isStatic)));
-            }));
-        }
+        
+        // Find the enclosing class declaration from the container node
+        var classDecl = sequence.container().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        
+        classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {
+            boolean isStatic = fd.getModifiers().stream()
+                    .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
+            fd.getVariables().forEach(v -> 
+                classFields.put(v.getNameAsString(), new FieldInfo(resolveTypeToAST(v.getType(), v, sequence), isStatic)));
+        }));
+        
         return classFields;
     }
 
