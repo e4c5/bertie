@@ -114,7 +114,7 @@ cd test-bed
 # Each file has code examples and expected patterns documented
 ```
 
-## Current State of Test Files
+## Current State of Test Files - UPDATED
 
 ### What Exists in Main Bertie Repo
 ✅ `docs/expanded_statement_sequence_plan.md` - Updated implementation plan
@@ -122,18 +122,18 @@ cd test-bed
 ✅ `docs/TASK_COMPLETION_SUMMARY.md` - Task summary
 ✅ `src/main/java/com/raditha/dedup/model/ContainerType.java` - Enum for container types
 ✅ `src/main/java/com/raditha/dedup/model/StatementSequence.java` - Updated model
+✅ Test-bed submodule reference updated to commit 790560c
 
-### What Needs to be Created in Test-Bed Repo
-❌ `containers/StaticInitializerDups.java` - Not yet committed
-❌ `containers/InstanceInitializerDups.java` - Not yet committed
-❌ `containers/LambdaBlockDups.java` - Not yet committed
-❌ `containers/NestedLambdaDups.java` - Not yet committed
-❌ `containers/InnerClassMethodDups.java` - Not yet committed
-❌ `containers/StaticInnerClassDups.java` - Not yet committed
-❌ `containers/AnonymousClassDups.java` - Not yet committed
-❌ `containers/MixedContainerDups.java` - Not yet committed
-
-❌ Updated model files (User.java, Logger.java, Database.java, Repository.java) - Not yet committed
+### What Exists in Test-Bed Repo (COMMITTED!) ✅
+✅ `containers/StaticInitializerDups.java` - Committed (790560c)
+✅ `containers/InstanceInitializerDups.java` - Committed (790560c)
+✅ `containers/LambdaBlockDups.java` - Committed (790560c)
+✅ `containers/NestedLambdaDups.java` - Committed (790560c)
+✅ `containers/InnerClassMethodDups.java` - Committed (790560c)
+✅ `containers/StaticInnerClassDups.java` - Committed (790560c)
+✅ `containers/AnonymousClassDups.java` - Committed (790560c)
+✅ `containers/MixedContainerDups.java` - Committed (790560c)
+✅ Updated model files (User.java, Logger.java, Database.java, Repository.java) - Committed (790560c)
 
 ## Recommended Next Steps
 
