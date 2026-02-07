@@ -577,6 +577,8 @@ public class MethodExtractor extends AbstractExtractor {
         return method;
     }
 
+    private boolean helperMethodStatic = false;
+
     private void applyMethodModifiers(MethodDeclaration method) {
         boolean shouldBeStatic = false;
         for (StatementSequence seq : cluster.allSequences()) {
@@ -612,6 +614,7 @@ public class MethodExtractor extends AbstractExtractor {
         } else {
             method.setModifiers(Modifier.Keyword.PRIVATE);
         }
+        helperMethodStatic = shouldBeStatic;
     }
 
     private StatementSequence createTruncatedSequence(StatementSequence fullSequence, int count) {
@@ -652,7 +655,7 @@ public class MethodExtractor extends AbstractExtractor {
 
     private void setReturnType(MethodDeclaration method) {
         com.github.javaparser.ast.type.Type returnType = recommendation.getSuggestedReturnType();
-        method.setType(returnType != null ? returnType : new com.github.javaparser.ast.type.VoidType());
+        method.setType(sanitizeType(returnType != null ? returnType : new com.github.javaparser.ast.type.VoidType()));
     }
 
     private Set<String> collectDeclaredVariableNames(StatementSequence sequence) {
@@ -703,7 +706,7 @@ public class MethodExtractor extends AbstractExtractor {
     private void addParameters(MethodDeclaration method) {
         for (ParameterSpec param : effectiveParams) {
             String targetName = paramNameOverrides.getOrDefault(param, param.getName());
-            method.addParameter(new Parameter(param.getType().clone(), targetName));
+            method.addParameter(new Parameter(sanitizeType(param.getType()).clone(), targetName));
         }
     }
 
@@ -894,7 +897,9 @@ public class MethodExtractor extends AbstractExtractor {
         }
 
         // 2) Create the method call expression
-        return new MethodCallExpr(methodNameToUse, clonedArgs.toArray(new Expression[0]));
+        MethodCallExpr methodCall = new MethodCallExpr(methodNameToUse, clonedArgs.toArray(new Expression[0]));
+        applyAnonymousClassScopeIfNeeded(methodCall, sequence);
+        return methodCall;
     }
 
     /**
@@ -1005,9 +1010,44 @@ public class MethodExtractor extends AbstractExtractor {
 
     private void insertVariableDeclaration(BlockStmt block, int startIdx, MethodCallExpr methodCall, String varName, com.github.javaparser.ast.type.Type returnType) {
         VariableDeclarationExpr varDecl = new VariableDeclarationExpr(
-                returnType.clone(), varName);
+                sanitizeType(returnType).clone(), varName);
         varDecl.getVariable(0).setInitializer(methodCall);
         block.getStatements().add(startIdx, new ExpressionStmt(varDecl));
+    }
+
+    private com.github.javaparser.ast.type.Type sanitizeType(com.github.javaparser.ast.type.Type type) {
+        if (type == null) {
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, "Object");
+        }
+        if (type.isVarType() || "var".equals(type.asString())) {
+            return new com.github.javaparser.ast.type.ClassOrInterfaceType(null, "Object");
+        }
+        return type;
+    }
+
+    private void applyAnonymousClassScopeIfNeeded(MethodCallExpr methodCall, StatementSequence sequence) {
+        if (sequence == null || sequence.container() == null) {
+            return;
+        }
+        boolean inAnonymousClass = sequence.container()
+                .findAncestor(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
+                .map(oc -> oc.getAnonymousClassBody().isPresent())
+                .orElse(false);
+        if (!inAnonymousClass) {
+            return;
+        }
+        var outerClass = sequence.container()
+                .findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .orElse(null);
+        if (outerClass == null) {
+            return;
+        }
+        String className = outerClass.getNameAsString();
+        if (helperMethodStatic) {
+            methodCall.setScope(new com.github.javaparser.ast.expr.NameExpr(className));
+        } else {
+            methodCall.setScope(new com.github.javaparser.ast.expr.ThisExpr(className));
+        }
     }
 
     private void insertExpressionStatement(BlockStmt block, int startIdx, MethodCallExpr methodCall, ReturnStmt originalReturnValues) {
