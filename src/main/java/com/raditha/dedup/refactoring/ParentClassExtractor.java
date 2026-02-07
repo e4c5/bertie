@@ -643,11 +643,16 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void copyFieldImports(CompilationUnit source, CompilationUnit target, com.github.javaparser.ast.body.FieldDeclaration field) {
         copyImportsForType(source, target, field.getElementType());
-        field.getVariable(0).getInitializer().ifPresent(init -> 
-            init.findAll(ClassOrInterfaceType.class).forEach(t -> 
-                copyImportsForType(source, target, t)
-            )
-        );
+        field.getVariable(0).getInitializer().ifPresent(init -> {
+            init.findAll(ClassOrInterfaceType.class).forEach(t -> copyImportsForType(source, target, t));
+            init.findAll(NameExpr.class).forEach(n -> copyImportsForName(source, target, n.getNameAsString()));
+        });
+    }
+
+    private void copyImportsForName(CompilationUnit source, CompilationUnit target, String name) {
+        source.getImports().stream()
+            .filter(i -> i.getNameAsString().endsWith("." + name))
+            .forEach(i -> target.addImport(i.getNameAsString(), i.isStatic(), i.isAsterisk()));
     }
 
     private void copyImportsForType(CompilationUnit source, CompilationUnit target, Type type) {

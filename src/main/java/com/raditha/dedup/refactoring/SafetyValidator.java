@@ -183,11 +183,21 @@ public class SafetyValidator {
         var callable = primary.containingCallable();
         if (callable == null) return false;
 
+        // Check if inside an enum - unsupported for EXTRACT_PARENT_CLASS
+        if (callable.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent()) {
+            return true;
+        }
+
         var clazz = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
         if (clazz == null) return true; // Not in a class
 
-        // Check if the callable is a direct child of its containing class
-        return callable.getParentNode().map(p -> p != clazz).orElse(true);
+        // Check if the method is inside an anonymous class or similar within a method
+        if (callable.getParentNode().map(p -> p != clazz).orElse(true)) {
+            return true;
+        }
+
+        // Check if the class itself is nested (inner class)
+        return clazz.isNestedType();
     }
 
     /**

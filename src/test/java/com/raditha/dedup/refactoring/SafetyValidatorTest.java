@@ -4,6 +4,7 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -220,5 +221,75 @@ class SafetyValidatorTest {
         // Should be valid since annotations match
         assertTrue(result.isValid());
         assertFalse(result.hasWarnings());
+    }
+
+    @Test
+    void testNestedTypeIssue() {
+        CompilationUnit cu = StaticJavaParser.parse(
+            "class Outer { " +
+            "  class Inner { " +
+            "    void method() { int x = 1; } " +
+            "  } " +
+            "}"
+        );
+        ClassOrInterfaceDeclaration inner = cu.getClassByName("Outer").get()
+                .findFirst(ClassOrInterfaceDeclaration.class, c -> c.getNameAsString().equals("Inner")).get();
+        CallableDeclaration<?> method = inner.getMethods().get(0);
+        
+        StatementSequence seq = mock(StatementSequence.class);
+        when(seq.containingCallable()).thenReturn((CallableDeclaration) method);
+        when(cluster.primary()).thenReturn(seq);
+        when(recommendation.getStrategy()).thenReturn(RefactoringStrategy.EXTRACT_PARENT_CLASS);
+        
+        SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
+        
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Cannot refactor code from nested types (Enums, Inner Classes) using this strategy"));
+    }
+
+    @Test
+    void testEnumIssue() {
+        CompilationUnit cu = StaticJavaParser.parse(
+            "enum MyEnum { " +
+            "  A, B; " +
+            "  void method() { int x = 1; } " +
+            "}"
+        );
+        com.github.javaparser.ast.body.EnumDeclaration enumDecl = cu.findFirst(com.github.javaparser.ast.body.EnumDeclaration.class).get();
+        CallableDeclaration<?> method = enumDecl.getMethods().get(0);
+        
+        StatementSequence seq = mock(StatementSequence.class);
+        when(seq.containingCallable()).thenReturn((CallableDeclaration) method);
+        when(cluster.primary()).thenReturn(seq);
+        when(recommendation.getStrategy()).thenReturn(RefactoringStrategy.EXTRACT_PARENT_CLASS);
+        
+        SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
+        
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Cannot refactor code from nested types (Enums, Inner Classes) using this strategy"));
+    }
+
+    @Test
+    void testAnonymousClassIssue() {
+        CompilationUnit cu = StaticJavaParser.parse(
+            "class A { " +
+            "  void outerMethod() { " +
+            "    new Runnable() { " +
+            "      public void run() { int x = 1; } " +
+            "    }.run(); " +
+            "  } " +
+            "}"
+        );
+        MethodDeclaration runMethod = cu.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("run")).get();
+        
+        StatementSequence seq = mock(StatementSequence.class);
+        when(seq.containingCallable()).thenReturn((CallableDeclaration) runMethod);
+        when(cluster.primary()).thenReturn(seq);
+        when(recommendation.getStrategy()).thenReturn(RefactoringStrategy.EXTRACT_PARENT_CLASS);
+        
+        SafetyValidator.ValidationResult result = validator.validate(cluster, recommendation);
+        
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains("Cannot refactor code from nested types (Enums, Inner Classes) using this strategy"));
     }
 }

@@ -166,7 +166,7 @@ public class RefactoringOrchestrator {
      * @param cluster The cluster to potentially split
      * @return List of clusters (original if not split, or multiple per-file clusters)
      */
-    private List<DuplicateCluster> splitConstructorClusters(DuplicateCluster cluster) {
+    List<DuplicateCluster> splitConstructorClusters(DuplicateCluster cluster) {
         // Check if all sequences are constructors
         boolean allConstructors = cluster.allSequences().stream()
                 .allMatch(seq -> seq.containingCallable() instanceof ConstructorDeclaration);
@@ -200,33 +200,35 @@ public class RefactoringOrchestrator {
                         .filter(pair -> sequences.contains(pair.seq1()) && sequences.contains(pair.seq2()))
                         .toList();
                 
-                // Use the first sequence as primary
-                StatementSequence primary = sequences.get(0);
-                
-                // Calculate LOC reduction (proportional to cluster size)
-                int locReduction = cluster.estimatedLOCReduction() * sequences.size() / cluster.allSequences().size();
-                
-                // Create the cluster with a NEW recommendation (regenerated for this file)
-                DuplicateCluster tempCluster = new DuplicateCluster(
-                        primary, 
-                        filePairs, 
-                        null,  // Will be replaced
-                        locReduction
-                );
-                
-                // Regenerate the recommendation for this file-specific cluster
-                com.raditha.dedup.model.RefactoringRecommendation newRecommendation = 
-                        recommendationGenerator.generateRecommendation(tempCluster);
-                
-                DuplicateCluster fileCluster = new DuplicateCluster(
-                        primary, 
-                        filePairs, 
-                        newRecommendation, 
-                        locReduction
-                );
-                result.add(fileCluster);
-                logger.info("Split constructor cluster for file: {} ({} constructors)", 
-                           entry.getKey().getFileName(), sequences.size());
+                if (!filePairs.isEmpty()) {
+                    // Use the first sequence as primary
+                    StatementSequence primary = sequences.get(0);
+                    
+                    // Calculate LOC reduction (proportional to cluster size)
+                    int locReduction = cluster.estimatedLOCReduction() * sequences.size() / cluster.allSequences().size();
+                    
+                    // Create the cluster with a NEW recommendation (regenerated for this file)
+                    DuplicateCluster tempCluster = new DuplicateCluster(
+                            primary, 
+                            filePairs, 
+                            null,  // Will be replaced
+                            locReduction
+                    );
+                    
+                    // Regenerate the recommendation for this file-specific cluster
+                    com.raditha.dedup.model.RefactoringRecommendation newRecommendation = 
+                            recommendationGenerator.generateRecommendation(tempCluster);
+                    
+                    DuplicateCluster fileCluster = new DuplicateCluster(
+                            primary, 
+                            filePairs, 
+                            newRecommendation, 
+                            locReduction
+                    );
+                    result.add(fileCluster);
+                    logger.info("Split constructor cluster for file: {} ({} constructors)", 
+                               entry.getKey().getFileName(), sequences.size());
+                }
             }
         }
         
