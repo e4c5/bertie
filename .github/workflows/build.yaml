@@ -30,34 +30,12 @@ jobs:
       
       - name: Verify test-bed submodule
         run: ls -alR test-bed
-        
-      - name: Clone dependent projects
-        run: |
-          git clone --branch 0.1.3.0 https://github.com/Cloud-Solutions-International/antikythera-common.git ../antikythera-common
-          git clone --branch 0.1.3.0 https://github.com/Cloud-Solutions-International/antikythera-agent.git ../antikythera-agent
-          git clone --branch 0.1.3.0 https://github.com/Cloud-Solutions-International/antikythera.git ../antikythera
-          git clone --branch 0.1.3.0 https://github.com/Cloud-Solutions-International/antikythera-test-helper.git ../antikythera-test-helper
-          git clone --branch 0.1.3.0 https://github.com/Cloud-Solutions-International/antikythera-sample-project.git ../antikythera-sample-project
-
-      - name: Patch Antikythera
-        run: |
-           # Fix compilation error in Evaluator.java (remove invalid @Override)
-           sed -i '1617d' ../antikythera/src/main/java/sa/com/cloudsolutions/antikythera/evaluator/Evaluator.java
 
       - name: Set up JDK 21 with Temurin
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
-
-      - name: Build antikythera-common
-        run: cd ../antikythera-common && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install -DskipTests
-
-      - name: Build antikythera-agent
-        run: cd ../antikythera-agent && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install  -DskipTests
-
-      - name: Build antikythera
-        run: cd ../antikythera && MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install  -DskipTests
 
       - name: Build and Test
         run: MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install

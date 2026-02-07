@@ -303,7 +303,7 @@ public class MethodExtractor extends AbstractExtractor {
                     "Skipped: Could not substitute calls for extracted method " + methodNameToUse);
         }
 
-        if (!isCrossFileCluster()) {
+        if (isCrossFileCluster()) {
             // Ensure helper exists in every containing class for cross-file clusters
             ensureHelperInContainingTypes(helperMethod, modifiedCUs);
         }
@@ -316,33 +316,53 @@ public class MethodExtractor extends AbstractExtractor {
 
         for (StatementSequence seq : cluster.allSequences()) {
             CallableDeclaration<?> containingCallable = seq.containingCallable();
-            if (containingCallable != null){
-                TypeDeclaration<?> containingType = containingCallable.findAncestor(TypeDeclaration.class)
-                        .orElse(null);
-                if (containingType == null) {
-                    continue;
-                }
-
-                boolean alreadyInType = containingType.getMethodsByName(methodNameToUse).stream()
-                        .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
-                                && m.getType().asString().equals(helperMethod.getType().asString()));
-
-                if (alreadyInType) {
-                    MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
-                            cluster.getContainingMethods());
-                    if (equivalent == null) {
-                        throw new IllegalStateException(
-                                "Method name '" + methodNameToUse + "' already exists in class " +
-                                        containingType.getNameAsString());
-                    }
-                } else {
-                    MethodDeclaration clone = helperMethod.clone();
-                    clone.setName(methodNameToUse);
-                    containingType.addMember(clone);
-                    modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
-                }
+            if (containingCallable == null) {
+                continue;
             }
+
+            TypeDeclaration<?> containingType = findContainingType(containingCallable);
+            if (containingType == null) {
+                continue;
+            }
+
+            ensureHelperInType(containingType, helperMethod);
+            recordModifiedCompilationUnit(seq, modifiedCUs);
         }
+    }
+
+    private TypeDeclaration<?> findContainingType(CallableDeclaration<?> containingCallable) {
+        return containingCallable.findAncestor(TypeDeclaration.class).orElse(null);
+    }
+
+    private void ensureHelperInType(TypeDeclaration<?> containingType, MethodDeclaration helperMethod) {
+        if (hasMatchingMethodSignature(containingType, helperMethod)) {
+            validateExistingHelper(containingType, helperMethod);
+            return;
+        }
+
+        MethodDeclaration clone = helperMethod.clone();
+        clone.setName(methodNameToUse);
+        containingType.addMember(clone);
+    }
+
+    private boolean hasMatchingMethodSignature(TypeDeclaration<?> containingType, MethodDeclaration helperMethod) {
+        return containingType.getMethodsByName(methodNameToUse).stream()
+                .anyMatch(m -> m.getParameters().size() == helperMethod.getParameters().size()
+                        && m.getType().asString().equals(helperMethod.getType().asString()));
+    }
+
+    private void validateExistingHelper(TypeDeclaration<?> containingType, MethodDeclaration helperMethod) {
+        MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
+                cluster.getContainingMethods());
+        if (equivalent == null) {
+            throw new IllegalStateException(
+                    "Method name '" + methodNameToUse + "' already exists in class " +
+                            containingType.getNameAsString());
+        }
+    }
+
+    private void recordModifiedCompilationUnit(StatementSequence seq, Map<CompilationUnit, Path> modifiedCUs) {
+        modifiedCUs.put(seq.compilationUnit(), seq.sourceFilePath());
     }
 
     private boolean isCrossFileCluster() {

@@ -155,22 +155,69 @@ public class SafetyValidator {
         var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
         if (clazz == null) return false;
 
-        Set<String> finalFields = new java.util.HashSet<>();
-        clazz.getFields().stream()
-                .filter(com.github.javaparser.ast.body.FieldDeclaration::isFinal)
-                .forEach(f -> f.getVariables().forEach(v -> finalFields.add(v.getNameAsString())));
+        Set<String> finalFields = collectFinalFieldNames(clazz);
 
         if (finalFields.isEmpty()) return false;
+
+        // Collect local variables and parameters to avoid false positives from shadowing
+        Set<String> localsAndParams = collectLocalAndParameterNames(method);
+
+        String className = clazz.getNameAsString();
 
         for (com.github.javaparser.ast.stmt.Statement stmt : sequence.statements()) {
             List<com.github.javaparser.ast.expr.AssignExpr> assignments = stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class);
             for (com.github.javaparser.ast.expr.AssignExpr assign : assignments) {
-                String target = assign.getTarget().toString();
-                if (finalFields.contains(target) || (target.startsWith("this.") && finalFields.contains(target.substring(5)))) {
+                if (isFinalFieldAssignment(assign.getTarget(), finalFields, localsAndParams, className)) {
                     return true;
                 }
             }
         }
+        return false;
+    }
+
+    private Set<String> collectFinalFieldNames(
+            com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz) {
+        Set<String> finalFields = new java.util.HashSet<>();
+        clazz.getFields().stream()
+                .filter(com.github.javaparser.ast.body.FieldDeclaration::isFinal)
+                .forEach(f -> f.getVariables().forEach(v -> finalFields.add(v.getNameAsString())));
+        return finalFields;
+    }
+
+    private Set<String> collectLocalAndParameterNames(com.github.javaparser.ast.body.CallableDeclaration<?> method) {
+        Set<String> localsAndParams = new java.util.HashSet<>();
+        method.getParameters().forEach(p -> localsAndParams.add(p.getNameAsString()));
+        method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                .forEach(v -> localsAndParams.add(v.getNameAsString()));
+        return localsAndParams;
+    }
+
+    private boolean isFinalFieldAssignment(
+            com.github.javaparser.ast.expr.Expression targetExpr,
+            Set<String> finalFields,
+            Set<String> localsAndParams,
+            String className) {
+        if (targetExpr.isFieldAccessExpr()) {
+            var fa = targetExpr.asFieldAccessExpr();
+            String fieldName = fa.getNameAsString();
+            if (!finalFields.contains(fieldName)) {
+                return false;
+            }
+            // this.field or super.field always refers to class field
+            if (fa.getScope().isThisExpr() || fa.getScope().isSuperExpr()) {
+                return true;
+            }
+            // ClassName.field (static access)
+            return fa.getScope().isNameExpr()
+                    && fa.getScope().asNameExpr().getNameAsString().equals(className);
+        }
+
+        if (targetExpr.isNameExpr()) {
+            String name = targetExpr.asNameExpr().getNameAsString();
+            // Only treat unqualified names as field access if not shadowed
+            return finalFields.contains(name) && !localsAndParams.contains(name);
+        }
+
         return false;
     }
 
