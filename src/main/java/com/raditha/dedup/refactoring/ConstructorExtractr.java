@@ -12,9 +12,15 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
-
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.nio.file.Path;
-import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Refactorer that eliminates constructor duplication using constructor delegation (this() calls).
@@ -24,6 +30,8 @@ import java.util.*;
  * to it from other constructors using this(...) calls.
  */
 public class ConstructorExtractr extends AbstractExtractor {
+    private static final Logger logger = LoggerFactory.getLogger(ConstructorExtractr.class);
+
     /**
      * Refactor constructors to use delegation.
      *
@@ -66,8 +74,9 @@ public class ConstructorExtractr extends AbstractExtractor {
             }
 
             // Replace the duplicate sequence with a this() call
-            replaceWithDelegation(sequence, constructor, masterConstructor);
-            refactoredConstructors.add(constructor);
+            if (replaceWithDelegation(sequence, constructor, masterConstructor)) {
+                refactoredConstructors.add(constructor);
+            }
         }
 
         // Return the refactored code
@@ -113,20 +122,11 @@ public class ConstructorExtractr extends AbstractExtractor {
         }
 
         if (constructors.isEmpty()) {
-            return null;
+            // Default to primary if no perfect master found
+            return (ConstructorDeclaration) cluster.primary().containingCallable();
         }
 
-        // Try to find no-arg constructor among perfect candidates
-        ConstructorDeclaration noArgConstructor = constructors.stream()
-                .filter(c -> c.getParameters().isEmpty())
-                .findFirst()
-                .orElse(null);
-
-        if (noArgConstructor != null) {
-            return noArgConstructor;
-        }
-
-        // Otherwise, select the one with the most parameters
+        // Prefer the one with the most parameters (standard Java delegation pattern)
         return constructors.stream()
                 .max(Comparator.comparingInt(c -> c.getParameters().size()))
                 .get();
@@ -134,48 +134,50 @@ public class ConstructorExtractr extends AbstractExtractor {
 
     /**
      * Replace the duplicate sequence in a constructor with a this() call to the master.
+     * 
+     * @return true if delegation was applied, false otherwise
      */
-    private void replaceWithDelegation(StatementSequence sequence, 
+    private boolean replaceWithDelegation(StatementSequence sequence, 
                                       ConstructorDeclaration constructor,
                                       ConstructorDeclaration masterConstructor) {
         // Check if constructor already has a this() or super() call
         if (hasExplicitConstructorCall(constructor)) {
-            // Cannot add another this() call
-            return;
+            logger.warn("Skipping constructor delegation: constructor in {} already has an explicit this()/super() call", 
+                    sequence.sourceFilePath());
+            return false;
         }
 
         // Check if the duplicate is at the start of the constructor
         if (sequence.startOffset() != 0) {
-            // Can only delegate if duplicate is at the start
-            return;
+            logger.warn("Skipping constructor delegation: duplicate sequence in {} is not at the start of the constructor",
+                    sequence.sourceFilePath());
+            return false;
         }
 
         BlockStmt body = constructor.getBody();
-        BlockStmt masterBody = masterConstructor.getBody();
-        List<Statement> statements = body.getStatements();
-        List<Statement> masterStatements = masterBody.getStatements();
-
+        
         // Create the this() call with appropriate arguments
         ExplicitConstructorInvocationStmt thisCall = createThisCall(sequence, masterConstructor);
         
         if (thisCall == null) {
-            // Cannot safely delegate due to unmappable parameters
-            return;
+            logger.warn("Skipping constructor delegation: cannot safely map all parameters for master constructor in {}",
+                    sequence.sourceFilePath());
+            return false;
         }
 
         // Use the duplicate sequence length detected by the algorithm
-        // The sequence already represents what was identified as duplicate
         int duplicateCount = sequence.statements().size();
         
         // Remove the duplicate statements
-        // Cache the size because it will shrink as we remove
-        int statementsToRemove = Math.min(duplicateCount, statements.size());
-        for (int i = 0; i < statementsToRemove; i++) {
-            statements.get(0).remove(); // Always remove first since list shrinks
+        for (int i = 0; i < duplicateCount; i++) {
+            if (!body.getStatements().isEmpty()) {
+                body.getStatement(0).remove();
+            }
         }
 
         // Insert the this() call at the beginning
         body.getStatements().add(0, thisCall);
+        return true;
     }
 
     /**
@@ -188,9 +190,6 @@ public class ConstructorExtractr extends AbstractExtractor {
 
     /**
      * Create a this(...) call with appropriate arguments.
-     * 
-     * For now, we'll create a simple this() call without arguments.
-     * A more sophisticated implementation would analyze the parameters needed.
      */
     private ExplicitConstructorInvocationStmt createThisCall(StatementSequence sequence,
                                                             ConstructorDeclaration masterConstructor) {
@@ -206,10 +205,18 @@ public class ConstructorExtractr extends AbstractExtractor {
             
             // Try to find a matching parameter in the current constructor
             ConstructorDeclaration currentConstructor = (ConstructorDeclaration) sequence.containingCallable();
+            
+            // 1. Try exact name match
             Optional<com.github.javaparser.ast.body.Parameter> matchingParam = currentConstructor.getParameters().stream()
-                    .filter(p -> p.getNameAsString().equals(paramName) || 
-                                p.getType().equals(param.getType()))
+                    .filter(p -> p.getNameAsString().equals(paramName))
                     .findFirst();
+
+            // 2. Fallback to type match if name not found
+            if (matchingParam.isEmpty()) {
+                matchingParam = currentConstructor.getParameters().stream()
+                        .filter(p -> p.getType().equals(param.getType()))
+                        .findFirst();
+            }
 
             if (matchingParam.isPresent()) {
                 // Use the parameter from current constructor

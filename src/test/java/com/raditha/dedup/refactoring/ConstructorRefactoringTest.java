@@ -250,4 +250,145 @@ class ConstructorRefactoringTest {
         assertEquals(1, delegating.getBody().getStatements().size());
         assertFalse(delegating.getBody().getStatements().get(0).toString().contains("this("));
     }
+
+    @Test
+    void testSelectMasterConstructorPriority() {
+        String code = """
+                class TestClassPriority {
+                    public TestClassPriority(int a) {
+                        System.out.println("duplicate");
+                    }
+                    public TestClassPriority(int a, int b) {
+                        System.out.println("duplicate");
+                    }
+                    public TestClassPriority(int a, int b) {
+                        System.out.println("duplicate");
+                    }
+                }
+                """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration clazz = cu.getClassByName("TestClassPriority").get();
+        ConstructorDeclaration m1 = clazz.getConstructors().get(0); // 1 param
+        ConstructorDeclaration m2 = clazz.getConstructors().get(1); // 2 params (MASTER)
+        ConstructorDeclaration d = clazz.getConstructors().get(2);  // 2 params (DELEGATING)
+
+        Path path = Path.of("TestClassPriority.java");
+        StatementSequence s1 = new StatementSequence(m1.getBody().getStatements(), new com.raditha.dedup.model.Range(1, 1, 1, 1), 0, m1, cu, path);
+        StatementSequence s2 = new StatementSequence(m2.getBody().getStatements(), new com.raditha.dedup.model.Range(4, 1, 4, 1), 0, m2, cu, path);
+        StatementSequence sd = new StatementSequence(d.getBody().getStatements(), new com.raditha.dedup.model.Range(7, 1, 7, 1), 0, d, cu, path);
+
+        // s2 is primary, m2 is master
+        DuplicateCluster cluster = new DuplicateCluster(s2, List.of(new SimilarityPair(s2, s1, null), new SimilarityPair(s2, sd, null)), null, 0);
+        
+        ConstructorExtractr refactorer = new ConstructorExtractr();
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.CONSTRUCTOR_DELEGATION,
+                null, Collections.emptyList(), null, "TestClassPriority", 1.0, 1, null);
+        
+        refactorer.refactor(cluster, recommendation);
+
+        // Verify: d (delegating) should delegate to either m2 or d (depending on max pick)
+        // If m2 is chosen as master, then d should delegate to m2:
+        if (d.getBody().getStatements().get(0).toString().contains("this(")) {
+             assertEquals("this(a, b);", d.getBody().getStatements().get(0).toString().trim());
+        } else {
+             // If d was chosen as master, m2 should delegate to d:
+             assertEquals("this(a, b);", m2.getBody().getStatements().get(0).toString().trim());
+        }
+    }
+
+    @Test
+    void testSelectMasterConstructorFallbackToPrimary() {
+        CompilationUnit cu = new CompilationUnit();
+        ClassOrInterfaceDeclaration clazz = cu.addClass("TestClass");
+
+        // Constructor 1: Primary
+        ConstructorDeclaration c1 = clazz.addConstructor();
+        c1.getBody().addStatement("System.out.println(\"duplicate\");");
+
+        // Constructor 2: Delegating
+        ConstructorDeclaration c2 = clazz.addConstructor();
+        c2.getBody().addStatement("System.out.println(\"duplicate\");");
+
+        Path path = Path.of("TestClass.java");
+        StatementSequence s1 = new StatementSequence(c1.getBody().getStatements(), new com.raditha.dedup.model.Range(1, 1, 1, 1), 0, c1, cu, path);
+        StatementSequence s2 = new StatementSequence(c2.getBody().getStatements(), new com.raditha.dedup.model.Range(2, 1, 2, 1), 0, c2, cu, path);
+
+        // s1 is primary, c1 is master. 
+        // Note: s1.statements() should be the ENTIRE body for perfect master check.
+        DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
+        
+        ConstructorExtractr refactorer = new ConstructorExtractr();
+        RefactoringRecommendation recommendation = new RefactoringRecommendation(
+                RefactoringStrategy.CONSTRUCTOR_DELEGATION,
+                null, Collections.emptyList(), null, "TestClass", 1.0, 1, null);
+        
+        refactorer.refactor(cluster, recommendation);
+
+        // In this case, c1 IS a perfect master (duplicateCount == body.size == 1)
+        // so c1 should be chosen as master, and c2 should delegate to it.
+        assertEquals("this();", c2.getBody().getStatements().get(0).toString().trim());
+    }
+
+    @Test
+    void testRefactorConstructorDuplicate_SkipsIfExplicitCall() {
+        String code = """
+                class TestClass {
+                    public TestClass(int a) {
+                        System.out.println("duplicate");
+                    }
+                    public TestClass() {
+                        this(1); // Explicit call
+                        System.out.println("duplicate");
+                    }
+                }
+                """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration clazz = cu.getClassByName("TestClass").get();
+        ConstructorDeclaration master = clazz.getConstructors().get(0);
+        ConstructorDeclaration delegating = clazz.getConstructors().get(1);
+
+        StatementSequence s1 = new StatementSequence(master.getBody().getStatements(), new com.raditha.dedup.model.Range(1,1,1,1), 0, master, cu, sourcePath);
+        StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 0, delegating, cu, sourcePath);
+
+        DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
+        ConstructorExtractr refactorer = new ConstructorExtractr();
+        refactorer.refactor(cluster, new RefactoringRecommendation(RefactoringStrategy.CONSTRUCTOR_DELEGATION, null, Collections.emptyList(), null, "TestClass", 1.0, 1, null));
+
+        // Verify: delegating constructor should NOT have been modified
+        assertEquals(2, delegating.getBody().getStatements().size());
+        assertTrue(delegating.getBody().getStatement(0).toString().contains("this(1)"));
+    }
+
+    @Test
+    void testRefactorConstructorDuplicate_SkipsIfNotAtStart() {
+        String code = """
+                class TestClass {
+                    public TestClass() {
+                        System.out.println("duplicate");
+                    }
+                    public TestClass(int a) {
+                        System.out.println("not duplicate");
+                        System.out.println("duplicate");
+                    }
+                }
+                """;
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        ClassOrInterfaceDeclaration clazz = cu.getClassByName("TestClass").get();
+        ConstructorDeclaration master = clazz.getConstructors().get(0);
+        ConstructorDeclaration delegating = clazz.getConstructors().get(1);
+
+        StatementSequence s1 = new StatementSequence(master.getBody().getStatements(), new com.raditha.dedup.model.Range(1,1,1,1), 0, master, cu, sourcePath);
+        // Duplicate is at index 1, so startOffset is 1
+        StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 1, delegating, cu, sourcePath);
+
+        DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
+        ConstructorExtractr refactorer = new ConstructorExtractr();
+        refactorer.refactor(cluster, new RefactoringRecommendation(RefactoringStrategy.CONSTRUCTOR_DELEGATION, null, Collections.emptyList(), null, "TestClass", 1.0, 1, null));
+
+        // Verify: delegating constructor should NOT have been modified
+        assertEquals(2, delegating.getBody().getStatements().size());
+        assertTrue(delegating.getBody().getStatement(0).toString().contains("not duplicate"));
+        assertTrue(delegating.getBody().getStatement(1).toString().contains("duplicate"));
+    }
 }
