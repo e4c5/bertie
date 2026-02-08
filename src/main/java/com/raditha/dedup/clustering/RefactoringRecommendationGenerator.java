@@ -230,8 +230,22 @@ public class RefactoringRecommendationGenerator {
                 yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
             }
             
-            // Standard container types - let normal logic handle them
-            case METHOD, CONSTRUCTOR -> null;
+            case CONSTRUCTOR -> {
+                // Enum constructors cannot use EXTRACT_PARENT_CLASS (enums can't extend classes)
+                if (isInEnum(primarySeq)) {
+                    // Enum constructors with cross-file duplicates need manual review
+                    if (isCrossFileDuplication(cluster)) {
+                        yield RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+                    }
+                    // Same-file enum constructor duplicates can use helper method
+                    yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+                }
+                // Regular constructors - let normal logic handle them
+                yield null;
+            }
+            
+            // Standard method container - let normal logic handle it
+            case METHOD -> null;
         };
     }
 
@@ -259,6 +273,15 @@ public class RefactoringRecommendationGenerator {
             }
         }
         return filePaths.size() > 1;
+    }
+
+    /**
+     * Check if the sequence is inside an enum declaration.
+     */
+    private boolean isInEnum(StatementSequence seq) {
+        var container = seq.container();
+        if (container == null) return false;
+        return container.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent();
     }
 
     private boolean usesInstanceState(StatementSequence seq) {
