@@ -269,6 +269,23 @@ public class RefactoringEngine {
                 ParentClassExtractor refactorer = new ParentClassExtractor();
                 yield refactorer.refactor(cluster, recommendation);
             }
+            case EXTRACT_NAMED_INNER_CLASS -> {
+                try {
+                    AnonymousToNamedClassExtractor extractor = new AnonymousToNamedClassExtractor();
+                    MethodExtractor.RefactoringResult result = extractor.refactor(cluster, recommendation);
+                    // If the extractor skipped (returned empty/skip result), fall back to helper method
+                    if (result.modifiedFiles().isEmpty()) {
+                        logger.info("Named inner class extraction skipped, falling back to helper method: {}", result.description());
+                        MethodExtractor fallback = new MethodExtractor();
+                        yield fallback.refactor(cluster, recommendation);
+                    }
+                    yield result;
+                } catch (Exception e) {
+                    logger.info("Named inner class extraction failed, falling back to helper method: {}", e.getMessage());
+                    MethodExtractor fallback = new MethodExtractor();
+                    yield fallback.refactor(cluster, recommendation);
+                }
+            }
             default -> throw new UnsupportedOperationException(
                     "Refactoring strategy not yet implemented: " + recommendation.getStrategy());
         };
@@ -533,6 +550,7 @@ public class RefactoringEngine {
             case EXTRACT_TO_PARAMETERIZED_TEST -> 100;
             case EXTRACT_PARENT_CLASS -> 90;
             case EXTRACT_TO_UTILITY_CLASS -> 80;
+            case EXTRACT_NAMED_INNER_CLASS -> 70;
             case EXTRACT_HELPER_METHOD -> 50;
             default -> 0;
         };

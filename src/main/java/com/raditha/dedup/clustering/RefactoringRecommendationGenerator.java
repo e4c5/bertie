@@ -5,7 +5,9 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.DuplicateCluster;
@@ -222,11 +224,11 @@ public class RefactoringRecommendationGenerator {
             }
             
             case ANONYMOUS_CLASS_METHOD -> {
-                // Anonymous class methods - typically extract helper, but may need manual review
-                // if they access outer class state in complex ways
                 if (isCrossFileDuplication(cluster)) {
-                    // Cross-file anonymous class duplicates are tricky
                     yield RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+                }
+                if (isEligibleForNamedInnerClass(cluster)) {
+                    yield RefactoringStrategy.EXTRACT_NAMED_INNER_CLASS;
                 }
                 yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
             }
@@ -283,6 +285,60 @@ public class RefactoringRecommendationGenerator {
         var container = seq.container();
         if (container == null) return false;
         return container.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent();
+    }
+
+    /**
+     * Check if the cluster is eligible for named inner class extraction.
+     * Requires: all sequences are ANONYMOUS_CLASS_METHOD in the same file,
+     * all implement the same interface/superclass, all are full method bodies,
+     * and there are at least 2 anonymous class instances.
+     */
+    private boolean isEligibleForNamedInnerClass(DuplicateCluster cluster) {
+        var sequences = cluster.allSequences();
+        if (sequences.size() < 2) {
+            return false;
+        }
+
+        // All must be anonymous class methods
+        if (!sequences.stream().allMatch(s -> s.containerType() == ContainerType.ANONYMOUS_CLASS_METHOD)) {
+            return false;
+        }
+
+        // All must be full method bodies
+        if (!sequences.stream().allMatch(this::isMethodBody)) {
+            return false;
+        }
+
+        // Resolve the implemented type for each and verify they're all the same
+        String firstType = null;
+        for (StatementSequence seq : sequences) {
+            ClassOrInterfaceType type = resolveAnonymousClassType(seq);
+            if (type == null) {
+                return false;
+            }
+            String typeName = type.getNameAsString();
+            if (firstType == null) {
+                firstType = typeName;
+            } else if (!firstType.equals(typeName)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Resolve the interface/superclass type that an anonymous class implements.
+     * Walks from the method container up to the ObjectCreationExpr.
+     */
+    private ClassOrInterfaceType resolveAnonymousClassType(StatementSequence seq) {
+        if (seq.container() == null) {
+            return null;
+        }
+        return seq.container().findAncestor(ObjectCreationExpr.class)
+                .filter(oce -> oce.getAnonymousClassBody().isPresent())
+                .map(ObjectCreationExpr::getType)
+                .orElse(null);
     }
 
     private boolean usesInstanceState(StatementSequence seq) {

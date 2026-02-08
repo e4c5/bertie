@@ -20,6 +20,9 @@ public enum RefactoringStrategy {
     /** Refactor constructor to delegate to another constructor using this(...) */
     CONSTRUCTOR_DELEGATION,
 
+    /** Replace duplicate anonymous inner classes with a shared named inner class */
+    EXTRACT_NAMED_INNER_CLASS,
+
     /** Too complex for automated refactoring - requires manual review */
     MANUAL_REVIEW_REQUIRED
 }

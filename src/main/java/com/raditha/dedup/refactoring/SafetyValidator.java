@@ -143,12 +143,35 @@ public class SafetyValidator {
     private void validateAnonymousClassExtraction(DuplicateCluster cluster, List<ValidationIssue> issues) {
         for (StatementSequence seq : cluster.allSequences()) {
             if (seq.containerType() != ContainerType.ANONYMOUS_CLASS_METHOD) continue;
-            
+
             // Check if sequence accesses outer class fields
             if (OuterClassFieldAnalyzer.requiresOuterClassAccess(seq)) {
                 issues.add(ValidationIssue.warning(
                         "Anonymous class method accesses outer class fields - extracted method may need outer instance reference"));
                 return;
+            }
+        }
+
+        // For EXTRACT_NAMED_INNER_CLASS, validate that the anonymous classes implement the same type
+        if (cluster.recommendation() != null
+                && cluster.recommendation().getStrategy() == RefactoringStrategy.EXTRACT_NAMED_INNER_CLASS) {
+            String firstType = null;
+            for (StatementSequence seq : cluster.allSequences()) {
+                if (seq.containerType() != ContainerType.ANONYMOUS_CLASS_METHOD || seq.container() == null) continue;
+                var oce = seq.container().findAncestor(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
+                        .filter(o -> o.getAnonymousClassBody().isPresent());
+                if (oce.isEmpty()) {
+                    issues.add(ValidationIssue.error("Could not find anonymous class creation for sequence"));
+                    return;
+                }
+                String typeName = oce.get().getType().getNameAsString();
+                if (firstType == null) {
+                    firstType = typeName;
+                } else if (!firstType.equals(typeName)) {
+                    issues.add(ValidationIssue.error(
+                            "Anonymous classes implement different types: " + firstType + " vs " + typeName));
+                    return;
+                }
             }
         }
     }
@@ -174,7 +197,7 @@ public class SafetyValidator {
     private boolean shouldCheckMethodNameConflict(RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD, EXTRACT_TO_PARAMETERIZED_TEST -> true;
-            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, CONSTRUCTOR_DELEGATION, MANUAL_REVIEW_REQUIRED -> false;
+            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, CONSTRUCTOR_DELEGATION, EXTRACT_NAMED_INNER_CLASS, MANUAL_REVIEW_REQUIRED -> false;
         };
     }
 
