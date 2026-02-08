@@ -376,20 +376,30 @@ public class MethodExtractor extends AbstractExtractor {
 
     private void ensureHelperInContainingTypes(MethodDeclaration helperMethod,
             Map<CompilationUnit, Path> modifiedCUs) {
-
+        // Ensure helper exists in each containing type for cross-file clusters
+        Set<TypeDeclaration<?>> processedTypes = new HashSet<>();
         for (StatementSequence seq : cluster.allSequences()) {
             TypeDeclaration<?> containingType = findContainingTypeFromSequence(seq);
-            if (containingType == null) {
+            if (containingType == null || processedTypes.contains(containingType)) {
                 continue;
             }
-
+            processedTypes.add(containingType);
             ensureHelperInType(containingType, helperMethod);
+        }
+        
+        // Record all modified compilation units
+        for (StatementSequence seq : cluster.allSequences()) {
             recordModifiedCompilationUnit(seq, modifiedCUs);
         }
     }
 
     /**
-     * Find the containing type from any sequence container (callable, initializer, lambda).
+     * Find the most appropriate containing type for helper method placement.
+     * Rules:
+     * 1. For anonymous class methods: extract to the outer class (can't add to anonymous)
+     * 2. For cross-type duplicates: find common ancestor (outer class) to maximize sharing
+     * 3. For same-type duplicates: extract to that type (inner class or outer class)
+     * 4. For lambdas/initializers: extract to immediate containing type
      */
     private TypeDeclaration<?> findContainingTypeFromSequence(StatementSequence seq) {
         Node container = seq.container();
@@ -397,16 +407,161 @@ public class MethodExtractor extends AbstractExtractor {
             return null;
         }
         
-        // For callables, use the callable's parent type
-        if (container instanceof CallableDeclaration<?> callable) {
-            return callable.findAncestor(TypeDeclaration.class).orElse(null);
+        ContainerType containerType = seq.containerType();
+        
+        // For anonymous class methods, always extract to the outer class
+        if (containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            // Find the ObjectCreationExpr that contains this anonymous class
+            Optional<ObjectCreationExpr> anonymousClass = container.findAncestor(ObjectCreationExpr.class)
+                .filter(oce -> oce.getAnonymousClassBody().isPresent());
+            
+            if (anonymousClass.isPresent()) {
+                // Get the type that contains the ObjectCreationExpr
+                return anonymousClass.get().findAncestor(TypeDeclaration.class).orElse(null);
+            }
         }
         
-        // For initializers, lambdas, and other nodes, walk up to find the type
-        return container.findAncestor(TypeDeclaration.class).orElse(null);
+        // For callables (methods, constructors, anonymous class methods)
+        if (container instanceof CallableDeclaration<?> callable) {
+            // Find the immediate containing type (could be inner class)
+            // Use getParentNode() to get immediate parent, not findAncestor() which might skip inner classes
+            Optional<Node> parent = callable.getParentNode();
+            if (parent.isPresent() && parent.get() instanceof TypeDeclaration<?>) {
+                return (TypeDeclaration<?>) parent.get();
+            }
+            
+            // Fallback: walk up the tree to find first TypeDeclaration (preserves inner class context)
+            Node current = callable;
+            while (current != null) {
+                Optional<Node> currentParent = current.getParentNode();
+                if (currentParent.isPresent() && currentParent.get() instanceof TypeDeclaration<?>) {
+                    return (TypeDeclaration<?>) currentParent.get();
+                }
+                current = currentParent.orElse(null);
+            }
+            return null;
+        }
+        
+        // For lambdas and initializers, find the immediate containing type
+        // Walk up the AST to find the first TypeDeclaration
+        Node current = container;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> typeDecl) {
+                return typeDecl;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Find the optimal type for helper method placement when duplicates span multiple types.
+     * Returns the common ancestor type (outer class) if duplicates are in different types,
+     * otherwise returns the type where all duplicates are located.
+     */
+    private TypeDeclaration<?> findOptimalHelperType() {
+        Set<TypeDeclaration<?>> containingTypes = new HashSet<>();
+        
+        // Collect all containing types from sequences
+        for (StatementSequence seq : cluster.allSequences()) {
+            TypeDeclaration<?> type = findContainingTypeFromSequence(seq);
+            if (type != null) {
+                containingTypes.add(type);
+            }
+        }
+        
+        if (containingTypes.isEmpty()) {
+            return null;
+        }
+        
+        // If all sequences are in the same type, use that type
+        if (containingTypes.size() == 1) {
+            return containingTypes.iterator().next();
+        }
+        
+        // Multiple types: find the common ancestor (outer class)
+        // Strategy: find the outermost type that contains all the types
+        TypeDeclaration<?> candidate = null;
+        for (TypeDeclaration<?> type : containingTypes) {
+            if (candidate == null) {
+                candidate = type;
+            } else {
+                // Check if candidate is ancestor of type
+                if (isAncestorType(candidate, type)) {
+                    // candidate is already outer, keep it
+                    continue;
+                } else if (isAncestorType(type, candidate)) {
+                    // type is outer, use it
+                    candidate = type;
+                } else {
+                    // Different branches, find common ancestor
+                    candidate = findCommonAncestorType(candidate, type);
+                    if (candidate == null) {
+                        // No common ancestor (different files?), use first one
+                        return containingTypes.iterator().next();
+                    }
+                }
+            }
+        }
+        
+        return candidate;
+    }
+    
+    /**
+     * Check if ancestorType is an ancestor of descendantType in the AST.
+     */
+    private boolean isAncestorType(TypeDeclaration<?> ancestorType, TypeDeclaration<?> descendantType) {
+        Node current = descendantType;
+        while (current != null) {
+            if (current == ancestorType) {
+                return true;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return false;
+    }
+    
+    /**
+     * Find the common ancestor type of two types.
+     */
+    private TypeDeclaration<?> findCommonAncestorType(TypeDeclaration<?> type1, TypeDeclaration<?> type2) {
+        // Collect all ancestors of type1
+        Set<TypeDeclaration<?>> ancestors1 = new HashSet<>();
+        Node current = type1;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> td) {
+                ancestors1.add(td);
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        
+        // Walk up from type2 to find first common ancestor
+        current = type2;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> td && ancestors1.contains(td)) {
+                return td;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        
+        return null;
     }
 
     private void ensureHelperInType(TypeDeclaration<?> containingType, MethodDeclaration helperMethod) {
+        // Validate that we can add methods to this type
+        if (containingType.isEnumDeclaration()) {
+            throw new IllegalStateException(
+                "Cannot add helper method to enum: " + containingType.getNameAsString());
+        }
+        
+        // For anonymous classes, we should have already handled this in findContainingTypeFromSequence
+        // But add a safety check - anonymous classes don't have a name, so check if it's nested and has no name
+        if (containingType.isNestedType() && containingType.getNameAsString().isEmpty()) {
+            throw new IllegalStateException(
+                "Cannot add helper method to anonymous class");
+        }
+        
         if (hasMatchingMethodSignature(containingType, helperMethod)) {
             validateExistingHelper(containingType, helperMethod);
             return;
