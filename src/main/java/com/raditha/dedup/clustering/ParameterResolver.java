@@ -2,7 +2,6 @@ package com.raditha.dedup.clustering;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier;
-import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
@@ -186,49 +185,20 @@ public class ParameterResolver extends AbstractResolver {
     }
 
     private boolean isContainingMethodStatic(StatementSequence sequence) {
-        // Handle different container types
-        switch (sequence.containerType()) {
-            case STATIC_INITIALIZER:
-                return true;  // Static initializers are always in static context
-            case INSTANCE_INITIALIZER:
-                return false;  // Instance initializers are always in instance context
-            case LAMBDA:
-                // For lambdas, walk up the AST to find the enclosing callable
-                if (sequence.container() instanceof com.github.javaparser.ast.expr.LambdaExpr lambda) {
-                    var enclosingCallable = lambda.findAncestor(com.github.javaparser.ast.body.CallableDeclaration.class);
-                    if (enclosingCallable.isPresent() && enclosingCallable.get() instanceof MethodDeclaration m) {
-                        return m.isStatic();
-                    }
-                    // If we can't find an enclosing callable, assume non-static
-                    return false;
-                }
-                return false;
-            case METHOD:
-                var methodOpt = sequence.containingCallable();
-                if (methodOpt instanceof MethodDeclaration m) {
-                    return m.isStatic();
-                }
-                return false;
-            case CONSTRUCTOR:
-                return false;  // Constructors are never static
-            default:
-                return false;
+        var methodOpt = sequence.containingCallable();
+        if (methodOpt == null) return false;
+
+        if (methodOpt instanceof MethodDeclaration m) {
+            return m.isStatic();
         }
+        return false;
     }
 
     private Map<String, FieldInfo> getFieldInfoMap(StatementSequence sequence) {
         Map<String, FieldInfo> classFields = new HashMap<>();
-        
-        // Find the enclosing class declaration from the container node
-        // Handle both new container-based sequences and old callable-based sequences
-        Node containerNode = sequence.container();
-        if (containerNode == null && sequence.containingCallable() != null) {
-            containerNode = sequence.containingCallable();
-        }
-        
-        if (containerNode != null) {
-            var classDecl = containerNode.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
-            
+        var methodOpt = sequence.containingCallable();
+        if (methodOpt != null) {
+            var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
             classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {
                 boolean isStatic = fd.getModifiers().stream()
                         .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);
@@ -236,7 +206,6 @@ public class ParameterResolver extends AbstractResolver {
                     classFields.put(v.getNameAsString(), new FieldInfo(resolveTypeToAST(v.getType(), v, sequence), isStatic)));
             }));
         }
-        
         return classFields;
     }
 

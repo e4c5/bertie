@@ -1,5 +1,6 @@
 package com.raditha.dedup.analysis;
 
+import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
@@ -199,8 +200,8 @@ public class DataFlowAnalyzer {
 
     public Set<String> findVariablesUsedAfter(StatementSequence sequence) {
         Set<String> usedAfter = new HashSet<>();
-        // Use getCallableBody() to support all container types (methods, constructors, initializers, lambdas)
-        if (sequence.getCallableBody().isEmpty() || sequence.statements().isEmpty()) {
+        CallableDeclaration<?> method = sequence.containingCallable();
+        if (method == null || sequence.getCallableBody().isEmpty() || sequence.statements().isEmpty()) {
             return usedAfter;
         }
 
