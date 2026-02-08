@@ -348,6 +348,8 @@ public class BertieCLI implements Callable<Integer> {
         int totalSuccess = 0;
         int totalSkipped = 0;
         int totalFailed = 0;
+        int totalAddedLines = 0;
+        int totalRemovedLines = 0;
 
         for (DuplicationReport report : reports) {
             if (!report.clusters().isEmpty()) {
@@ -371,6 +373,8 @@ public class BertieCLI implements Callable<Integer> {
                     totalSuccess += session.getSuccessful().size();
                     totalSkipped += session.getSkipped().size();
                     totalFailed += session.getFailed().size();
+                    totalAddedLines += session.getAddedLines();
+                    totalRemovedLines += session.getRemovedLines();
                 } else {
                     System.out.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
                 }
@@ -383,6 +387,11 @@ public class BertieCLI implements Callable<Integer> {
         System.out.printf("✓ Successful refactorings: %d%n", totalSuccess);
         System.out.printf("⊘ Skipped: %d%n", totalSkipped);
         System.out.printf("✗ Failed: %d%n", totalFailed);
+        if (totalSuccess > 0) {
+            int netChange = totalAddedLines - totalRemovedLines;
+            System.out.printf("Δ Actual LOC removed: %d (added: %d, net: %d)%n",
+                    totalRemovedLines, totalAddedLines, netChange);
+        }
         System.out.println();
 
         if (totalSuccess > 0) {
