@@ -9,7 +9,7 @@
     <version>1.0.0-SNAPSHOT</version>
     <name>Bertie - Duplicate Code Detector and Refactoring Tool</name>
     <description>
-        Automatically detect and refactor duplicate code using advanced similarity algorithms 
+        Automatically detect and refactor duplicate code using advanced similarity algorithms
         and intelligent refactoring strategies.
     </description>
 
@@ -26,9 +26,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>sa.com.cloudsolutions</groupId>
+            <groupId>com.github.Cloud-Solutions-International</groupId>
             <artifactId>antikythera</artifactId>
-         <version>${antikythera.version}</version>
+            <version>${antikythera.version}</version>
         </dependency>
 
         <!-- Picocli for command-line parsing -->
