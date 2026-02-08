@@ -179,9 +179,48 @@ public class DuplicationAnalyzer {
     private ProcessedDuplicates processDuplicatePipeline(List<StatementSequence> sequences) {
         // Step 1: Compare all pairs (with pre-filtering)
         List<SimilarityPair> candidates = findCandidates(sequences);
+        
+        // Debug logging for initializer candidates
+        for (SimilarityPair candidate : candidates) {
+            StatementSequence seq1 = candidate.seq1();
+            StatementSequence seq2 = candidate.seq2();
+            if (seq1 != null && seq2 != null) {
+                ContainerType containerType1 = seq1.containerType();
+                ContainerType containerType2 = seq2.containerType();
+                if ((containerType1 == ContainerType.STATIC_INITIALIZER || containerType1 == ContainerType.INSTANCE_INITIALIZER) &&
+                    (containerType2 == ContainerType.STATIC_INITIALIZER || containerType2 == ContainerType.INSTANCE_INITIALIZER)) {
+                    String fileName1 = seq1.sourceFilePath() != null ? seq1.sourceFilePath().getFileName().toString() : "unknown";
+                    String fileName2 = seq2.sourceFilePath() != null ? seq2.sourceFilePath().getFileName().toString() : "unknown";
+                    double score = candidate.similarity().overallScore();
+                    int size1 = seq1.statements().size();
+                    int size2 = seq2.statements().size();
+                    System.out.println("[CANDIDATE] " + containerType1 + " pair: " + fileName1 + " (" + size1 + 
+                        " stmts) vs " + fileName2 + " (" + size2 + " stmts) - score=" + String.format("%.2f", score) + 
+                        ", threshold=" + DuplicationDetectorSettings.getThreshold());
+                }
+            }
+        }
 
         // Step 2: Filter by similarity threshold
         List<SimilarityPair> duplicates = filterByThreshold(candidates);
+        
+        // Debug logging for initializer duplicates after threshold
+        for (SimilarityPair duplicate : duplicates) {
+            StatementSequence seq1 = duplicate.seq1();
+            StatementSequence seq2 = duplicate.seq2();
+            if (seq1 != null && seq2 != null) {
+                ContainerType containerType1 = seq1.containerType();
+                ContainerType containerType2 = seq2.containerType();
+                if ((containerType1 == ContainerType.STATIC_INITIALIZER || containerType1 == ContainerType.INSTANCE_INITIALIZER) &&
+                    (containerType2 == ContainerType.STATIC_INITIALIZER || containerType2 == ContainerType.INSTANCE_INITIALIZER)) {
+                    String fileName1 = seq1.sourceFilePath() != null ? seq1.sourceFilePath().getFileName().toString() : "unknown";
+                    String fileName2 = seq2.sourceFilePath() != null ? seq2.sourceFilePath().getFileName().toString() : "unknown";
+                    double score = duplicate.similarity().overallScore();
+                    System.out.println("[DUPLICATE] " + containerType1 + " pair passed threshold: " + fileName1 + " vs " + fileName2 + 
+                        " (score=" + String.format("%.2f", score) + ")");
+                }
+            }
+        }
 
         // Step 3: Refine boundaries (trim usage-only statements) - optional
         if (DuplicationDetectorSettings.getEnableBoundaryRefinement()) {
@@ -193,11 +232,45 @@ public class DuplicationAnalyzer {
 
         // Step 5: Cluster duplicates
         List<DuplicateCluster> clusters = clusterer.cluster(duplicates);
+        
+        // Debug logging for initializer clusters
+        for (DuplicateCluster cluster : clusters) {
+            StatementSequence primary = cluster.primary();
+            if (primary != null) {
+                ContainerType containerType = primary.containerType();
+                if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
+                    String fileName = primary.sourceFilePath() != null ? 
+                        primary.sourceFilePath().getFileName().toString() : "unknown";
+                    System.out.println("[CLUSTER] Found " + containerType + " cluster in " + fileName + 
+                        " with " + cluster.allSequences().size() + " sequences, " + 
+                        primary.statements().size() + " statements each");
+                }
+            }
+        }
 
         // Step 6: Add refactoring recommendations to clusters
         List<DuplicateCluster> clustersWithRecommendations = clusters.stream()
                 .map(this::addRecommendation)
                 .toList();
+        
+        // Debug logging for initializer recommendations
+        for (DuplicateCluster cluster : clustersWithRecommendations) {
+            StatementSequence primary = cluster.primary();
+            if (primary != null) {
+                ContainerType containerType = primary.containerType();
+                if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
+                    String fileName = primary.sourceFilePath() != null ? 
+                        primary.sourceFilePath().getFileName().toString() : "unknown";
+                    RefactoringRecommendation rec = cluster.recommendation();
+                    if (rec != null) {
+                        System.out.println("[RECOMMENDATION] " + containerType + " in " + fileName + 
+                            ": strategy=" + rec.getStrategy() + ", method=" + rec.getSuggestedMethodName());
+                    } else {
+                        System.out.println("[RECOMMENDATION] " + containerType + " in " + fileName + ": NO RECOMMENDATION");
+                    }
+                }
+            }
+        }
 
         return new ProcessedDuplicates(duplicates, clustersWithRecommendations, candidates.size());
     }
@@ -341,10 +414,11 @@ public class DuplicationAnalyzer {
                 }
 
                 // Lazy Normalization: Only normalize if we have a candidate pair
+                // Use normalizeFuzzy to anonymize identifiers (needed for static initializers with different field names)
                 NormalizedSequence currentNorm = normalizationCache.computeIfAbsent(currentSeq,
-                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
+                    s -> new NormalizedSequence(s, astNormalizer.normalizeFuzzy(s.statements())));
                 NormalizedSequence candidateNorm = normalizationCache.computeIfAbsent(candidateSeq,
-                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
+                    s -> new NormalizedSequence(s, astNormalizer.normalizeFuzzy(s.statements())));
 
                 // analyzePair expects (Earlier, Later) conceptually, but implementation is symmetric
                 // Passing candidate (earlier) first, then current (later) to match typical discovery order
@@ -413,6 +487,21 @@ public class DuplicationAnalyzer {
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
         int size1 = norm1.sequence().statements().size();
         int size2 = norm2.sequence().statements().size();
+        
+        // Debug logging for initializers with size mismatch
+        ContainerType containerType1 = norm1.sequence().containerType();
+        ContainerType containerType2 = norm2.sequence().containerType();
+        if ((containerType1 == ContainerType.STATIC_INITIALIZER || containerType1 == ContainerType.INSTANCE_INITIALIZER) &&
+            (containerType2 == ContainerType.STATIC_INITIALIZER || containerType2 == ContainerType.INSTANCE_INITIALIZER) &&
+            size1 != size2) {
+            String fileName1 = norm1.sequence().sourceFilePath() != null ? 
+                norm1.sequence().sourceFilePath().getFileName().toString() : "unknown";
+            String fileName2 = norm2.sequence().sourceFilePath() != null ? 
+                norm2.sequence().sourceFilePath().getFileName().toString() : "unknown";
+            System.out.println("[SIZE_MISMATCH] " + containerType1 + ": " + fileName1 + " (" + size1 + 
+                " stmts) vs " + fileName2 + " (" + size2 + " stmts)");
+        }
+        
         if (size1 != size2) {
             return new SimilarityPair(norm1.sequence(), norm2.sequence(),
                     new SimilarityResult(0.0, 0.0, 0.0, 0.0, size1, size2,
@@ -421,6 +510,28 @@ public class DuplicationAnalyzer {
 
         var nodes1 = norm1.normalizedNodes();
         var nodes2 = norm2.normalizedNodes();
+        
+        // Debug logging for initializers with same size but low similarity
+        if ((containerType1 == ContainerType.STATIC_INITIALIZER || containerType1 == ContainerType.INSTANCE_INITIALIZER) &&
+            (containerType2 == ContainerType.STATIC_INITIALIZER || containerType2 == ContainerType.INSTANCE_INITIALIZER)) {
+            // Check if normalized strings match
+            if (nodes1.size() == nodes2.size() && nodes1.size() > 0) {
+                int matchingNodes = 0;
+                for (int i = 0; i < nodes1.size(); i++) {
+                    if (nodes1.get(i).structurallyEquals(nodes2.get(i))) {
+                        matchingNodes++;
+                    }
+                }
+                if (matchingNodes < nodes1.size() * 0.5) {
+                    String fileName1 = norm1.sequence().sourceFilePath() != null ? 
+                        norm1.sequence().sourceFilePath().getFileName().toString() : "unknown";
+                    String fileName2 = norm2.sequence().sourceFilePath() != null ? 
+                        norm2.sequence().sourceFilePath().getFileName().toString() : "unknown";
+                    System.out.println("[NORMALIZATION] " + containerType1 + ": " + fileName1 + " vs " + fileName2 + 
+                        " - " + matchingNodes + "/" + nodes1.size() + " nodes match");
+                }
+            }
+        }
 
         SimilarityResult similarity = astSimilarityCalculator.calculate(
                 nodes1,
@@ -489,30 +600,41 @@ public class DuplicationAnalyzer {
     /**
      * Create canonical method-pair key (order-independent).
      * (methodA, methodB) should equal (methodB, methodA)
+     * For non-callable containers (static/instance initializers, lambdas), use the container node itself.
      */
     private CallablePairKey makeCallablePairKey(SimilarityPair pair) {
-        var m1 = pair.seq1().getContainingCallable().orElse(null);
-        var m2 = pair.seq2().getContainingCallable().orElse(null);
+        com.github.javaparser.ast.Node n1 = pair.seq1().getContainingCallable().orElse(null);
+        com.github.javaparser.ast.Node n2 = pair.seq2().getContainingCallable().orElse(null);
+        
+        // For non-callable containers, use the container node for grouping
+        // This ensures sequences from the same initializer/lambda are grouped together
+        if (n1 == null) {
+            n1 = pair.seq1().container();
+        }
+        if (n2 == null) {
+            n2 = pair.seq2().container();
+        }
         
         // Canonical ordering: use identity hash codes for stable comparison
-        int h1 = System.identityHashCode(m1);
-        int h2 = System.identityHashCode(m2);
+        int h1 = System.identityHashCode(n1);
+        int h2 = System.identityHashCode(n2);
         
         // Always put smaller hash first for canonical ordering
         if (h1 <= h2) {
-            return new CallablePairKey(m1, m2);
+            return new CallablePairKey(n1, n2);
         } else {
-            return new CallablePairKey(m2, m1);
+            return new CallablePairKey(n2, n1);
         }
     }
 
     /**
      * Canonical method-pair key for grouping.
      * Ensures (m1, m2) == (m2, m1) via constructor ordering.
+     * For non-callable containers, the "method" fields may contain the container node (InitializerDeclaration, LambdaExpr, etc.)
      */
     private record CallablePairKey(
-        com.github.javaparser.ast.body.CallableDeclaration<?> method1,
-        com.github.javaparser.ast.body.CallableDeclaration<?> method2
+        com.github.javaparser.ast.Node method1,  // Changed to Node to support non-callable containers
+        com.github.javaparser.ast.Node method2   // Changed to Node to support non-callable containers
     ) {}
 
     /**

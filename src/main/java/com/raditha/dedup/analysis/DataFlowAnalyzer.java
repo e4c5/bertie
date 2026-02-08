@@ -70,7 +70,39 @@ public class DataFlowAnalyzer {
         internalOnly.removeAll(topLevelDefined);
         liveOut.removeAll(internalOnly);
 
+        // For static initializers, exclude static field assignments from live-out variables
+        // Static fields should be modified directly in the extracted method, not returned
+        if (sequence.containerType() == ContainerType.STATIC_INITIALIZER) {
+            Set<String> staticFields = findStaticFields(sequence);
+            liveOut.removeAll(staticFields);
+        }
+
         return liveOut;
+    }
+
+    /**
+     * Find all static field names in the containing class.
+     * Used to exclude static field assignments from live-out variables.
+     */
+    private Set<String> findStaticFields(StatementSequence sequence) {
+        Set<String> staticFields = new HashSet<>();
+        var container = sequence.container();
+        if (container == null) {
+            return staticFields;
+        }
+        
+        var containingClass = container.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (containingClass.isEmpty()) {
+            return staticFields;
+        }
+        
+        containingClass.get().getFields().forEach(field -> {
+            if (field.isStatic()) {
+                field.getVariables().forEach(v -> staticFields.add(v.getNameAsString()));
+            }
+        });
+        
+        return staticFields;
     }
 
     /**

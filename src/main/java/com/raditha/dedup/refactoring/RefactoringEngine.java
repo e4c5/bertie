@@ -1,6 +1,7 @@
 package com.raditha.dedup.refactoring;
 
 import com.raditha.dedup.analyzer.DuplicationReport;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
@@ -199,13 +200,39 @@ public class RefactoringEngine {
     }
 
     boolean canRefactor(RefactoringSession session , RefactoringRecommendation recommendation, DuplicateCluster cluster) {
+        // Debug logging for initializers
+        StatementSequence primary = cluster.primary();
+        if (primary != null) {
+            ContainerType containerType = primary.containerType();
+            if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
+                String fileName = primary.sourceFilePath() != null ? 
+                    primary.sourceFilePath().getFileName().toString() : "unknown";
+                System.out.println("[CAN_REFACTOR] Checking " + containerType + " in " + fileName);
+            }
+        }
 
         if (recommendation == null) {
+            if (primary != null) {
+                ContainerType containerType = primary.containerType();
+                if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
+                    String fileName = primary.sourceFilePath() != null ? 
+                        primary.sourceFilePath().getFileName().toString() : "unknown";
+                    System.out.println("[SKIP] No recommendation for " + containerType + " in " + fileName);
+                }
+            }
             session.addSkipped(cluster, "No recommendation generated");
             return false;
         }
 
         if (recommendation.getStrategy() == RefactoringStrategy.MANUAL_REVIEW_REQUIRED) {
+            if (primary != null) {
+                ContainerType containerType = primary.containerType();
+                if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
+                    String fileName = primary.sourceFilePath() != null ? 
+                        primary.sourceFilePath().getFileName().toString() : "unknown";
+                    System.out.println("[SKIP] Manual review required for " + containerType + " in " + fileName);
+                }
+            }
             session.addSkipped(cluster, "Manual review required (risky control flow or complex logic)");
             return false;
         }
@@ -213,6 +240,15 @@ public class RefactoringEngine {
         // Safety validation
         SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
         if (!validation.isValid() && mode != RefactoringMode.DRY_RUN) {
+            if (primary != null) {
+                ContainerType containerType = primary.containerType();
+                if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
+                    String fileName = primary.sourceFilePath() != null ? 
+                        primary.sourceFilePath().getFileName().toString() : "unknown";
+                    System.out.println("[SKIP] Safety validation failed for " + containerType + " in " + fileName);
+                    validation.getErrors().forEach(e -> System.out.println("     - " + e));
+                }
+            }
             System.out.println("  ⊘ Skipped due to safety validation errors:");
             validation.getErrors().forEach(e -> System.out.println("     - " + e));
             session.addSkipped(cluster, String.join("; ", validation.getErrors()));

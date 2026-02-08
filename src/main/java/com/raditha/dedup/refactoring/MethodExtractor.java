@@ -103,6 +103,31 @@ public class MethodExtractor extends AbstractExtractor {
                     "Refactoring aborted: Invalid method name generated");
         }
         
+        // If we're reusing a constructor, check if we should use constructor delegation
+        // Constructor delegation requires: all sequences are constructors, at start, same class
+        boolean isConstructorReuse = targetCallable.isConstructor();
+        boolean shouldUseConstructorDelegation = false;
+        
+        if (isConstructorReuse) {
+            // Check if all sequences are constructors at the start
+            boolean allConstructors = cluster.allSequences().stream()
+                .allMatch(seq -> seq.getContainingCallable().orElse(null) instanceof ConstructorDeclaration);
+            boolean allAtStart = cluster.allSequences().stream()
+                .allMatch(seq -> seq.startOffset() == 0);
+            boolean sameClass = !isCrossFileCluster();
+            
+            shouldUseConstructorDelegation = allConstructors && allAtStart && sameClass &&
+                (recommendation.getStrategy() == RefactoringStrategy.CONSTRUCTOR_DELEGATION ||
+                 // Also use delegation if strategy is EXTRACT_HELPER_METHOD but all conditions for delegation are met
+                 recommendation.getStrategy() == RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        }
+        
+        // Skip helper method creation if we can use constructor delegation
+        if (shouldUseConstructorDelegation) {
+            // Use constructor delegation (this() calls) - skip helper method
+            return executeReplacements();
+        }
+        
         // Check if method name matches class name (which would be wrong)
         TypeDeclaration<?> containingType = findContainingTypeFromSequence(cluster.primary());
         if (containingType != null && methodNameToUse.equals(containingType.getNameAsString())) {
@@ -239,6 +264,14 @@ public class MethodExtractor extends AbstractExtractor {
 
         Optional<CallableDeclaration<?>> mOpt = seq.getContainingCallable();
         if (mOpt.isEmpty()) return null;
+        
+        // Don't reuse anonymous class methods - they're in a different scope
+        // We should always create a helper method in the outer class instead
+        ContainerType containerType = seq.containerType();
+        if (containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            return null;
+        }
+        
         CallableDeclaration<?> m = mOpt.get();
         if (m instanceof MethodDeclaration method) {
             return findMatchInMethod(method, helperMethod);
