@@ -96,6 +96,27 @@ public class MethodExtractor extends AbstractExtractor {
         MethodDeclaration helperMethod = helperResult.method();
         this.targetCallable = findReusableMethod();
         this.methodNameToUse = targetCallable.name();
+        
+        // Safety check: Ensure method name is valid and not a class name
+        if (methodNameToUse == null || methodNameToUse.isEmpty()) {
+            return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                    "Refactoring aborted: Invalid method name generated");
+        }
+        
+        // Check if method name matches class name (which would be wrong)
+        TypeDeclaration<?> containingType = findContainingTypeFromSequence(cluster.primary());
+        if (containingType != null && methodNameToUse.equals(containingType.getNameAsString())) {
+            // Fallback to recommendation's suggested name
+            String suggestedName = recommendation.getSuggestedMethodName();
+            if (suggestedName != null && !suggestedName.isEmpty() && !suggestedName.equals(containingType.getNameAsString())) {
+                methodNameToUse = suggestedName;
+                helperMethod.setName(suggestedName);
+            } else {
+                // Last resort: use a safe default
+                methodNameToUse = "extractedMethod";
+                helperMethod.setName("extractedMethod");
+            }
+        }
 
         // Add new helper if no reuse target was found
         Optional<RefactoringResult> skipResult = ensureHelperMethodAttached(helperMethod);
@@ -1262,16 +1283,33 @@ public class MethodExtractor extends AbstractExtractor {
              if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                  return null;
              }
-             Optional<CallableDeclaration<?>> methodOpt = sequence.getContainingCallable();
-             if (methodOpt.isEmpty()) {
+             
+             ContainerType containerType = sequence.containerType();
+             if (containerType == null) {
                  return null;
              }
-             CallableDeclaration<?> method = methodOpt.get();
-
-             for (Parameter p : method.getParameters()) {
-                 if (p.getNameAsString().equals(varName)) return p.getType();
+             
+             // Handle callable containers (methods, constructors, anonymous class methods)
+             Optional<CallableDeclaration<?>> methodOpt = sequence.getContainingCallable();
+             if (methodOpt.isPresent()) {
+                 CallableDeclaration<?> method = methodOpt.get();
+                 
+                 // Check parameters
+                 for (Parameter p : method.getParameters()) {
+                     if (p.getNameAsString().equals(varName)) return p.getType();
+                 }
              }
-
+             
+             // Handle lambda parameters
+             if (containerType == ContainerType.LAMBDA && sequence.container() instanceof LambdaExpr lambda) {
+                 for (Parameter p : lambda.getParameters()) {
+                     if (p.getNameAsString().equals(varName)) {
+                         return p.getType();
+                     }
+                 }
+             }
+             
+             // Check for variable declarations in the body (works for all container types)
              for (Statement stmt : bodyOpt.get().getStatements()) {
                   if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
                       for (com.github.javaparser.ast.body.VariableDeclarator v : stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()) {
@@ -1279,6 +1317,26 @@ public class MethodExtractor extends AbstractExtractor {
                       }
                   }
              }
+             
+             // For initializers and lambdas, also check class fields
+             if (containerType == ContainerType.INSTANCE_INITIALIZER || 
+                 containerType == ContainerType.STATIC_INITIALIZER ||
+                 containerType == ContainerType.LAMBDA) {
+                 
+                 com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz = 
+                     sequence.container().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+                 
+                 if (clazz != null) {
+                     for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
+                         for (com.github.javaparser.ast.body.VariableDeclarator var : field.getVariables()) {
+                             if (var.getNameAsString().equals(varName)) {
+                                 return field.getElementType();
+                             }
+                         }
+                     }
+                 }
+             }
+             
              return null;
         }
 
@@ -1364,18 +1422,21 @@ public class MethodExtractor extends AbstractExtractor {
          * but NOT in the sequence).
          */
         private boolean isLocalVariable(StatementSequence sequence, String varName) {
-            Optional<CallableDeclaration<?>> containingCallableOpt = sequence.getContainingCallable();
             Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
-            if (containingCallableOpt.isEmpty() || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
+            if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                 return false;
             }
-            CallableDeclaration<?> containingCallable = containingCallableOpt.get();
-
-            // Search for variable declaration in method body but BEFORE the sequence start
+            
+            ContainerType containerType = sequence.containerType();
+            if (containerType == null) {
+                return false;
+            }
+            
+            // Search for variable declaration in container body but BEFORE the sequence start
             int sequenceStartLine = sequence.range().startLine();
-            BlockStmt methodBody = bodyOpt.get();
+            BlockStmt containerBody = bodyOpt.get();
 
-            for (VariableDeclarationExpr varDecl : methodBody.findAll(VariableDeclarationExpr.class)) {
+            for (VariableDeclarationExpr varDecl : containerBody.findAll(VariableDeclarationExpr.class)) {
                 if (varDecl.getRange().isPresent() &&
                         varDecl.getRange().get().begin.line < sequenceStartLine) {
                     for (var variable : varDecl.getVariables()) {
@@ -1386,10 +1447,23 @@ public class MethodExtractor extends AbstractExtractor {
                 }
             }
 
-            // Also check method parameters
-            for (var param : containingCallable.getParameters()) {
-                if (param.getNameAsString().equals(varName)) {
-                    return true; // It's a method parameter, treated as external
+            // Check callable parameters (methods, constructors, anonymous class methods)
+            Optional<CallableDeclaration<?>> containingCallableOpt = sequence.getContainingCallable();
+            if (containingCallableOpt.isPresent()) {
+                CallableDeclaration<?> containingCallable = containingCallableOpt.get();
+                for (var param : containingCallable.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        return true; // It's a parameter, treated as external
+                    }
+                }
+            }
+            
+            // Check lambda parameters
+            if (containerType == ContainerType.LAMBDA && sequence.container() instanceof LambdaExpr lambda) {
+                for (Parameter param : lambda.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        return true; // It's a lambda parameter, treated as external
+                    }
                 }
             }
 

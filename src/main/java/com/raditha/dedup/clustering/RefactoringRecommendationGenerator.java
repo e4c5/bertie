@@ -20,6 +20,7 @@ import com.raditha.dedup.refactoring.MethodNameGenerator;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -403,11 +404,28 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
-        CallableDeclaration<?> callable = cluster.primary().getContainingCallable().orElse(null);
-        if (callable == null) return "extractedMethod";
-
-        var containingClass = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .orElse(null);
+        StatementSequence primary = cluster.primary();
+        
+        // Find containing class - works for both callable and non-callable containers
+        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration containingClass = null;
+        
+        // Try via callable first (for methods, constructors, anonymous class methods)
+        Optional<CallableDeclaration<?>> callableOpt = primary.getContainingCallable();
+        if (callableOpt.isPresent()) {
+            containingClass = callableOpt.get().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElse(null);
+        }
+        
+        // If not found via callable, try via container node (for lambdas, initializers)
+        if (containingClass == null && primary.container() != null) {
+            containingClass = primary.container().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElse(null);
+        }
+        
+        // Fallback if still not found
+        if (containingClass == null) {
+            return "extractedMethod";
+        }
 
         return nameGenerator.generateName(
                 cluster,

@@ -124,8 +124,22 @@ public class RefactoringOrchestrator {
 
         // ROBUST RESOLUTION: If container is detached or from a different CU, try to find class in current CU
         if (classOpt.isEmpty()) {
-            // For callable containers (methods/constructors), use name-based lookup as fallback
-            if (primary.getContainingCallable().isPresent()) {
+            // Strategy 1: Walk up the parent chain from the container node
+            com.github.javaparser.ast.Node current = primary.container();
+            while (current != null && classOpt.isEmpty()) {
+                if (current instanceof ClassOrInterfaceDeclaration clazz) {
+                    // Check if this class is in the current CU
+                    if (cu.findAll(ClassOrInterfaceDeclaration.class).contains(clazz)) {
+                        classOpt = Optional.of(clazz);
+                        logger.debug("Resolved class via parent chain: {}", clazz.getNameAsString());
+                        break;
+                    }
+                }
+                current = current.getParentNode().orElse(null);
+            }
+            
+            // Strategy 2: For callable containers (methods/constructors), use name-based lookup
+            if (classOpt.isEmpty() && primary.getContainingCallable().isPresent()) {
                 CallableDeclaration<?> callable = primary.getContainingCallable().get();
                 String name = callable.getNameAsString();
                 List<ClassOrInterfaceDeclaration> candidates = new ArrayList<>();
@@ -145,10 +159,16 @@ public class RefactoringOrchestrator {
                     classOpt = Optional.of(candidates.get(0));
                     logger.debug("Robustly resolved class context for orphaned callable: {} -> {}", name, classOpt.get().getNameAsString());
                 } else if (candidates.size() > 1) {
-                    logger.warn("Ambiguous class resolution for callable '{}': {} candidates in CU", name, candidates.size());
+                    // Pick the most specific (innermost) class
+                    classOpt = candidates.stream()
+                            .max(java.util.Comparator.comparingInt(c -> c.getRange().map(r -> r.begin.line).orElse(0)));
+                    logger.warn("Ambiguous class resolution for callable '{}': {} candidates, picked {}", 
+                               name, candidates.size(), classOpt.map(ClassOrInterfaceDeclaration::getNameAsString).orElse("none"));
                 }
-            } else {
-                // For non-callable containers (lambdas, initializers), try line-based resolution
+            }
+            
+            // Strategy 3: For non-callable containers (lambdas, initializers), use line-based resolution
+            if (classOpt.isEmpty()) {
                 int containerLine = primary.range().startLine();
                 List<ClassOrInterfaceDeclaration> candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
                         .filter(c -> c.getRange().isPresent() && 
@@ -156,10 +176,12 @@ public class RefactoringOrchestrator {
                                      c.getRange().get().end.line >= containerLine)
                         .toList();
                 
-                // Pick the most specific (innermost) class
+                // Pick the most specific (innermost) class - prefer nested classes
                 if (!candidates.isEmpty()) {
-                    classOpt = candidates.stream()
-                            .max(java.util.Comparator.comparingInt(c -> c.getRange().map(r -> r.begin.line).orElse(0)));
+                    // Sort by start line (later = more nested) and pick the last one
+                    List<ClassOrInterfaceDeclaration> mutableCandidates = new ArrayList<>(candidates);
+                    mutableCandidates.sort(java.util.Comparator.comparingInt(c -> c.getRange().map(r -> r.begin.line).orElse(0)));
+                    classOpt = Optional.of(mutableCandidates.get(mutableCandidates.size() - 1));
                     logger.debug("Resolved class context for non-callable container via line {} -> {}", 
                                  containerLine, classOpt.map(ClassOrInterfaceDeclaration::getNameAsString).orElse("none"));
                 }
