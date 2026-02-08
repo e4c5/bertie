@@ -3,6 +3,7 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -111,16 +112,19 @@ public class MethodExtractor extends AbstractExtractor {
             return Optional.empty();
         }
 
-        Optional<CallableDeclaration<?>> containingCallableOpt = cluster.primary().getContainingCallable();
-        if (containingCallableOpt.isEmpty()) {
-            // For non-callable containers (lambdas, initializers), skip helper attachment
-            return Optional.empty();
+        // Find the containing type - works for both callables and non-callables (initializers, lambdas)
+        TypeDeclaration<?> containingType = findContainingTypeFromSequence(cluster.primary());
+        if (containingType == null) {
+            return Optional.of(new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                    "Refactoring aborted: Could not find containing type for sequence"));
         }
-        CallableDeclaration<?> containingCallable = containingCallableOpt.get();
+
+        Optional<CallableDeclaration<?>> containingCallableOpt = cluster.primary().getContainingCallable();
+        CallableDeclaration<?> containingCallable = containingCallableOpt.orElse(null);
 
         // FIXED: If the containingCallable is detached from the AST (e.g., after previous
         // refactorings modified the file), re-resolve it from the live CompilationUnit
-        if (containingCallable.getParentNode().isEmpty()) {
+        if (containingCallable != null && containingCallable.getParentNode().isEmpty()) {
             String callableName = containingCallable.getNameAsString();
             logger.debug("Refreshing detached containingCallable: {}", callableName);
 
@@ -135,10 +139,6 @@ public class MethodExtractor extends AbstractExtractor {
                         "Skipped: method '" + callableName + "' was already refactored by a previous cluster"));
             }
         }
-
-        TypeDeclaration<?> containingType = containingCallable
-                .findAncestor(TypeDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No containing type found"));
 
         MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
                 cluster.getContainingMethods());
@@ -324,13 +324,7 @@ public class MethodExtractor extends AbstractExtractor {
             Map<CompilationUnit, Path> modifiedCUs) {
 
         for (StatementSequence seq : cluster.allSequences()) {
-            Optional<CallableDeclaration<?>> containingCallableOpt = seq.getContainingCallable();
-            if (containingCallableOpt.isEmpty()) {
-                continue;
-            }
-            CallableDeclaration<?> containingCallable = containingCallableOpt.get();
-
-            TypeDeclaration<?> containingType = findContainingType(containingCallable);
+            TypeDeclaration<?> containingType = findContainingTypeFromSequence(seq);
             if (containingType == null) {
                 continue;
             }
@@ -340,8 +334,22 @@ public class MethodExtractor extends AbstractExtractor {
         }
     }
 
-    private TypeDeclaration<?> findContainingType(CallableDeclaration<?> containingCallable) {
-        return containingCallable.findAncestor(TypeDeclaration.class).orElse(null);
+    /**
+     * Find the containing type from any sequence container (callable, initializer, lambda).
+     */
+    private TypeDeclaration<?> findContainingTypeFromSequence(StatementSequence seq) {
+        Node container = seq.container();
+        if (container == null) {
+            return null;
+        }
+        
+        // For callables, use the callable's parent type
+        if (container instanceof CallableDeclaration<?> callable) {
+            return callable.findAncestor(TypeDeclaration.class).orElse(null);
+        }
+        
+        // For initializers, lambdas, and other nodes, walk up to find the type
+        return container.findAncestor(TypeDeclaration.class).orElse(null);
     }
 
     private void ensureHelperInType(TypeDeclaration<?> containingType, MethodDeclaration helperMethod) {

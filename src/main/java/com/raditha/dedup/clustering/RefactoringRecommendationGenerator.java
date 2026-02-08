@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -132,6 +133,15 @@ public class RefactoringRecommendationGenerator {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
         }
 
+        // Handle new container types first
+        ContainerType containerType = primarySeq.containerType();
+        if (containerType != null) {
+            RefactoringStrategy containerStrategy = determineStrategyForContainerType(cluster, primarySeq, containerType);
+            if (containerStrategy != null) {
+                return containerStrategy;
+            }
+        }
+
         // Check for Constructor Delegation
         // If all sequences are constructors in the same class and at the start of the body
         if (areAllConstructorsAtStart(cluster) && !isCrossFileDuplication(cluster)) {
@@ -178,6 +188,53 @@ public class RefactoringRecommendationGenerator {
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
     }
 
+    /**
+     * Determine refactoring strategy based on container type.
+     * Returns null if no special handling is needed and normal strategy selection should proceed.
+     */
+    private RefactoringStrategy determineStrategyForContainerType(
+            DuplicateCluster cluster, StatementSequence primarySeq, ContainerType containerType) {
+        
+        return switch (containerType) {
+            case STATIC_INITIALIZER -> {
+                // Static initializers can only be refactored to static helper methods
+                // Cross-file static initializer duplicates could use utility class
+                if (isCrossFileDuplication(cluster)) {
+                    yield RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
+                }
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case INSTANCE_INITIALIZER -> {
+                // Instance initializers extract to instance helper methods
+                // Cannot use CONSTRUCTOR_DELEGATION since they're not constructors
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case LAMBDA -> {
+                // Lambdas extract to helper methods (potential for method reference conversion)
+                // Cross-file lambda duplicates could use utility class if no instance state
+                if (isCrossFileDuplication(cluster) && !usesInstanceState(primarySeq)) {
+                    yield RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
+                }
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case ANONYMOUS_CLASS_METHOD -> {
+                // Anonymous class methods - typically extract helper, but may need manual review
+                // if they access outer class state in complex ways
+                if (isCrossFileDuplication(cluster)) {
+                    // Cross-file anonymous class duplicates are tricky
+                    yield RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+                }
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            // Standard container types - let normal logic handle them
+            case METHOD, CONSTRUCTOR -> null;
+        };
+    }
+
     private boolean isMethodBody(StatementSequence seq) {
         CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
         if (method == null || seq.getCallableBody().isEmpty()) {
@@ -205,11 +262,28 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean usesInstanceState(StatementSequence seq) {
-        // If the method is not static, we assume it belongs to an object context
-        // and should be extracted to a Parent Class (preserving inheritance)
-        // rather than a Utility class.
-        // This matches the original behavior and ensures Service classes
-        // are refactored into BaseService hierarchies.
+        // Check container type first for new container types
+        ContainerType containerType = seq.containerType();
+        if (containerType != null) {
+            return switch (containerType) {
+                case STATIC_INITIALIZER -> false; // Static context
+                case INSTANCE_INITIALIZER -> true; // Instance context
+                case LAMBDA, ANONYMOUS_CLASS_METHOD -> {
+                    // Lambdas/anonymous classes inherit context from enclosing scope
+                    yield !seq.isStaticContext();
+                }
+                case METHOD -> {
+                    CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
+                    if (method instanceof MethodDeclaration m) {
+                        yield !m.isStatic();
+                    }
+                    yield true;
+                }
+                case CONSTRUCTOR -> true; // Constructors use instance state
+            };
+        }
+        
+        // Fallback for legacy code paths
         CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
         if (method == null) return false;
         if (method instanceof MethodDeclaration m) {
