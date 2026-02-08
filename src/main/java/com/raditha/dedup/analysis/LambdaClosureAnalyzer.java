@@ -1,8 +1,10 @@
 package com.raditha.dedup.analysis;
 
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.StatementSequence;
 
 import java.util.*;
@@ -14,13 +16,20 @@ import java.util.*;
 public class LambdaClosureAnalyzer {
 
     /**
-     * Find all variables captured by lambdas in the given statement sequence.
-     * A variable is "captured" if it's used inside a lambda but declared outside of
-     * it.
+     * Find all variables captured in the given statement sequence.
+     * For LAMBDA containers: finds variables used in the sequence but defined outside.
+     * For other containers: finds variables captured by nested lambdas.
      */
     public static Set<String> findAllCapturedVariables(StatementSequence sequence) {
         Set<String> allCaptured = new HashSet<>();
 
+        // Special handling when the container IS a lambda
+        if (sequence.containerType() == ContainerType.LAMBDA && sequence.container() instanceof LambdaExpr lambda) {
+            allCaptured.addAll(findCapturedVariablesForLambdaContainer(lambda, sequence));
+            return allCaptured;
+        }
+
+        // For other container types, look for nested lambdas
         for (Statement stmt : sequence.statements()) {
             List<LambdaExpr> lambdas = stmt.findAll(LambdaExpr.class);
             for (LambdaExpr lambda : lambdas) {
@@ -29,6 +38,38 @@ public class LambdaClosureAnalyzer {
         }
 
         return allCaptured;
+    }
+
+    /**
+     * Find captured variables when the sequence container is itself a lambda.
+     * Variables are "captured" if used in the lambda but not defined within it.
+     */
+    private static Set<String> findCapturedVariablesForLambdaContainer(LambdaExpr lambda, StatementSequence sequence) {
+        Set<String> captured = new HashSet<>();
+
+        // Lambda parameters are not captured
+        Set<String> lambdaParams = new HashSet<>();
+        lambda.getParameters().forEach(param -> lambdaParams.add(param.getNameAsString()));
+
+        // Variables declared in the sequence
+        Set<String> declaredInSequence = new HashSet<>();
+        for (Statement stmt : sequence.statements()) {
+            stmt.findAll(VariableDeclarator.class)
+                    .forEach(v -> declaredInSequence.add(v.getNameAsString()));
+        }
+
+        // Find all variable references in the sequence
+        for (Statement stmt : sequence.statements()) {
+            stmt.findAll(NameExpr.class).forEach(nameExpr -> {
+                String varName = nameExpr.getNameAsString();
+                // Skip lambda params and locally declared variables
+                if (!lambdaParams.contains(varName) && !declaredInSequence.contains(varName)) {
+                    captured.add(varName);
+                }
+            });
+        }
+
+        return captured;
     }
 
     /**

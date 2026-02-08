@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static com.raditha.dedup.model.ContainerType.*;
 
 /**
  * Unit tests for StatementExtractor.
@@ -294,5 +295,218 @@ class StatementExtractorTest {
         assertEquals(8, sequences.get(0).statements().size()); // Special Case is added FIRST
         // And the first windowed sequence (which was at index 0 before) is now at index 1
         assertEquals(7, sequences.get(1).statements().size());
+    }
+
+    // ========== Tests for new container types ==========
+
+    @Test
+    void testExtractFromStaticInitializer() {
+        String code = """
+                class Test {
+                    static {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        assertEquals(1, sequences.size());
+        StatementSequence seq = sequences.get(0);
+        assertEquals(5, seq.statements().size());
+        assertEquals(STATIC_INITIALIZER, seq.containerType());
+        assertEquals("<static-init>", seq.getContainerName());
+        assertTrue(seq.isStaticContext());
+    }
+
+    @Test
+    void testExtractFromInstanceInitializer() {
+        String code = """
+                class Test {
+                    {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        assertEquals(1, sequences.size());
+        StatementSequence seq = sequences.get(0);
+        assertEquals(5, seq.statements().size());
+        assertEquals(INSTANCE_INITIALIZER, seq.containerType());
+        assertEquals("<instance-init>", seq.getContainerName());
+        assertFalse(seq.isStaticContext());
+    }
+
+    @Test
+    void testExtractFromLambdaBlock() {
+        String code = """
+                import java.util.function.Consumer;
+                class Test {
+                    void method() {
+                        Consumer<String> c = (s) -> {
+                            int a = 1;
+                            int b = 2;
+                            int c = 3;
+                            int d = 4;
+                            int e = 5;
+                        };
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        // Should extract from both the method (1 statement) and the lambda (5 statements)
+        // Method has only 1 statement so won't be extracted
+        assertEquals(1, sequences.size());
+        StatementSequence seq = sequences.get(0);
+        assertEquals(5, seq.statements().size());
+        assertEquals(LAMBDA, seq.containerType());
+        assertTrue(seq.getContainerName().startsWith("<lambda@"));
+    }
+
+    @Test
+    void testExtractFromAnonymousClassMethod() {
+        String code = """
+                class Test {
+                    Runnable r = new Runnable() {
+                        @Override
+                        public void run() {
+                            int a = 1;
+                            int b = 2;
+                            int c = 3;
+                            int d = 4;
+                            int e = 5;
+                        }
+                    };
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        assertEquals(1, sequences.size());
+        StatementSequence seq = sequences.get(0);
+        assertEquals(5, seq.statements().size());
+        assertEquals(ANONYMOUS_CLASS_METHOD, seq.containerType());
+        assertEquals("run@anonymous", seq.getContainerName());
+    }
+
+    @Test
+    void testExtractFromMultipleContainerTypes() {
+        String code = """
+                import java.util.function.Consumer;
+                class Test {
+                    static {
+                        int a = 1;
+                        int b = 2;
+                        int c = 3;
+                        int d = 4;
+                        int e = 5;
+                    }
+                    
+                    {
+                        int x = 1;
+                        int y = 2;
+                        int z = 3;
+                        int w = 4;
+                        int v = 5;
+                    }
+                    
+                    void method() {
+                        int m1 = 1;
+                        int m2 = 2;
+                        int m3 = 3;
+                        int m4 = 4;
+                        int m5 = 5;
+                    }
+                    
+                    Test() {
+                        int c1 = 1;
+                        int c2 = 2;
+                        int c3 = 3;
+                        int c4 = 4;
+                        int c5 = 5;
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        // Should extract from: static init, instance init, method, constructor
+        assertEquals(4, sequences.size());
+        
+        // Verify we have one of each container type
+        assertTrue(sequences.stream().anyMatch(s -> s.containerType() == STATIC_INITIALIZER));
+        assertTrue(sequences.stream().anyMatch(s -> s.containerType() == INSTANCE_INITIALIZER));
+        assertTrue(sequences.stream().anyMatch(s -> s.containerType() == METHOD));
+        assertTrue(sequences.stream().anyMatch(s -> s.containerType() == CONSTRUCTOR));
+    }
+
+    @Test
+    void testLambdaExpressionNotBlock() {
+        // Lambda with expression body (not block) should NOT be extracted
+        String code = """
+                import java.util.function.Function;
+                class Test {
+                    Function<Integer, Integer> f = (x) -> x + 1;
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        // Expression lambda has no block, so nothing to extract
+        assertEquals(0, sequences.size());
+    }
+
+    @Test
+    void testNestedLambdasExtracted() {
+        String code = """
+                import java.util.function.Consumer;
+                class Test {
+                    void method() {
+                        Consumer<String> outer = (s) -> {
+                            Consumer<String> inner = (t) -> {
+                                int a = 1;
+                                int b = 2;
+                                int c = 3;
+                                int d = 4;
+                                int e = 5;
+                            };
+                            inner.accept(s);
+                        };
+                    }
+                }
+                """;
+
+        CompilationUnit cu = StaticJavaParser.parse(code);
+        cu.setStorage(testFile);
+        List<StatementSequence> sequences = extractor.extractSequences(cu);
+
+        // Inner lambda has 5 statements, outer lambda has 2 (not enough)
+        assertEquals(1, sequences.size());
+        assertEquals(LAMBDA, sequences.get(0).containerType());
+        assertEquals(5, sequences.get(0).statements().size());
     }
 }
