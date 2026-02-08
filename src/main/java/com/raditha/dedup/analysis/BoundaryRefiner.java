@@ -138,7 +138,7 @@ public class BoundaryRefiner {
         }
 
         // Get the parent block to access preceding statements
-        if (sequence.containingCallable() == null || sequence.getCallableBody().isEmpty()) {
+        if (sequence.getCallableBody().isEmpty()) {
             return sequence;
         }
 
@@ -362,7 +362,8 @@ public class BoundaryRefiner {
                 new ArrayList<>(trimmed),
                 newRange,
                 original.startOffset(),
-                original.containingCallable(),
+                original.container(),
+                original.containerType(),
                 original.compilationUnit(),
                 original.sourceFilePath());
     }

@@ -179,7 +179,7 @@ public class RefactoringRecommendationGenerator {
     }
 
     private boolean isMethodBody(StatementSequence seq) {
-        CallableDeclaration<?> method = seq.containingCallable();
+        CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
         if (method == null || seq.getCallableBody().isEmpty()) {
             return false;
         }
@@ -210,7 +210,7 @@ public class RefactoringRecommendationGenerator {
         // rather than a Utility class.
         // This matches the original behavior and ensures Service classes
         // are refactored into BaseService hierarchies.
-        CallableDeclaration<?> method = seq.containingCallable();
+        CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
         if (method == null) return false;
         if (method instanceof MethodDeclaration m) {
             return !m.isStatic();
@@ -276,7 +276,7 @@ public class RefactoringRecommendationGenerator {
         boolean hasPerfectMaster = false;
 
         for (StatementSequence seq : cluster.allSequences()) {
-            CallableDeclaration<?> callable = seq.containingCallable();
+            CallableDeclaration<?> callable = seq.getContainingCallable().orElse(null);
             if (!(callable instanceof com.github.javaparser.ast.body.ConstructorDeclaration)) {
                 return false;
             }
@@ -306,7 +306,7 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
-        CallableDeclaration<?> callable = cluster.primary().containingCallable();
+        CallableDeclaration<?> callable = cluster.primary().getContainingCallable().orElse(null);
         if (callable == null) return "extractedMethod";
 
         var containingClass = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
@@ -339,7 +339,7 @@ public class RefactoringRecommendationGenerator {
      * Get all field names from the containing class.
      */
     private Set<String> getFieldNames(StatementSequence sequence) {
-        var method = sequence.containingCallable();
+        var method = sequence.getContainingCallable().orElse(null);
         if (method == null) {
             return Collections.emptySet();
         }

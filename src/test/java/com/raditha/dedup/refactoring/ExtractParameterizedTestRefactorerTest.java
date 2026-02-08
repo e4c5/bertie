@@ -454,6 +454,7 @@ class ExtractParameterizedTestRefactorerTest {
                     new Range(i * 10 + 1, i * 10 + statements.size(), 1, 1), // Unique range per method
                     0,
                     method,
+                    ContainerType.METHOD,
                     cu,
                     Paths.get("Test.java"));
             sequences.add(seq);

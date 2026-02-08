@@ -111,10 +111,12 @@ public class MethodExtractor extends AbstractExtractor {
             return Optional.empty();
         }
 
-        CallableDeclaration<?> containingCallable = cluster.primary().containingCallable();
-        if (containingCallable == null) {
-            throw new IllegalStateException("No containing method found for primary sequence");
+        Optional<CallableDeclaration<?>> containingCallableOpt = cluster.primary().getContainingCallable();
+        if (containingCallableOpt.isEmpty()) {
+            // For non-callable containers (lambdas, initializers), skip helper attachment
+            return Optional.empty();
         }
+        CallableDeclaration<?> containingCallable = containingCallableOpt.get();
 
         // FIXED: If the containingCallable is detached from the AST (e.g., after previous
         // refactorings modified the file), re-resolve it from the live CompilationUnit
@@ -200,17 +202,23 @@ public class MethodExtractor extends AbstractExtractor {
     }
 
     private boolean isSequenceEligibleForReuse(StatementSequence seq) {
-        CallableDeclaration<?> m = seq.containingCallable();
-        if (m == null) return false;
+        Optional<CallableDeclaration<?>> mOpt = seq.getContainingCallable();
+        if (mOpt.isEmpty()) return false;
+        CallableDeclaration<?> m = mOpt.get();
 
         return cluster.allSequences().stream()
-                .anyMatch(otherSeq -> otherSeq.containingCallable() != m);
+                .anyMatch(otherSeq -> {
+                    Optional<CallableDeclaration<?>> otherOpt = otherSeq.getContainingCallable();
+                    return otherOpt.isEmpty() || otherOpt.get() != m;
+                });
     }
 
     private TargetCallable getReusableCallable(StatementSequence seq, MethodDeclaration helperMethod) {
         if (!isMethodBody(seq)) return null;
 
-        CallableDeclaration<?> m = seq.containingCallable();
+        Optional<CallableDeclaration<?>> mOpt = seq.getContainingCallable();
+        if (mOpt.isEmpty()) return null;
+        CallableDeclaration<?> m = mOpt.get();
         if (m instanceof MethodDeclaration method) {
             return findMatchInMethod(method, helperMethod);
         } else if (m instanceof ConstructorDeclaration constructor) {
@@ -256,8 +264,9 @@ public class MethodExtractor extends AbstractExtractor {
 
         // Phase 1: Prepare
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingCallable() != null && targetCallable.node() != null
-                    && seq.containingCallable() == targetCallable.node()
+            Optional<CallableDeclaration<?>> seqCallableOpt = seq.getContainingCallable();
+            if (seqCallableOpt.isPresent() && targetCallable.node() != null
+                    && seqCallableOpt.get() == targetCallable.node()
                     && isMethodBody(seq)
             ) {
                 // Potential recursion check: skip if we are reusing THIS method
@@ -315,10 +324,11 @@ public class MethodExtractor extends AbstractExtractor {
             Map<CompilationUnit, Path> modifiedCUs) {
 
         for (StatementSequence seq : cluster.allSequences()) {
-            CallableDeclaration<?> containingCallable = seq.containingCallable();
-            if (containingCallable == null) {
+            Optional<CallableDeclaration<?>> containingCallableOpt = seq.getContainingCallable();
+            if (containingCallableOpt.isEmpty()) {
                 continue;
             }
+            CallableDeclaration<?> containingCallable = containingCallableOpt.get();
 
             TypeDeclaration<?> containingType = findContainingType(containingCallable);
             if (containingType == null) {
@@ -580,7 +590,8 @@ public class MethodExtractor extends AbstractExtractor {
     private void applyMethodModifiers(MethodDeclaration method) {
         boolean shouldBeStatic = false;
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingCallable() != null && seq.containingCallable().isStatic()) {
+            // Use isStaticContext() which handles all container types
+            if (seq.isStaticContext()) {
                 shouldBeStatic = true;
                 break;
             }
@@ -604,7 +615,8 @@ public class MethodExtractor extends AbstractExtractor {
                     new com.raditha.dedup.model.Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(),
                             fullRange.startColumn()),
                     fullSequence.startOffset(),
-                    fullSequence.containingCallable(),
+                    fullSequence.container(),
+                    fullSequence.containerType(),
                     fullSequence.compilationUnit(),
                     fullSequence.sourceFilePath());
         }
@@ -622,7 +634,8 @@ public class MethodExtractor extends AbstractExtractor {
                 prefixStmts,
                 prefixRange,
                 fullSequence.startOffset(),
-                fullSequence.containingCallable(),
+                fullSequence.container(),
+                fullSequence.containerType(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
     }
@@ -685,12 +698,12 @@ public class MethodExtractor extends AbstractExtractor {
     }
 
     private void copyThrownExceptions(MethodDeclaration method, StatementSequence sequence) {
-        if (sequence.containingCallable() != null) {
-            NodeList<ReferenceType> exceptions = sequence.containingCallable().getThrownExceptions();
+        sequence.getContainingCallable().ifPresent(callable -> {
+            NodeList<ReferenceType> exceptions = callable.getThrownExceptions();
             for (ReferenceType exception : exceptions) {
                 method.addThrownException(exception.clone());
             }
-        }
+        });
     }
 
     private String determineTargetReturnVar(StatementSequence sequence, com.github.javaparser.ast.type.Type returnType) {
@@ -901,7 +914,8 @@ public class MethodExtractor extends AbstractExtractor {
         if (startIdx < 0)
             return false;
 
-        if (targetCallable.isConstructor() && sequence.containingCallable() instanceof ConstructorDeclaration caller) {
+        Optional<CallableDeclaration<?>> seqCallable = sequence.getContainingCallable();
+        if (targetCallable.isConstructor() && seqCallable.isPresent() && seqCallable.get() instanceof ConstructorDeclaration caller) {
             if (hasExplicitConstructorCall(caller)) {
                 return false;
             }
@@ -945,7 +959,7 @@ public class MethodExtractor extends AbstractExtractor {
                 && block.getStatements().get(startIdx).isReturnStmt();
 
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-        boolean shouldReturnDirectly = canInlineReturn(sequence.containingCallable(), block, originalReturnValues,
+        boolean shouldReturnDirectly = canInlineReturn(sequence.getContainingCallable().orElse(null), block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
 
         if (!shouldReturnDirectly && varName == null) {
@@ -1006,7 +1020,7 @@ public class MethodExtractor extends AbstractExtractor {
                     new Range(sequence.range().startLine(), sequence.range().startColumn(),
                             stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
                             stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
-                    sequence.startOffset(), sequence.containingCallable(), sequence.compilationUnit(),
+                    sequence.startOffset(), sequence.container(), sequence.containerType(), sequence.compilationUnit(),
                     sequence.sourceFilePath());
         }
 
@@ -1240,7 +1254,11 @@ public class MethodExtractor extends AbstractExtractor {
              if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                  return null;
              }
-             CallableDeclaration<?> method = sequence.containingCallable();
+             Optional<CallableDeclaration<?>> methodOpt = sequence.getContainingCallable();
+             if (methodOpt.isEmpty()) {
+                 return null;
+             }
+             CallableDeclaration<?> method = methodOpt.get();
 
              for (Parameter p : method.getParameters()) {
                  if (p.getNameAsString().equals(varName)) return p.getType();
@@ -1338,11 +1356,12 @@ public class MethodExtractor extends AbstractExtractor {
          * but NOT in the sequence).
          */
         private boolean isLocalVariable(StatementSequence sequence, String varName) {
-            CallableDeclaration<?> containingCallable = sequence.containingCallable();
+            Optional<CallableDeclaration<?>> containingCallableOpt = sequence.getContainingCallable();
             Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
-            if (containingCallable == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
+            if (containingCallableOpt.isEmpty() || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                 return false;
             }
+            CallableDeclaration<?> containingCallable = containingCallableOpt.get();
 
             // Search for variable declaration in method body but BEFORE the sequence start
             int sequenceStartLine = sequence.range().startLine();

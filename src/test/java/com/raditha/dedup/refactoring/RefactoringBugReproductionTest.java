@@ -215,6 +215,7 @@ class RefactoringBugReproductionTest {
                 new com.raditha.dedup.model.Range(5, 25, 5, 35),
                 0,
                 method,
+                com.raditha.dedup.model.ContainerType.METHOD,
                 cu,
                 java.nio.file.Paths.get("HelperLeak.java"));
                 

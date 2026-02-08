@@ -3,6 +3,7 @@ package com.raditha.dedup.analyzer;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -106,6 +107,7 @@ class DuplicationAnalyzerOverlappingTest {
                 new Range(start, end, 1, 1),
                 0,
                 method,
+                method != null ? ContainerType.METHOD : null,
                 null,
                 path
         );

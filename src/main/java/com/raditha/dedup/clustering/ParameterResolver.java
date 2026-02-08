@@ -23,7 +23,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+
+import com.github.javaparser.ast.body.CallableDeclaration;
 
 /**
  * Handles all parameter extraction, captured parameters, and filtering logic.
@@ -80,8 +83,8 @@ public class ParameterResolver extends AbstractResolver {
                  
              effectiveSequence = new StatementSequence(
                  prefixStmts, prefixRange, cluster.primary().startOffset(),
-                 cluster.primary().containingCallable(), cluster.primary().compilationUnit(),
-                 cluster.primary().sourceFilePath());
+                 cluster.primary().container(), cluster.primary().containerType(),
+                 cluster.primary().compilationUnit(), cluster.primary().sourceFilePath());
         }
 
         DataFlowAnalyzer.SequenceAnalysis primaryAnalysis = dataFlowAnalyzer.analyzeSequenceVariables(effectiveSequence);
@@ -185,20 +188,15 @@ public class ParameterResolver extends AbstractResolver {
     }
 
     private boolean isContainingMethodStatic(StatementSequence sequence) {
-        var methodOpt = sequence.containingCallable();
-        if (methodOpt == null) return false;
-
-        if (methodOpt instanceof MethodDeclaration m) {
-            return m.isStatic();
-        }
-        return false;
+        // Use isStaticContext() which handles all container types
+        return sequence.isStaticContext();
     }
 
     private Map<String, FieldInfo> getFieldInfoMap(StatementSequence sequence) {
         Map<String, FieldInfo> classFields = new HashMap<>();
-        var methodOpt = sequence.containingCallable();
-        if (methodOpt != null) {
-            var classDecl = methodOpt.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        Optional<CallableDeclaration<?>> callableOpt = sequence.getContainingCallable();
+        if (callableOpt.isPresent()) {
+            var classDecl = callableOpt.get().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
             classDecl.ifPresent(decl -> decl.getFields().forEach(fd -> {
                 boolean isStatic = fd.getModifiers().stream()
                         .anyMatch(m -> m.getKeyword() == Modifier.Keyword.STATIC);

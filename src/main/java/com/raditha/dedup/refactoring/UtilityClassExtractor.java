@@ -50,7 +50,7 @@ public class UtilityClassExtractor extends AbstractExtractor {
         initialize(cluster, recommendation);
         StatementSequence primary = cluster.primary();
         Path sourceFile = primary.sourceFilePath();
-        CallableDeclaration<?> callableToExtract = primary.containingCallable();
+        CallableDeclaration<?> callableToExtract = primary.getContainingCallable().orElse(null);
 
         validateCanBeStatic(callableToExtract);
 

@@ -61,7 +61,7 @@ public class ConstructorExtractor extends AbstractExtractor {
 
         // Replace duplicates in other constructors with this() calls
         for (StatementSequence sequence : cluster.allSequences()) {
-            ConstructorDeclaration constructor = (ConstructorDeclaration) sequence.containingCallable();
+            ConstructorDeclaration constructor = (ConstructorDeclaration) sequence.getContainingCallable().orElse(null);
             
             // Skip the master constructor
             if (constructor == masterConstructor || refactoredConstructors.contains(constructor)) {
@@ -88,7 +88,7 @@ public class ConstructorExtractor extends AbstractExtractor {
      */
     private void validateAllConstructors() {
         for (StatementSequence sequence : cluster.allSequences()) {
-            CallableDeclaration<?> callable = sequence.containingCallable();
+            CallableDeclaration<?> callable = sequence.getContainingCallable().orElse(null);
             if (!(callable instanceof ConstructorDeclaration)) {
                 throw new IllegalStateException(
                         "CONSTRUCTOR_DELEGATION strategy requires all sequences to be in constructors");
@@ -109,7 +109,7 @@ public class ConstructorExtractor extends AbstractExtractor {
 
         List<ConstructorDeclaration> constructors = new ArrayList<>();
         for (StatementSequence sequence : cluster.allSequences()) {
-            ConstructorDeclaration cd = (ConstructorDeclaration) sequence.containingCallable();
+            ConstructorDeclaration cd = (ConstructorDeclaration) sequence.getContainingCallable().orElse(null);
             // A perfect master is one where the duplicate sequence is the ENTIRE body
             if (cd.getBody().getStatements().size() == duplicateCount) {
                 constructors.add(cd);
@@ -118,7 +118,7 @@ public class ConstructorExtractor extends AbstractExtractor {
 
         if (constructors.isEmpty()) {
             // Default to primary if no perfect master found
-            return (ConstructorDeclaration) cluster.primary().containingCallable();
+            return (ConstructorDeclaration) cluster.primary().getContainingCallable().orElse(null);
         }
 
         // Prefer the one with the most parameters (standard Java delegation pattern)
@@ -199,7 +199,7 @@ public class ConstructorExtractor extends AbstractExtractor {
             String paramName = param.getNameAsString();
             
             // Try to find a matching parameter in the current constructor
-            ConstructorDeclaration currentConstructor = (ConstructorDeclaration) sequence.containingCallable();
+            ConstructorDeclaration currentConstructor = (ConstructorDeclaration) sequence.getContainingCallable().orElse(null);
             
             // 1. Try exact name match
             Optional<com.github.javaparser.ast.body.Parameter> matchingParam = currentConstructor.getParameters().stream()

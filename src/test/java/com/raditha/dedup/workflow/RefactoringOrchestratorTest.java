@@ -47,9 +47,9 @@ class RefactoringOrchestratorTest {
         ConstructorDeclaration constA2 = mock(ConstructorDeclaration.class);
         ConstructorDeclaration constB1 = mock(ConstructorDeclaration.class);
         
-        when(seqA1.containingCallable()).thenReturn((CallableDeclaration) constA1);
-        when(seqA2.containingCallable()).thenReturn((CallableDeclaration) constA2);
-        when(seqB1.containingCallable()).thenReturn((CallableDeclaration) constB1);
+        when(seqA1.getContainingCallable()).thenReturn(java.util.Optional.of(constA1));
+        when(seqA2.getContainingCallable()).thenReturn(java.util.Optional.of(constA2));
+        when(seqB1.getContainingCallable()).thenReturn(java.util.Optional.of(constB1));
         
         SimilarityPair pair1 = mock(SimilarityPair.class);
         when(pair1.seq1()).thenReturn(seqA1);

@@ -65,7 +65,8 @@ public class SafetyValidator {
      */
     private boolean hasMethodNameConflict(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         StatementSequence primary = cluster.primary();
-        var containingClass = primary.containingCallable() != null ? primary.containingCallable().findAncestor(
+        var callable = primary.getContainingCallable().orElse(null);
+        var containingClass = callable != null ? callable.findAncestor(
                 com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null) : null;
 
         if (containingClass == null) {
@@ -129,7 +130,7 @@ public class SafetyValidator {
      * Get all field names from the containing class of a sequence.
      */
     private Set<String> getClassFieldNames(StatementSequence sequence) {
-        var method = sequence.containingCallable();
+        var method = sequence.getContainingCallable().orElse(null);
         if (method == null) {
             return java.util.Collections.emptySet();
         }
@@ -150,7 +151,7 @@ public class SafetyValidator {
     }
 
     private boolean hasFinalFieldAssignments(StatementSequence sequence) {
-        var method = sequence.containingCallable();
+        var method = sequence.getContainingCallable().orElse(null);
         if (method == null) return false;
         var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
         if (clazz == null) return false;
@@ -227,7 +228,7 @@ public class SafetyValidator {
         }
 
         StatementSequence primary = cluster.primary();
-        var callable = primary.containingCallable();
+        var callable = primary.getContainingCallable().orElse(null);
         if (callable == null) return false;
 
         // Check if inside an enum - unsupported for EXTRACT_PARENT_CLASS

@@ -6,6 +6,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.VariationAnalysis;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class TraversalOptimizationVerificationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class).get();
         List<Statement> stmts = method.getBody().get().getStatements();
-        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, cu, Paths.get("Test.java"));
+        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, ContainerType.METHOD, cu, Paths.get("Test.java"));
 
         Set<String> defined = dataFlowAnalyzer.findDefinedVariables(sequence);
 
@@ -103,7 +104,7 @@ class TraversalOptimizationVerificationTest {
 
         StatementSequence sequence = new StatementSequence(stmts, 
             new com.raditha.dedup.model.Range(1, endLine, 1, endCol), 
-            0, method, cu, Paths.get("Test.java"));
+            0, method, ContainerType.METHOD, cu, Paths.get("Test.java"));
 
         Set<String> liveOut = dataFlowAnalyzer.findLiveOutVariables(sequence);
 
@@ -132,7 +133,7 @@ class TraversalOptimizationVerificationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class).get();
         List<Statement> stmts = method.getBody().get().getStatements();
-        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, cu, Paths.get("Test.java"));
+        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, ContainerType.METHOD, cu, Paths.get("Test.java"));
 
         // VariationAnalysis includes declaredInternalVariables which is populated by findDeclarations
         VariationAnalysis result = astVariationAnalyzer.analyzeVariations(sequence, sequence, cu);

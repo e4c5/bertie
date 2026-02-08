@@ -139,6 +139,7 @@ class ExtractMethodRefactorerTest {
                 new com.raditha.dedup.model.Range(6, 1, 8, 1),
                 0,
                 method,
+                com.raditha.dedup.model.ContainerType.METHOD,
                 cu,
                 java.nio.file.Paths.get("src/main/java/com/example/MultiLiveOut.java"));
 

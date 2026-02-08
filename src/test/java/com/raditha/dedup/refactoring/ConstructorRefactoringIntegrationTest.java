@@ -64,7 +64,7 @@ class ConstructorRefactoringIntegrationTest {
         
         // Filter for the constructor cluster
         DuplicateCluster cluster = report.clusters().stream()
-                .filter(c -> c.primary().containingCallable() instanceof com.github.javaparser.ast.body.ConstructorDeclaration)
+                .filter(c -> c.primary().getContainingCallable().orElse(null) instanceof com.github.javaparser.ast.body.ConstructorDeclaration)
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("No constructor cluster found"));
 
@@ -91,8 +91,8 @@ class ConstructorRefactoringIntegrationTest {
         
         // Find clusters in TankConfigManager constructors
         List<DuplicateCluster> constructorClusters = report.clusters().stream()
-                .filter(c -> c.primary().containingCallable() != null && 
-                             c.primary().containingCallable().getNameAsString().equals("TankConfigManager"))
+                .filter(c -> c.primary().getContainingCallable().isPresent() && 
+                             c.primary().getContainerName().equals("TankConfigManager"))
                 .toList();
 
         assertFalse(constructorClusters.isEmpty(), "Should find clusters in TankConfigManager constructors");

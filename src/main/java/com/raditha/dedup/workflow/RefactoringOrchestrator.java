@@ -114,12 +114,12 @@ public class RefactoringOrchestrator {
     private static void groupCluster(CompilationUnit cu, Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass, List<DuplicateCluster> orphanedClusters, DuplicateCluster cluster) {
         // Find the containing class for the primary sequence
         StatementSequence primary = cluster.primary();
-        if (primary == null || primary.containingCallable() == null) {
+        if (primary == null || primary.getContainingCallable().isEmpty()) {
             orphanedClusters.add(cluster);
             return;
         }
 
-        CallableDeclaration<?> callable = primary.containingCallable();
+        CallableDeclaration<?> callable = primary.getContainingCallable().get();
         Optional<ClassOrInterfaceDeclaration> classOpt = callable.findAncestor(ClassOrInterfaceDeclaration.class);
 
         // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
@@ -151,7 +151,7 @@ public class RefactoringOrchestrator {
         } else {
             // primaryPath is already defined in outer scope
             Path primaryPath = primary.sourceFilePath();
-            String callableName = primary.containingCallable().getNameAsString();
+            String callableName = primary.getContainerName();
             logger.warn("DEBUG: Cluster orphaned. Callable: {}. Primary Path: {}. CU passed to orchestrate: {}",
                 callableName, primaryPath, 
                 cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null));
@@ -169,7 +169,7 @@ public class RefactoringOrchestrator {
     List<DuplicateCluster> splitConstructorClusters(DuplicateCluster cluster) {
         // Check if all sequences are constructors
         boolean allConstructors = cluster.allSequences().stream()
-                .allMatch(seq -> seq.containingCallable() instanceof ConstructorDeclaration);
+                .allMatch(seq -> seq.getContainingCallable().orElse(null) instanceof ConstructorDeclaration);
         
         if (!allConstructors) {
             // Not a constructor cluster, return as-is

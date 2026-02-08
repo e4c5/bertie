@@ -200,8 +200,7 @@ public class DataFlowAnalyzer {
 
     public Set<String> findVariablesUsedAfter(StatementSequence sequence) {
         Set<String> usedAfter = new HashSet<>();
-        CallableDeclaration<?> method = sequence.containingCallable();
-        if (method == null || sequence.getCallableBody().isEmpty() || sequence.statements().isEmpty()) {
+        if (sequence.getCallableBody().isEmpty() || sequence.statements().isEmpty()) {
             return usedAfter;
         }
 

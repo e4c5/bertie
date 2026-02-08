@@ -100,11 +100,11 @@ public abstract class AbstractExtractor {
         };
 
         StatementSequence primary = cluster.primary();
-        add.accept(primary.compilationUnit(), primary.containingCallable());
+        primary.getContainingCallable().ifPresent(c -> add.accept(primary.compilationUnit(), c));
 
         cluster.duplicates().forEach(pair -> {
-            add.accept(pair.seq1().compilationUnit(), pair.seq1().containingCallable());
-            add.accept(pair.seq2().compilationUnit(), pair.seq2().containingCallable());
+            pair.seq1().getContainingCallable().ifPresent(c -> add.accept(pair.seq1().compilationUnit(), c));
+            pair.seq2().getContainingCallable().ifPresent(c -> add.accept(pair.seq2().compilationUnit(), c));
         });
         return map;
     }

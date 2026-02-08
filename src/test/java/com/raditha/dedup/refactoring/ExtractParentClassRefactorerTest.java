@@ -394,6 +394,7 @@ class ExtractParentClassRefactorerTest {
                 new Range(1, 1, 10, 1),
                 0,
                 method1,
+                ContainerType.METHOD,
                 cu1,
                 path1);
 
@@ -411,6 +412,7 @@ class ExtractParentClassRefactorerTest {
                 new Range(1, 1, 10, 1),
                 0,
                 method2,
+                ContainerType.METHOD,
                 cu2,
                 path2);
 

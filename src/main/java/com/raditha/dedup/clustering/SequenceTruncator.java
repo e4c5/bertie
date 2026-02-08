@@ -172,7 +172,8 @@ public class SequenceTruncator {
                     java.util.Collections.emptyList(),
                     new Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(), fullRange.startColumn()),
                     fullSequence.startOffset(),
-                    fullSequence.containingCallable(),
+                    fullSequence.container(),
+                    fullSequence.containerType(),
                     fullSequence.compilationUnit(),
                     fullSequence.sourceFilePath());
         }
@@ -188,7 +189,8 @@ public class SequenceTruncator {
                 prefixStmts,
                 prefixRange,
                 fullSequence.startOffset(),
-                fullSequence.containingCallable(),
+                fullSequence.container(),
+                fullSequence.containerType(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
     }

@@ -115,8 +115,9 @@ public class ExtractParameterizedTestRefactorer {
      */
     private List<TestInstance> extractTestInstances(DuplicateCluster cluster) {
         return cluster.allSequences().stream()
+            .filter(seq -> seq.getContainingCallable().isPresent())
             .map(seq -> new TestInstance(
-                seq.containingCallable(),
+                seq.getContainingCallable().get(),
                 extractLiterals(seq.statements())))
             .toList();
     }

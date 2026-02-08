@@ -7,6 +7,7 @@ import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.StatementSequence;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +17,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -38,15 +40,16 @@ class RefactoringRecommendationGeneratorTest {
         ConstructorDeclaration ctor1 = cu1.getClassByName("A").get().getConstructors().get(0);
         ConstructorDeclaration ctor2 = cu2.getClassByName("B").get().getConstructors().get(0);
 
-        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor1, cu1, Paths.get("A.java"));
-        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor2, cu2, Paths.get("B.java"));
+        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor1, ContainerType.CONSTRUCTOR, cu1, Paths.get("A.java"));
+        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor2, ContainerType.CONSTRUCTOR, cu2, Paths.get("B.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
         when(cluster.allSequences()).thenReturn(List.of(seq1, seq2));
 
         assertNotNull(generator);
-        assertInstanceOf(ConstructorDeclaration.class, seq1.containingCallable());
+        assertTrue(seq1.getContainingCallable().isPresent());
+        assertInstanceOf(ConstructorDeclaration.class, seq1.getContainingCallable().get());
     }
 
     @Test
@@ -75,8 +78,8 @@ class RefactoringRecommendationGeneratorTest {
                 .map(m -> ((com.github.javaparser.ast.body.ClassOrInterfaceDeclaration) m).getConstructors().get(0))
                 .findFirst().get();
 
-        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor1, cu, Paths.get("SameFile.java"));
-        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor2, cu, Paths.get("SameFile.java"));
+        StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor1, ContainerType.CONSTRUCTOR, cu, Paths.get("SameFile.java"));
+        StatementSequence seq2 = new StatementSequence(ctor2.getBody().getStatements(), new Range(1, 1, 1, 1), 0, ctor2, ContainerType.CONSTRUCTOR, cu, Paths.get("SameFile.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
@@ -117,9 +120,9 @@ class RefactoringRecommendationGeneratorTest {
 
         // Sequence is only the first statement
         StatementSequence seq1 = new StatementSequence(List.of(ctor1.getBody().getStatements().get(0)),
-                new Range(1, 1, 1, 1), 0, ctor1, cu, Paths.get("A.java"));
+                new Range(1, 1, 1, 1), 0, ctor1, ContainerType.CONSTRUCTOR, cu, Paths.get("A.java"));
         StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)),
-                new Range(1, 1, 1, 1), 0, ctor2, cu, Paths.get("A.java"));
+                new Range(1, 1, 1, 1), 0, ctor2, ContainerType.CONSTRUCTOR, cu, Paths.get("A.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);
@@ -159,9 +162,9 @@ class RefactoringRecommendationGeneratorTest {
         ConstructorDeclaration ctor2 = cu.getClassByName("A").get().getConstructors().get(1);
 
         StatementSequence seq1 = new StatementSequence(ctor1.getBody().getStatements(),
-                new Range(1, 1, 1, 1), 0, ctor1, cu, Paths.get("A.java"));
+                new Range(1, 1, 1, 1), 0, ctor1, ContainerType.CONSTRUCTOR, cu, Paths.get("A.java"));
         StatementSequence seq2 = new StatementSequence(List.of(ctor2.getBody().getStatements().get(0)),
-                new Range(1, 1, 1, 1), 0, ctor2, cu, Paths.get("A.java"));
+                new Range(1, 1, 1, 1), 0, ctor2, ContainerType.CONSTRUCTOR, cu, Paths.get("A.java"));
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seq1);

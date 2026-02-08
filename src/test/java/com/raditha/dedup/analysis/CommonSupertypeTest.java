@@ -7,6 +7,7 @@ import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.raditha.dedup.model.VaryingExpression;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,8 +57,8 @@ class CommonSupertypeTest {
         MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method1")).get();
         MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method2")).get();
 
-        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
-        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
+        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, ContainerType.METHOD, cu2, null);
 
         VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1);
 
@@ -100,8 +101,8 @@ class CommonSupertypeTest {
         MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method1")).get();
         MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method2")).get();
 
-        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
-        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
+        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, ContainerType.METHOD, cu2, null);
 
         VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1);
 
@@ -155,8 +156,8 @@ class CommonSupertypeTest {
         MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method1")).get();
         MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method2")).get();
 
-        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
-        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
+        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, ContainerType.METHOD, cu2, null);
 
         VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1);
 

@@ -175,8 +175,8 @@ class StatementExtractorTest {
 
         // Check metadata
         assertNotNull(seq.range());
-        assertNotNull(seq.containingCallable());
-        assertEquals("myMethod", seq.containingCallable().getNameAsString());
+        assertTrue(seq.getContainingCallable().isPresent());
+        assertEquals("myMethod", seq.getContainerName());
         assertNotNull(seq.compilationUnit());
         // Path is now normalized at creation time, so compare normalized versions
         assertEquals(testFile.toAbsolutePath().normalize(), seq.sourceFilePath());

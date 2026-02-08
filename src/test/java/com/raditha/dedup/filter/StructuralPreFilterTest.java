@@ -4,6 +4,7 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -168,6 +169,7 @@ class StructuralPreFilterTest {
                 statements,
                 new Range(1, statements.size(), 1, 10),
                 0,
+                null,
                 null,
                 null,
                 Paths.get("Test.java"));

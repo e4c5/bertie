@@ -26,20 +26,20 @@ class ConstructorExtractionTest {
         assertFalse(sequences.isEmpty(), "Should extract sequences");
 
         boolean foundConstructorSequence = sequences.stream()
-                .anyMatch(seq -> seq.containingCallable() instanceof ConstructorDeclaration);
+                .anyMatch(seq -> seq.getContainingCallable().orElse(null) instanceof ConstructorDeclaration);
 
         assertTrue(foundConstructorSequence, "Should find sequences in constructors");
 
         // Verify specific counts if possible, or just presence
         long constructorSeqs = sequences.stream()
-                .filter(seq -> seq.containingCallable() instanceof ConstructorDeclaration)
+                .filter(seq -> seq.getContainingCallable().orElse(null) instanceof ConstructorDeclaration)
                 .count();
 
         assertTrue(constructorSeqs > 0);
 
         sequences.forEach(seq -> {
-            assertNotNull(seq.containingCallable());
-            if (seq.containingCallable() instanceof ConstructorDeclaration) {
+            assertTrue(seq.getContainingCallable().isPresent());
+            if (seq.getContainingCallable().get() instanceof ConstructorDeclaration) {
                 // Name should be class name
                 assertEquals("ConstructorDuplicates", seq.getMethodName());
                 assertTrue(seq.getCallableBody().isPresent(), "Constructor sequence should have a body");

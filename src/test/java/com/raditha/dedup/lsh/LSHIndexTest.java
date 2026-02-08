@@ -1,6 +1,7 @@
 package com.raditha.dedup.lsh;
 
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -18,7 +19,7 @@ class LSHIndexTest {
         LSHIndex index = new LSHIndex(minHash, 50, 2);
 
         List<String> tokens = Arrays.asList("A", "B", "C", "D", "E");
-        StatementSequence seq = new StatementSequence(null, null, 0, null, null, null); // Dummy seq
+        StatementSequence seq = new StatementSequence(null, null, 0, null, null, null, null); // Dummy seq
 
         index.add(tokens, seq);
         Set<StatementSequence> result = index.query(tokens);
@@ -35,7 +36,7 @@ class LSHIndexTest {
         List<String> tokens1 = Arrays.asList("A", "B", "C", "D", "E", "F", "G");
         List<String> tokens2 = Arrays.asList("A", "B", "C", "D", "E", "F", "H"); // One diff
 
-        StatementSequence seq1 = new StatementSequence(null, null, 0, null, null, null);
+        StatementSequence seq1 = new StatementSequence(null, null, 0, null, null, null, null);
 
         index.add(tokens1, seq1);
 
@@ -55,7 +56,7 @@ class LSHIndexTest {
         List<String> tokens1 = Arrays.asList("A", "B", "C", "D");
         List<String> tokens2 = Arrays.asList("X", "Y", "Z", "W");
 
-        StatementSequence seq1 = new StatementSequence(null, null, 0, null, null, null);
+        StatementSequence seq1 = new StatementSequence(null, null, 0, null, null, null, null);
 
         index.add(tokens1, seq1);
         Set<StatementSequence> result = index.query(tokens2);

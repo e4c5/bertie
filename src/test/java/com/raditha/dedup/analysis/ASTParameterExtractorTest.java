@@ -44,8 +44,8 @@ class ASTParameterExtractorTest {
         MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class).get();
         MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class).get();
 
-        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
-        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
+        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, ContainerType.METHOD, cu2, null);
 
         VariationAnalysis analysis = analyzer.analyzeVariations(seq1, seq2, cu1);
         ExtractionPlan plan = extractor.extractParameters(analysis);
@@ -71,7 +71,7 @@ class ASTParameterExtractorTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
         MethodDeclaration m = cu.findFirst(MethodDeclaration.class).get();
 
-        StatementSequence seq = new StatementSequence(m.getBody().get().getStatements(), null, 0, m, cu, null);
+        StatementSequence seq = new StatementSequence(m.getBody().get().getStatements(), null, 0, m, ContainerType.METHOD, cu, null);
 
         VariationAnalysis analysis = analyzer.analyzeVariations(seq, seq, cu);
         ExtractionPlan plan = extractor.extractParameters(analysis);
@@ -110,8 +110,8 @@ class ASTParameterExtractorTest {
         MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class).get();
         MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class).get();
 
-        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, cu1, null);
-        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, cu2, null);
+        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, ContainerType.METHOD, cu2, null);
 
         VariationAnalysis analysis = analyzer.analyzeVariations(seq1, seq2, cu1);
         ExtractionPlan plan = extractor.extractParameters(analysis);

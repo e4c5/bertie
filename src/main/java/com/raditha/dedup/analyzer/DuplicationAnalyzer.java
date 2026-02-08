@@ -370,9 +370,9 @@ public class DuplicationAnalyzer {
         }
 
         // If both are within methods/constructors, they must be the SAME one
-        var m1 = s1.containingCallable();
-        var m2 = s2.containingCallable();
-        if (m1 != null && m2 != null && !m1.equals(m2)) {
+        var m1Opt = s1.getContainingCallable();
+        var m2Opt = s2.getContainingCallable();
+        if (m1Opt.isPresent() && m2Opt.isPresent() && !m1Opt.get().equals(m2Opt.get())) {
             return false;
         }
 
@@ -491,8 +491,8 @@ public class DuplicationAnalyzer {
      * (methodA, methodB) should equal (methodB, methodA)
      */
     private CallablePairKey makeCallablePairKey(SimilarityPair pair) {
-        var m1 = pair.seq1().containingCallable();
-        var m2 = pair.seq2().containingCallable();
+        var m1 = pair.seq1().getContainingCallable().orElse(null);
+        var m2 = pair.seq2().getContainingCallable().orElse(null);
         
         // Canonical ordering: use identity hash codes for stable comparison
         int h1 = System.identityHashCode(m1);
