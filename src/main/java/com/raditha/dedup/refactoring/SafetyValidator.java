@@ -51,12 +51,6 @@ public class SafetyValidator {
                     "Cannot extract code that assigns to final fields into a separate method"));
         }
 
-        // 5.5. Check for final local variable assignments (not allowed in extracted methods)
-        if (recommendation.getStrategy() != RefactoringStrategy.CONSTRUCTOR_DELEGATION && hasFinalLocalVariableAssignments(cluster.primary())) {
-            issues.add(ValidationIssue.error(
-                    "Cannot extract code that assigns to final local variables"));
-        }
-
         // 6. Check for nested type extraction
         if (hasNestedTypeIssue(cluster, recommendation)) {
             issues.add(ValidationIssue.error(
@@ -175,47 +169,6 @@ public class SafetyValidator {
             for (com.github.javaparser.ast.expr.AssignExpr assign : assignments) {
                 if (isFinalFieldAssignment(assign.getTarget(), finalFields, localsAndParams, className)) {
                     return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Check if the sequence assigns to final local variables.
-     * Final local variables cannot be modified, so extracting code that assigns
-     * to them will cause compilation errors.
-     */
-    private boolean hasFinalLocalVariableAssignments(StatementSequence sequence) {
-        // Get the callable body to check for final local variables
-        var callableBody = sequence.getCallableBody();
-        if (callableBody.isEmpty()) return false;
-
-        // Collect all final local variable names in the containing method
-        Set<String> finalLocals = new java.util.HashSet<>();
-        callableBody.get().findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
-            .forEach(vd -> {
-                // Check if the variable is declared as final
-                vd.getParentNode().ifPresent(parent -> {
-                    if (parent instanceof com.github.javaparser.ast.expr.VariableDeclarationExpr varDecl) {
-                        if (varDecl.isFinal()) {
-                            finalLocals.add(vd.getNameAsString());
-                        }
-                    }
-                });
-            });
-
-        if (finalLocals.isEmpty()) return false;
-
-        // Check if any statement in the sequence assigns to these final locals
-        for (com.github.javaparser.ast.stmt.Statement stmt : sequence.statements()) {
-            List<com.github.javaparser.ast.expr.AssignExpr> assignments = stmt.findAll(com.github.javaparser.ast.expr.AssignExpr.class);
-            for (com.github.javaparser.ast.expr.AssignExpr assign : assignments) {
-                if (assign.getTarget().isNameExpr()) {
-                    String varName = assign.getTarget().asNameExpr().getNameAsString();
-                    if (finalLocals.contains(varName)) {
-                        return true;
-                    }
                 }
             }
         }

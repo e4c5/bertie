@@ -147,14 +147,6 @@ public class RefactoringRecommendationGenerator {
             if (!allMethodBodies) {
                 return RefactoringStrategy.EXTRACT_HELPER_METHOD;
             }
-            
-            // Check if any sequence is in a nested type (inner class, enum)
-            // If so, use EXTRACT_HELPER_METHOD instead of EXTRACT_PARENT_CLASS
-            // because parent class extraction doesn't work with nested types
-            if (isInNestedType(primarySeq)) {
-                return RefactoringStrategy.EXTRACT_HELPER_METHOD;
-            }
-            
             if (usesInstanceState(primarySeq)) {
                 return RefactoringStrategy.EXTRACT_PARENT_CLASS;
             } else {
@@ -225,30 +217,6 @@ public class RefactoringRecommendationGenerator {
         }
         // Constructors are not static, so they use instance state.
         return true;
-    }
-
-    /**
-     * Check if the sequence is in a nested type (inner class or enum).
-     * Nested types cannot use EXTRACT_PARENT_CLASS strategy, but can use EXTRACT_HELPER_METHOD.
-     */
-    private boolean isInNestedType(StatementSequence seq) {
-        CallableDeclaration<?> callable = seq.containingCallable();
-        if (callable == null) {
-            return false;
-        }
-        
-        // Check if inside an enum
-        if (callable.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent()) {
-            return true;
-        }
-        
-        // Check if the class itself is nested (inner class)
-        var clazz = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
-        if (clazz != null && clazz.isNestedType()) {
-            return true;
-        }
-        
-        return false;
     }
 
     private boolean hasNestedReturn(StatementSequence seq) {
