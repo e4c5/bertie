@@ -261,17 +261,15 @@ public class StatementExtractor {
                 // Check if this is indeed the full body of the container (not a nested block)
                 Optional<BlockStmt> bodyOpt = getContainerBody(container, containerType);
                 if (bodyOpt.isPresent() && bodyOpt.get().getStatements() == statements) {
-                    // For initializers, always extract full body regardless of size
-                    // For others, only if it's longer than what window logic would capture
-                    if (containerType == ContainerType.STATIC_INITIALIZER || 
-                        containerType == ContainerType.INSTANCE_INITIALIZER ||
-                        totalStatements > effectiveMin + maxWindowGrowth) {
-                        StatementSequence fullBodySeq = createSequence(statements, container, containerType);
-                        sequences.add(fullBodySeq);
-                        if (containerType == ContainerType.STATIC_INITIALIZER || containerType == ContainerType.INSTANCE_INITIALIZER) {
-                            System.out.println("[FULL_BODY] Extracted full " + containerType + " body: " + 
-                                totalStatements + " statements");
-                        }
+                    if (containerType.isInitializer()) {
+                        // Initializers: extract full body and skip windowed extraction
+                        // since the window logic would produce the same or subset sequences
+                        sequences.add(createSequence(statements, container, containerType));
+                        return;
+                    } else if (totalStatements > effectiveMin + maxWindowGrowth) {
+                        // For methods/constructors, only add full body if it's longer
+                        // than what the window logic would capture
+                        sequences.add(createSequence(statements, container, containerType));
                     }
                 }
             }
@@ -280,14 +278,11 @@ public class StatementExtractor {
             if (totalStatements < effectiveMin) {
                 return;
             }
-            
+
             // Targeted Relaxation: Allow windowed extraction for constructors to support prefix reuse (this())
-            // Also allow for static/instance initializers to support full-body extraction
             // even if global setting is maximal_only. Methods stay maximal to prevent regression.
-            if (StatementExtractor.this.maximalOnly && 
-                containerType != ContainerType.CONSTRUCTOR &&
-                containerType != ContainerType.STATIC_INITIALIZER &&
-                containerType != ContainerType.INSTANCE_INITIALIZER) {
+            if (StatementExtractor.this.maximalOnly &&
+                containerType != ContainerType.CONSTRUCTOR) {
                 extractMaximalSequences(statements, container, containerType, totalStatements, effectiveMin);
             } else {
                 extractLimitedWindowSizes(statements, container, containerType, totalStatements, effectiveMin);
