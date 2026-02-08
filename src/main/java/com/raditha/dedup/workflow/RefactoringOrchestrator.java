@@ -114,35 +114,55 @@ public class RefactoringOrchestrator {
     private static void groupCluster(CompilationUnit cu, Map<ClassOrInterfaceDeclaration, List<DuplicateCluster>> clustersByClass, List<DuplicateCluster> orphanedClusters, DuplicateCluster cluster) {
         // Find the containing class for the primary sequence
         StatementSequence primary = cluster.primary();
-        if (primary == null || primary.getContainingCallable().isEmpty()) {
+        if (primary == null || primary.container() == null) {
             orphanedClusters.add(cluster);
             return;
         }
 
-        CallableDeclaration<?> callable = primary.getContainingCallable().get();
-        Optional<ClassOrInterfaceDeclaration> classOpt = callable.findAncestor(ClassOrInterfaceDeclaration.class);
+        // Try to find the class from the container (works for all container types)
+        Optional<ClassOrInterfaceDeclaration> classOpt = primary.container().findAncestor(ClassOrInterfaceDeclaration.class);
 
-        // ROBUST RESOLUTION: If method is detached or from a different CU, try to find it in the current CU
+        // ROBUST RESOLUTION: If container is detached or from a different CU, try to find class in current CU
         if (classOpt.isEmpty()) {
-            String name = callable.getNameAsString();
-            List<ClassOrInterfaceDeclaration> candidates = new ArrayList<>();
+            // For callable containers (methods/constructors), use name-based lookup as fallback
+            if (primary.getContainingCallable().isPresent()) {
+                CallableDeclaration<?> callable = primary.getContainingCallable().get();
+                String name = callable.getNameAsString();
+                List<ClassOrInterfaceDeclaration> candidates = new ArrayList<>();
 
-            if (callable instanceof MethodDeclaration) {
-                candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
-                        .filter(c -> !c.getMethodsByName(name).isEmpty())
-                        .toList();
-            } else if (callable instanceof ConstructorDeclaration) {
-                // For constructors, the name is the class name
-                candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
-                        .filter(c -> c.getNameAsString().equals(name))
-                        .toList();
-            }
+                if (callable instanceof MethodDeclaration) {
+                    candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                            .filter(c -> !c.getMethodsByName(name).isEmpty())
+                            .toList();
+                } else if (callable instanceof ConstructorDeclaration) {
+                    // For constructors, the name is the class name
+                    candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                            .filter(c -> c.getNameAsString().equals(name))
+                            .toList();
+                }
 
-            if (candidates.size() == 1) {
-                classOpt = Optional.of(candidates.get(0));
-                logger.debug("Robustly resolved class context for orphaned callable: {} -> {}", name, classOpt.get().getNameAsString());
-            } else if (candidates.size() > 1) {
-                logger.warn("Ambiguous class resolution for callable '{}': {} candidates in CU", name, candidates.size());
+                if (candidates.size() == 1) {
+                    classOpt = Optional.of(candidates.get(0));
+                    logger.debug("Robustly resolved class context for orphaned callable: {} -> {}", name, classOpt.get().getNameAsString());
+                } else if (candidates.size() > 1) {
+                    logger.warn("Ambiguous class resolution for callable '{}': {} candidates in CU", name, candidates.size());
+                }
+            } else {
+                // For non-callable containers (lambdas, initializers), try line-based resolution
+                int containerLine = primary.range().startLine();
+                List<ClassOrInterfaceDeclaration> candidates = cu.findAll(ClassOrInterfaceDeclaration.class).stream()
+                        .filter(c -> c.getRange().isPresent() && 
+                                     c.getRange().get().begin.line <= containerLine &&
+                                     c.getRange().get().end.line >= containerLine)
+                        .toList();
+                
+                // Pick the most specific (innermost) class
+                if (!candidates.isEmpty()) {
+                    classOpt = candidates.stream()
+                            .max(java.util.Comparator.comparingInt(c -> c.getRange().map(r -> r.begin.line).orElse(0)));
+                    logger.debug("Resolved class context for non-callable container via line {} -> {}", 
+                                 containerLine, classOpt.map(ClassOrInterfaceDeclaration::getNameAsString).orElse("none"));
+                }
             }
         }
 
@@ -151,9 +171,9 @@ public class RefactoringOrchestrator {
         } else {
             // primaryPath is already defined in outer scope
             Path primaryPath = primary.sourceFilePath();
-            String callableName = primary.getContainerName();
-            logger.warn("DEBUG: Cluster orphaned. Callable: {}. Primary Path: {}. CU passed to orchestrate: {}",
-                callableName, primaryPath, 
+            String containerName = primary.getContainerName();
+            logger.warn("DEBUG: Cluster orphaned. Container: {}. Primary Path: {}. CU passed to orchestrate: {}",
+                containerName, primaryPath, 
                 cu.getStorage().map(com.github.javaparser.ast.CompilationUnit.Storage::getPath).orElse(null));
             orphanedClusters.add(cluster);
         }
