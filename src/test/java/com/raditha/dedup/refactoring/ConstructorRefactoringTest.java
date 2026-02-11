@@ -77,6 +77,7 @@ class ConstructorRefactoringTest {
                 new Range(3, 25, 5, 34),
                 0,
                 ctor1,
+                ContainerType.CONSTRUCTOR,
                 cu,
                 sourcePath
         );
@@ -87,6 +88,7 @@ class ConstructorRefactoringTest {
                 new Range(9, 25, 11, 34),
                 0,
                 ctor2,
+                ContainerType.CONSTRUCTOR,
                 cu,
                 sourcePath
         );
@@ -155,6 +157,7 @@ class ConstructorRefactoringTest {
                 new Range(3, 25, 5, 34),
                 0,
                 ctor1,
+                ContainerType.CONSTRUCTOR,
                 cu,
                 sourcePath
         );
@@ -224,11 +227,11 @@ class ConstructorRefactoringTest {
 
         StatementSequence seqMaster = new StatementSequence(
                 master.getBody().getStatements(),
-                new Range(1,1,1,1), 0, master, cu, sourcePath);
+                new Range(1,1,1,1), 0, master, ContainerType.CONSTRUCTOR, cu, sourcePath);
         
         StatementSequence seqDelegating = new StatementSequence(
                 delegating.getBody().getStatements(),
-                new Range(1,1,1,1), 0, delegating, cu, sourcePath);
+                new Range(1,1,1,1), 0, delegating, ContainerType.CONSTRUCTOR, cu, sourcePath);
 
         DuplicateCluster cluster = mock(DuplicateCluster.class);
         when(cluster.primary()).thenReturn(seqMaster);
@@ -271,9 +274,9 @@ class ConstructorRefactoringTest {
         ConstructorDeclaration d = clazz.getConstructors().get(2);  // 2 params (DELEGATING)
 
         Path path = Path.of("TestClassPriority.java");
-        StatementSequence s1 = new StatementSequence(m1.getBody().getStatements(), new com.raditha.dedup.model.Range(1, 1, 1, 1), 0, m1, cu, path);
-        StatementSequence s2 = new StatementSequence(m2.getBody().getStatements(), new com.raditha.dedup.model.Range(4, 1, 4, 1), 0, m2, cu, path);
-        StatementSequence sd = new StatementSequence(d.getBody().getStatements(), new com.raditha.dedup.model.Range(7, 1, 7, 1), 0, d, cu, path);
+        StatementSequence s1 = new StatementSequence(m1.getBody().getStatements(), new com.raditha.dedup.model.Range(1, 1, 1, 1), 0, m1, ContainerType.CONSTRUCTOR, cu, path);
+        StatementSequence s2 = new StatementSequence(m2.getBody().getStatements(), new com.raditha.dedup.model.Range(4, 1, 4, 1), 0, m2, ContainerType.CONSTRUCTOR, cu, path);
+        StatementSequence sd = new StatementSequence(d.getBody().getStatements(), new com.raditha.dedup.model.Range(7, 1, 7, 1), 0, d, ContainerType.CONSTRUCTOR, cu, path);
 
         // s2 is primary, m2 is master
         DuplicateCluster cluster = new DuplicateCluster(s2, List.of(new SimilarityPair(s2, s1, null), new SimilarityPair(s2, sd, null)), null, 0);
@@ -309,8 +312,8 @@ class ConstructorRefactoringTest {
         c2.getBody().addStatement("System.out.println(\"duplicate\");");
 
         Path path = Path.of("TestClass.java");
-        StatementSequence s1 = new StatementSequence(c1.getBody().getStatements(), new com.raditha.dedup.model.Range(1, 1, 1, 1), 0, c1, cu, path);
-        StatementSequence s2 = new StatementSequence(c2.getBody().getStatements(), new com.raditha.dedup.model.Range(2, 1, 2, 1), 0, c2, cu, path);
+        StatementSequence s1 = new StatementSequence(c1.getBody().getStatements(), new com.raditha.dedup.model.Range(1, 1, 1, 1), 0, c1, ContainerType.CONSTRUCTOR, cu, path);
+        StatementSequence s2 = new StatementSequence(c2.getBody().getStatements(), new com.raditha.dedup.model.Range(2, 1, 2, 1), 0, c2, ContainerType.CONSTRUCTOR, cu, path);
 
         // s1 is primary, c1 is master. 
         // Note: s1.statements() should be the ENTIRE body for perfect master check.
@@ -346,8 +349,8 @@ class ConstructorRefactoringTest {
         ConstructorDeclaration master = clazz.getConstructors().get(0);
         ConstructorDeclaration delegating = clazz.getConstructors().get(1);
 
-        StatementSequence s1 = new StatementSequence(master.getBody().getStatements(), new com.raditha.dedup.model.Range(1,1,1,1), 0, master, cu, sourcePath);
-        StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 0, delegating, cu, sourcePath);
+        StatementSequence s1 = new StatementSequence(master.getBody().getStatements(), new com.raditha.dedup.model.Range(1,1,1,1), 0, master, ContainerType.CONSTRUCTOR, cu, sourcePath);
+        StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 0, delegating, ContainerType.CONSTRUCTOR, cu, sourcePath);
 
         DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
         ConstructorExtractor refactorer = new ConstructorExtractor();
@@ -376,9 +379,9 @@ class ConstructorRefactoringTest {
         ConstructorDeclaration master = clazz.getConstructors().get(0);
         ConstructorDeclaration delegating = clazz.getConstructors().get(1);
 
-        StatementSequence s1 = new StatementSequence(master.getBody().getStatements(), new com.raditha.dedup.model.Range(1,1,1,1), 0, master, cu, sourcePath);
+        StatementSequence s1 = new StatementSequence(master.getBody().getStatements(), new com.raditha.dedup.model.Range(1,1,1,1), 0, master, ContainerType.CONSTRUCTOR, cu, sourcePath);
         // Duplicate is at index 1, so startOffset is 1
-        StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 1, delegating, cu, sourcePath);
+        StatementSequence s2 = new StatementSequence(List.of(delegating.getBody().getStatement(1)), new com.raditha.dedup.model.Range(2,1,2,1), 1, delegating, ContainerType.CONSTRUCTOR, cu, sourcePath);
 
         DuplicateCluster cluster = new DuplicateCluster(s1, List.of(new SimilarityPair(s1, s2, null)), null, 0);
         ConstructorExtractor refactorer = new ConstructorExtractor();

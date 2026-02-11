@@ -5,6 +5,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.model.Range;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +46,7 @@ class ScopeAnalyzerTest {
             new Range(3, 4, 1, 10),
             0,
             method,
+            ContainerType.METHOD,
             cu,
             Paths.get("Test.java")
         );
@@ -84,6 +86,7 @@ class ScopeAnalyzerTest {
                 new Range(6, 6, 1, 10),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("Test.java"));
 
@@ -126,6 +129,7 @@ class ScopeAnalyzerTest {
                 new Range(6, 7, 1, 10),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("Test.java"));
 
@@ -148,6 +152,7 @@ class ScopeAnalyzerTest {
                 new Range(1, 1, 1, 10),
                 0,
                 null, // No method
+                null,
                 null,
                 Paths.get("Test.java"));
 

@@ -5,8 +5,11 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
@@ -19,6 +22,7 @@ import com.raditha.dedup.refactoring.MethodNameGenerator;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -132,6 +136,15 @@ public class RefactoringRecommendationGenerator {
             return RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
         }
 
+        // Handle new container types first
+        ContainerType containerType = primarySeq.containerType();
+        if (containerType != null) {
+            RefactoringStrategy containerStrategy = determineStrategyForContainerType(cluster, primarySeq, containerType);
+            if (containerStrategy != null) {
+                return containerStrategy;
+            }
+        }
+
         // Check for Constructor Delegation
         // If all sequences are constructors in the same class and at the start of the body
         if (areAllConstructorsAtStart(cluster) && !isCrossFileDuplication(cluster)) {
@@ -178,8 +191,69 @@ public class RefactoringRecommendationGenerator {
         return RefactoringStrategy.EXTRACT_HELPER_METHOD;
     }
 
+    /**
+     * Determine refactoring strategy based on container type.
+     * Returns null if no special handling is needed and normal strategy selection should proceed.
+     */
+    private RefactoringStrategy determineStrategyForContainerType(
+            DuplicateCluster cluster, StatementSequence primarySeq, ContainerType containerType) {
+        
+        return switch (containerType) {
+            case STATIC_INITIALIZER -> {
+                // Static initializers can only be refactored to static helper methods
+                // Cross-file static initializer duplicates could use utility class
+                if (isCrossFileDuplication(cluster)) {
+                    yield RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
+                }
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case INSTANCE_INITIALIZER -> {
+                // Instance initializers extract to instance helper methods
+                // Cannot use CONSTRUCTOR_DELEGATION since they're not constructors
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case LAMBDA -> {
+                // Lambdas extract to helper methods (potential for method reference conversion)
+                // Cross-file lambda duplicates could use utility class if no instance state
+                if (isCrossFileDuplication(cluster) && !usesInstanceState(primarySeq)) {
+                    yield RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS;
+                }
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case ANONYMOUS_CLASS_METHOD -> {
+                if (isCrossFileDuplication(cluster)) {
+                    yield RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+                }
+                if (isEligibleForNamedInnerClass(cluster)) {
+                    yield RefactoringStrategy.EXTRACT_NAMED_INNER_CLASS;
+                }
+                yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+            }
+            
+            case CONSTRUCTOR -> {
+                // Enum constructors cannot use EXTRACT_PARENT_CLASS (enums can't extend classes)
+                if (isInEnum(primarySeq)) {
+                    // Enum constructors with cross-file duplicates need manual review
+                    if (isCrossFileDuplication(cluster)) {
+                        yield RefactoringStrategy.MANUAL_REVIEW_REQUIRED;
+                    }
+                    // Same-file enum constructor duplicates can use helper method
+                    yield RefactoringStrategy.EXTRACT_HELPER_METHOD;
+                }
+                // Regular constructors - let normal logic handle them
+                yield null;
+            }
+            
+            // Standard method container - let normal logic handle it
+            case METHOD -> null;
+        };
+    }
+
     private boolean isMethodBody(StatementSequence seq) {
-        CallableDeclaration<?> method = seq.containingCallable();
+        CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
         if (method == null || seq.getCallableBody().isEmpty()) {
             return false;
         }
@@ -204,13 +278,93 @@ public class RefactoringRecommendationGenerator {
         return filePaths.size() > 1;
     }
 
+    /**
+     * Check if the sequence is inside an enum declaration.
+     */
+    private boolean isInEnum(StatementSequence seq) {
+        var container = seq.container();
+        if (container == null) return false;
+        return container.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent();
+    }
+
+    /**
+     * Check if the cluster is eligible for named inner class extraction.
+     * Requires: all sequences are ANONYMOUS_CLASS_METHOD in the same file,
+     * all implement the same interface/superclass, all are full method bodies,
+     * and there are at least 2 anonymous class instances.
+     */
+    private boolean isEligibleForNamedInnerClass(DuplicateCluster cluster) {
+        var sequences = cluster.allSequences();
+        if (sequences.size() < 2) {
+            return false;
+        }
+
+        // All must be anonymous class methods
+        if (!sequences.stream().allMatch(s -> s.containerType() == ContainerType.ANONYMOUS_CLASS_METHOD)) {
+            return false;
+        }
+
+        // All must be full method bodies
+        if (!sequences.stream().allMatch(this::isMethodBody)) {
+            return false;
+        }
+
+        // Resolve the implemented type for each and verify they're all the same
+        String firstType = null;
+        for (StatementSequence seq : sequences) {
+            ClassOrInterfaceType type = resolveAnonymousClassType(seq);
+            if (type == null) {
+                return false;
+            }
+            String typeName = type.getNameAsString();
+            if (firstType == null) {
+                firstType = typeName;
+            } else if (!firstType.equals(typeName)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Resolve the interface/superclass type that an anonymous class implements.
+     * Walks from the method container up to the ObjectCreationExpr.
+     */
+    private ClassOrInterfaceType resolveAnonymousClassType(StatementSequence seq) {
+        if (seq.container() == null) {
+            return null;
+        }
+        return seq.container().findAncestor(ObjectCreationExpr.class)
+                .filter(oce -> oce.getAnonymousClassBody().isPresent())
+                .map(ObjectCreationExpr::getType)
+                .orElse(null);
+    }
+
     private boolean usesInstanceState(StatementSequence seq) {
-        // If the method is not static, we assume it belongs to an object context
-        // and should be extracted to a Parent Class (preserving inheritance)
-        // rather than a Utility class.
-        // This matches the original behavior and ensures Service classes
-        // are refactored into BaseService hierarchies.
-        CallableDeclaration<?> method = seq.containingCallable();
+        // Check container type first for new container types
+        ContainerType containerType = seq.containerType();
+        if (containerType != null) {
+            return switch (containerType) {
+                case STATIC_INITIALIZER -> false; // Static context
+                case INSTANCE_INITIALIZER -> true; // Instance context
+                case LAMBDA, ANONYMOUS_CLASS_METHOD -> {
+                    // Lambdas/anonymous classes inherit context from enclosing scope
+                    yield !seq.isStaticContext();
+                }
+                case METHOD -> {
+                    CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
+                    if (method instanceof MethodDeclaration m) {
+                        yield !m.isStatic();
+                    }
+                    yield true;
+                }
+                case CONSTRUCTOR -> true; // Constructors use instance state
+            };
+        }
+        
+        // Fallback for legacy code paths
+        CallableDeclaration<?> method = seq.getContainingCallable().orElse(null);
         if (method == null) return false;
         if (method instanceof MethodDeclaration m) {
             return !m.isStatic();
@@ -276,7 +430,7 @@ public class RefactoringRecommendationGenerator {
         boolean hasPerfectMaster = false;
 
         for (StatementSequence seq : cluster.allSequences()) {
-            CallableDeclaration<?> callable = seq.containingCallable();
+            CallableDeclaration<?> callable = seq.getContainingCallable().orElse(null);
             if (!(callable instanceof com.github.javaparser.ast.body.ConstructorDeclaration)) {
                 return false;
             }
@@ -306,11 +460,28 @@ public class RefactoringRecommendationGenerator {
     }
 
     private String suggestMethodName(DuplicateCluster cluster, RefactoringStrategy strategy, String returnVariable) {
-        CallableDeclaration<?> callable = cluster.primary().containingCallable();
-        if (callable == null) return "extractedMethod";
-
-        var containingClass = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .orElse(null);
+        StatementSequence primary = cluster.primary();
+        
+        // Find containing class - works for both callable and non-callable containers
+        com.github.javaparser.ast.body.ClassOrInterfaceDeclaration containingClass = null;
+        
+        // Try via callable first (for methods, constructors, anonymous class methods)
+        Optional<CallableDeclaration<?>> callableOpt = primary.getContainingCallable();
+        if (callableOpt.isPresent()) {
+            containingClass = callableOpt.get().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElse(null);
+        }
+        
+        // If not found via callable, try via container node (for lambdas, initializers)
+        if (containingClass == null && primary.container() != null) {
+            containingClass = primary.container().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElse(null);
+        }
+        
+        // Fallback if still not found
+        if (containingClass == null) {
+            return "extractedMethod";
+        }
 
         return nameGenerator.generateName(
                 cluster,
@@ -339,7 +510,7 @@ public class RefactoringRecommendationGenerator {
      * Get all field names from the containing class.
      */
     private Set<String> getFieldNames(StatementSequence sequence) {
-        var method = sequence.containingCallable();
+        var method = sequence.getContainingCallable().orElse(null);
         if (method == null) {
             return Collections.emptySet();
         }

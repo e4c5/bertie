@@ -45,7 +45,7 @@ public class ParentClassExtractor extends AbstractExtractor {
     private FunctionalPredicateInfo functionalPredicate;
 
     private CallableDeclaration<?> getCallableToExtract(StatementSequence primary) {
-        CallableDeclaration<?> callable = primary.containingCallable();
+        CallableDeclaration<?> callable = primary.getContainingCallable().orElse(null);
 
         if (callable == null) {
             throw new IllegalArgumentException("No containing callable found");
@@ -697,7 +697,7 @@ public class ParentClassExtractor extends AbstractExtractor {
 
     private void addLiteralArguments(MethodCallExpr call, CallableDeclaration<?> childMethod) {
         Optional<StatementSequence> matchingSeq = cluster.allSequences().stream()
-                .filter(seq -> seq.containingCallable().getNameAsString().equals(childMethod.getNameAsString()) &&
+                .filter(seq -> seq.getContainerName().equals(childMethod.getNameAsString()) &&
                         seq.sourceFilePath().equals(childMethod.findCompilationUnit()
                                 .map(com.raditha.dedup.util.ASTUtility::getSourcePath)
                                 .orElse(null)))
@@ -834,7 +834,7 @@ public class ParentClassExtractor extends AbstractExtractor {
             methodNames.add(call.getNameAsString());
         }
 
-        String paramType = "Predicate<" + resolveScopeType(scopeName, cluster.primary().containingCallable()) + ">";
+        String paramType = "Predicate<" + resolveScopeType(scopeName, cluster.primary().getContainingCallable().orElse(null)) + ">";
         String parentName = computeFunctionalParentName();
 
         return new FunctionalPredicateInfo(true, methodNames, scopeName, "filter", paramType, parentName);
@@ -903,7 +903,7 @@ public class ParentClassExtractor extends AbstractExtractor {
         if (suggested != null && !suggested.isEmpty()) {
             return suggested;
         }
-        CallableDeclaration<?> method = cluster.primary().containingCallable();
+        CallableDeclaration<?> method = cluster.primary().getContainingCallable().orElse(null);
         return method != null ? method.getNameAsString() : "extractedMethod";
     }
 

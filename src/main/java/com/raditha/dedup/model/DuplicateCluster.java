@@ -58,7 +58,9 @@ public record DuplicateCluster(
      */
     public java.util.Set<com.github.javaparser.ast.body.MethodDeclaration> getContainingMethods() {
         return allSequences().stream()
-                .map(StatementSequence::containingCallable)
+                .map(StatementSequence::getContainingCallable)
+                .filter(java.util.Optional::isPresent)
+                .map(java.util.Optional::get)
                 .filter(c -> c instanceof com.github.javaparser.ast.body.MethodDeclaration)
                 .map(c -> (com.github.javaparser.ast.body.MethodDeclaration) c)
                 .collect(java.util.stream.Collectors.toSet());

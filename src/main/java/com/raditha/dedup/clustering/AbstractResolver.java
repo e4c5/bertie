@@ -85,8 +85,9 @@ public abstract class AbstractResolver {
         }
 
         // 2. Check field declarations in the containing class
-        CallableDeclaration<?> callable = sequence.containingCallable();
-        if (callable != null) {
+        Optional<CallableDeclaration<?>> callableOpt = sequence.getContainingCallable();
+        if (callableOpt.isPresent()) {
+            CallableDeclaration<?> callable = callableOpt.get();
             var classDecl = callable.findAncestor(ClassOrInterfaceDeclaration.class);
             if (classDecl.isPresent()) {
                 for (var field : classDecl.get().getFields()) {
@@ -102,13 +103,13 @@ public abstract class AbstractResolver {
                     return resolveTypeToAST(param.getType(), param, sequence);
                 }
             }
-        }
 
-        // 3. Scan method body for variables declared outside the block
-        if (callable != null && sequence.getCallableBody().isPresent()) {
-            Optional<Type> type = findVarTypeInStatement(sequence.getCallableBody().get(), varName, sequence);
-            if (type.isPresent()) {
-                return type.get();
+            // 3. Scan method body for variables declared outside the block
+            if (sequence.getCallableBody().isPresent()) {
+                Optional<Type> type = findVarTypeInStatement(sequence.getCallableBody().get(), varName, sequence);
+                if (type.isPresent()) {
+                    return type.get();
+                }
             }
         }
 
@@ -159,8 +160,8 @@ public abstract class AbstractResolver {
                             .map(m -> resolveTypeToAST(m.getType(), m, sequence))
                             .orElse(null);
                 }
-            } else if (sequence.containingCallable() != null) {
-                var classDecl = sequence.containingCallable().findAncestor(ClassOrInterfaceDeclaration.class);
+            } else if (sequence.getContainingCallable().isPresent()) {
+                var classDecl = sequence.getContainingCallable().get().findAncestor(ClassOrInterfaceDeclaration.class);
                 if (classDecl.isPresent()) {
                     String methodName = methodCall.getNameAsString();
                     return classDecl.get().getMethodsByName(methodName).stream()

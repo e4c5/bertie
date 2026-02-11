@@ -1,6 +1,5 @@
 package com.raditha.dedup.analysis;
 
-import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
@@ -8,6 +7,7 @@ import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.type.Type;
+import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.StatementSequence;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
@@ -70,7 +70,53 @@ public class DataFlowAnalyzer {
         internalOnly.removeAll(topLevelDefined);
         liveOut.removeAll(internalOnly);
 
+        // For static initializers, exclude static field assignments from live-out variables
+        // Static fields should be modified directly in the extracted method, not returned
+        if (sequence.containerType() == ContainerType.STATIC_INITIALIZER) {
+            Set<String> staticFields = findStaticFields(sequence);
+            liveOut.removeAll(staticFields);
+        }
+
         return liveOut;
+    }
+
+    /**
+     * Find all static field names in the containing class.
+     * Used to exclude static field assignments from live-out variables.
+     */
+    private Set<String> findStaticFields(StatementSequence sequence) {
+        Set<String> staticFields = new HashSet<>();
+        var container = sequence.container();
+        if (container == null) {
+            return staticFields;
+        }
+        
+        var containingClass = container.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class);
+        if (containingClass.isEmpty()) {
+            return staticFields;
+        }
+        
+        containingClass.get().getFields().forEach(field -> {
+            if (field.isStatic()) {
+                field.getVariables().forEach(v -> staticFields.add(v.getNameAsString()));
+            }
+        });
+        
+        return staticFields;
+    }
+
+    /**
+     * Context information about the sequence's execution environment.
+     */
+    public record ContextInfo(
+            boolean isStaticContext,
+            Set<String> capturedVariables,
+            Set<String> outerFieldAccess,
+            ContainerType containerType
+    ) {
+        public static ContextInfo empty() {
+            return new ContextInfo(false, Set.of(), Set.of(), null);
+        }
     }
 
     public record SequenceAnalysis(
@@ -79,8 +125,23 @@ public class DataFlowAnalyzer {
             Set<String> internalVars,
             Set<String> usedVars,
             Set<String> returnedVars,
-            java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap
-    ) {}
+            java.util.Map<String, com.github.javaparser.ast.type.Type> typeMap,
+            ContextInfo context
+    ) {
+        /**
+         * Check if a variable is captured (from outer scope in lambda/anonymous class).
+         */
+        public boolean isCapturedVariable(String varName) {
+            return context != null && context.capturedVariables().contains(varName);
+        }
+
+        /**
+         * Check if a variable is an outer class field access.
+         */
+        public boolean isOuterFieldAccess(String varName) {
+            return context != null && context.outerFieldAccess().contains(varName);
+        }
+    }
 
     public SequenceAnalysis analyzeSequenceVariables(StatementSequence sequence) {
         Set<String> defined = new HashSet<>();
@@ -95,7 +156,40 @@ public class DataFlowAnalyzer {
         for (Statement stmt : sequence.statements()) {
             stmt.accept(visitor, new AnalysisContext(defined, literals, internal, used, returned, typeMap));
         }
-        return new SequenceAnalysis(defined, literals, internal, used, returned, typeMap);
+
+        // Build context info for new container types
+        ContextInfo context = buildContextInfo(sequence, used, defined);
+
+        return new SequenceAnalysis(defined, literals, internal, used, returned, typeMap, context);
+    }
+
+    /**
+     * Build context info for the sequence, including captured variables and outer field access.
+     */
+    private ContextInfo buildContextInfo(StatementSequence sequence, Set<String> usedVars, Set<String> definedVars) {
+        ContainerType containerType = sequence.containerType();
+        
+        // Handle null containerType gracefully (legacy sequences or test data)
+        if (containerType == null) {
+            return ContextInfo.empty();
+        }
+        
+        boolean isStatic = sequence.isStaticContext();
+
+        // Find captured variables (variables used but not defined in this sequence)
+        // This is relevant for lambdas and anonymous classes
+        Set<String> capturedVariables = new HashSet<>();
+        if (containerType == ContainerType.LAMBDA || containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            capturedVariables = LambdaClosureAnalyzer.findAllCapturedVariables(sequence);
+        }
+
+        // Find outer class field access (for anonymous class methods)
+        Set<String> outerFieldAccess = new HashSet<>();
+        if (containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            outerFieldAccess = OuterClassFieldAnalyzer.findOuterFieldAccess(sequence);
+        }
+
+        return new ContextInfo(isStatic, capturedVariables, outerFieldAccess, containerType);
     }
 
     /**
@@ -200,8 +294,7 @@ public class DataFlowAnalyzer {
 
     public Set<String> findVariablesUsedAfter(StatementSequence sequence) {
         Set<String> usedAfter = new HashSet<>();
-        CallableDeclaration<?> method = sequence.containingCallable();
-        if (method == null || sequence.getCallableBody().isEmpty() || sequence.statements().isEmpty()) {
+        if (sequence.getCallableBody().isEmpty() || sequence.statements().isEmpty()) {
             return usedAfter;
         }
 

@@ -6,6 +6,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -71,6 +72,7 @@ class DataFlowAnalyzerTest {
                                                                                      // statements
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 sourceFilePath);
 
@@ -90,6 +92,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(115, 132, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 sourceFilePath);
 
@@ -116,6 +119,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(133, 135, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 Paths.get("Test.java"));
 
@@ -131,6 +135,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(115, 132, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 Paths.get("Test.java"));
 
@@ -173,6 +178,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(startLine, endLine, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 sourceFilePath);
 
@@ -207,6 +213,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(startLine, endLine, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 sourceFilePath);
 
@@ -242,6 +249,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(startLine, endLine, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 Paths.get("Test.java"));
 
@@ -284,6 +292,7 @@ class DataFlowAnalyzerTest {
                                                                                 // didn't set ranges
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 sourceFilePath);
 
@@ -317,6 +326,7 @@ class DataFlowAnalyzerTest {
                                         new com.raditha.dedup.model.Range(3, endLine, 1, 100), // Lines 3 and 4 roughly
                                         0,
                                         method,
+                                        com.raditha.dedup.model.ContainerType.METHOD,
                                         cu,
                                         sourceFilePath);
                 }
@@ -356,6 +366,7 @@ class DataFlowAnalyzerTest {
                                 new com.raditha.dedup.model.Range(startLine, endLine, 1, 100),
                                 0,
                                 method,
+                                com.raditha.dedup.model.ContainerType.METHOD,
                                 cu,
                                 sourceFilePath);
 

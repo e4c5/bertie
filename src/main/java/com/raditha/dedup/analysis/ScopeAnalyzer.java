@@ -45,10 +45,11 @@ public class ScopeAnalyzer {
     private List<VariableInfo> extractMethodParameters(StatementSequence sequence) {
         List<VariableInfo> params = new ArrayList<>();
 
-        CallableDeclaration<?> method = sequence.containingCallable();
-        if (method == null) {
+        Optional<CallableDeclaration<?>> methodOpt = sequence.getContainingCallable();
+        if (methodOpt.isEmpty()) {
             return params;
         }
+        CallableDeclaration<?> method = methodOpt.get();
 
         for (Parameter param : method.getParameters()) {
             params.add(new VariableInfo(
@@ -103,8 +104,7 @@ public class ScopeAnalyzer {
     private List<VariableInfo> extractLocalVariables(StatementSequence sequence) {
         List<VariableInfo> locals = new ArrayList<>();
 
-        CallableDeclaration<?> method = sequence.containingCallable();
-        if (method == null || sequence.getCallableBody().isEmpty()) {
+        if (sequence.getCallableBody().isEmpty()) {
             return locals;
         }
 

@@ -534,7 +534,7 @@ public class BertieCLI implements Callable<Integer> {
             int locNum) {
         Path sourcePath = seq.sourceFilePath() != null ? seq.sourceFilePath() : report.sourceFile();
         String className = extractClassName(sourcePath.toString());
-        String methodName = seq.containingCallable() != null ? seq.containingCallable().getNameAsString() : "top-level";
+        String methodName = seq.getContainerName();
         int startLine = seq.range().startLine();
         int endLine = seq.range().endLine();
 

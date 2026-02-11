@@ -3,6 +3,7 @@ package com.raditha.dedup.refactoring;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.CallableDeclaration;
 import com.github.javaparser.ast.body.ConstructorDeclaration;
@@ -95,6 +96,52 @@ public class MethodExtractor extends AbstractExtractor {
         MethodDeclaration helperMethod = helperResult.method();
         this.targetCallable = findReusableMethod();
         this.methodNameToUse = targetCallable.name();
+        
+        // Safety check: Ensure method name is valid and not a class name
+        if (methodNameToUse == null || methodNameToUse.isEmpty()) {
+            return new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                    "Refactoring aborted: Invalid method name generated");
+        }
+        
+        // If we're reusing a constructor, check if we should use constructor delegation
+        // Constructor delegation requires: all sequences are constructors, at start, same class
+        boolean isConstructorReuse = targetCallable.isConstructor();
+        boolean shouldUseConstructorDelegation = false;
+        
+        if (isConstructorReuse) {
+            // Check if all sequences are constructors at the start
+            boolean allConstructors = cluster.allSequences().stream()
+                .allMatch(seq -> seq.getContainingCallable().orElse(null) instanceof ConstructorDeclaration);
+            boolean allAtStart = cluster.allSequences().stream()
+                .allMatch(seq -> seq.startOffset() == 0);
+            boolean sameClass = !isCrossFileCluster();
+            
+            shouldUseConstructorDelegation = allConstructors && allAtStart && sameClass &&
+                (recommendation.getStrategy() == RefactoringStrategy.CONSTRUCTOR_DELEGATION ||
+                 // Also use delegation if strategy is EXTRACT_HELPER_METHOD but all conditions for delegation are met
+                 recommendation.getStrategy() == RefactoringStrategy.EXTRACT_HELPER_METHOD);
+        }
+        
+        // Skip helper method creation if we can use constructor delegation
+        if (shouldUseConstructorDelegation) {
+            // Use constructor delegation (this() calls) - skip helper method
+            return executeReplacements();
+        }
+        
+        // Check if method name matches class name (which would be wrong)
+        TypeDeclaration<?> containingType = findContainingTypeFromSequence(cluster.primary());
+        if (containingType != null && methodNameToUse.equals(containingType.getNameAsString())) {
+            // Fallback to recommendation's suggested name
+            String suggestedName = recommendation.getSuggestedMethodName();
+            if (suggestedName != null && !suggestedName.isEmpty() && !suggestedName.equals(containingType.getNameAsString())) {
+                methodNameToUse = suggestedName;
+                helperMethod.setName(suggestedName);
+            } else {
+                // Last resort: use a safe default
+                methodNameToUse = "extractedMethod";
+                helperMethod.setName("extractedMethod");
+            }
+        }
 
         // Add new helper if no reuse target was found
         Optional<RefactoringResult> skipResult = ensureHelperMethodAttached(helperMethod);
@@ -111,14 +158,19 @@ public class MethodExtractor extends AbstractExtractor {
             return Optional.empty();
         }
 
-        CallableDeclaration<?> containingCallable = cluster.primary().containingCallable();
-        if (containingCallable == null) {
-            throw new IllegalStateException("No containing method found for primary sequence");
+        // Find the containing type - works for both callables and non-callables (initializers, lambdas)
+        TypeDeclaration<?> containingType = findContainingTypeFromSequence(cluster.primary());
+        if (containingType == null) {
+            return Optional.of(new RefactoringResult(Map.of(), recommendation.getStrategy(),
+                    "Refactoring aborted: Could not find containing type for sequence"));
         }
+
+        Optional<CallableDeclaration<?>> containingCallableOpt = cluster.primary().getContainingCallable();
+        CallableDeclaration<?> containingCallable = containingCallableOpt.orElse(null);
 
         // FIXED: If the containingCallable is detached from the AST (e.g., after previous
         // refactorings modified the file), re-resolve it from the live CompilationUnit
-        if (containingCallable.getParentNode().isEmpty()) {
+        if (containingCallable != null && containingCallable.getParentNode().isEmpty()) {
             String callableName = containingCallable.getNameAsString();
             logger.debug("Refreshing detached containingCallable: {}", callableName);
 
@@ -133,10 +185,6 @@ public class MethodExtractor extends AbstractExtractor {
                         "Skipped: method '" + callableName + "' was already refactored by a previous cluster"));
             }
         }
-
-        TypeDeclaration<?> containingType = containingCallable
-                .findAncestor(TypeDeclaration.class)
-                .orElseThrow(() -> new IllegalStateException("No containing type found"));
 
         MethodDeclaration equivalent = findEquivalentHelper(containingType, helperMethod,
                 cluster.getContainingMethods());
@@ -200,17 +248,31 @@ public class MethodExtractor extends AbstractExtractor {
     }
 
     private boolean isSequenceEligibleForReuse(StatementSequence seq) {
-        CallableDeclaration<?> m = seq.containingCallable();
-        if (m == null) return false;
+        Optional<CallableDeclaration<?>> mOpt = seq.getContainingCallable();
+        if (mOpt.isEmpty()) return false;
+        CallableDeclaration<?> m = mOpt.get();
 
         return cluster.allSequences().stream()
-                .anyMatch(otherSeq -> otherSeq.containingCallable() != m);
+                .anyMatch(otherSeq -> {
+                    Optional<CallableDeclaration<?>> otherOpt = otherSeq.getContainingCallable();
+                    return otherOpt.isEmpty() || otherOpt.get() != m;
+                });
     }
 
     private TargetCallable getReusableCallable(StatementSequence seq, MethodDeclaration helperMethod) {
         if (!isMethodBody(seq)) return null;
 
-        CallableDeclaration<?> m = seq.containingCallable();
+        Optional<CallableDeclaration<?>> mOpt = seq.getContainingCallable();
+        if (mOpt.isEmpty()) return null;
+        
+        // Don't reuse anonymous class methods - they're in a different scope
+        // We should always create a helper method in the outer class instead
+        ContainerType containerType = seq.containerType();
+        if (containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            return null;
+        }
+        
+        CallableDeclaration<?> m = mOpt.get();
         if (m instanceof MethodDeclaration method) {
             return findMatchInMethod(method, helperMethod);
         } else if (m instanceof ConstructorDeclaration constructor) {
@@ -256,8 +318,9 @@ public class MethodExtractor extends AbstractExtractor {
 
         // Phase 1: Prepare
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingCallable() != null && targetCallable.node() != null
-                    && seq.containingCallable() == targetCallable.node()
+            Optional<CallableDeclaration<?>> seqCallableOpt = seq.getContainingCallable();
+            if (seqCallableOpt.isPresent() && targetCallable.node() != null
+                    && seqCallableOpt.get() == targetCallable.node()
                     && isMethodBody(seq)
             ) {
                 // Potential recursion check: skip if we are reusing THIS method
@@ -313,28 +376,192 @@ public class MethodExtractor extends AbstractExtractor {
 
     private void ensureHelperInContainingTypes(MethodDeclaration helperMethod,
             Map<CompilationUnit, Path> modifiedCUs) {
-
+        // Ensure helper exists in each containing type for cross-file clusters
+        Set<TypeDeclaration<?>> processedTypes = new HashSet<>();
         for (StatementSequence seq : cluster.allSequences()) {
-            CallableDeclaration<?> containingCallable = seq.containingCallable();
-            if (containingCallable == null) {
+            TypeDeclaration<?> containingType = findContainingTypeFromSequence(seq);
+            if (containingType == null || processedTypes.contains(containingType)) {
                 continue;
             }
-
-            TypeDeclaration<?> containingType = findContainingType(containingCallable);
-            if (containingType == null) {
-                continue;
-            }
-
+            processedTypes.add(containingType);
             ensureHelperInType(containingType, helperMethod);
+        }
+        
+        // Record all modified compilation units
+        for (StatementSequence seq : cluster.allSequences()) {
             recordModifiedCompilationUnit(seq, modifiedCUs);
         }
     }
 
-    private TypeDeclaration<?> findContainingType(CallableDeclaration<?> containingCallable) {
-        return containingCallable.findAncestor(TypeDeclaration.class).orElse(null);
+    /**
+     * Find the most appropriate containing type for helper method placement.
+     * Rules:
+     * 1. For anonymous class methods: extract to the outer class (can't add to anonymous)
+     * 2. For cross-type duplicates: find common ancestor (outer class) to maximize sharing
+     * 3. For same-type duplicates: extract to that type (inner class or outer class)
+     * 4. For lambdas/initializers: extract to immediate containing type
+     */
+    private TypeDeclaration<?> findContainingTypeFromSequence(StatementSequence seq) {
+        Node container = seq.container();
+        if (container == null) {
+            return null;
+        }
+        
+        ContainerType containerType = seq.containerType();
+        
+        // For anonymous class methods, always extract to the outer class
+        if (containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            // Find the ObjectCreationExpr that contains this anonymous class
+            Optional<ObjectCreationExpr> anonymousClass = container.findAncestor(ObjectCreationExpr.class)
+                .filter(oce -> oce.getAnonymousClassBody().isPresent());
+            
+            if (anonymousClass.isPresent()) {
+                // Get the type that contains the ObjectCreationExpr
+                return anonymousClass.get().findAncestor(TypeDeclaration.class).orElse(null);
+            }
+        }
+        
+        // For callables (methods, constructors, anonymous class methods)
+        if (container instanceof CallableDeclaration<?> callable) {
+            // Find the immediate containing type (could be inner class)
+            // Use getParentNode() to get immediate parent, not findAncestor() which might skip inner classes
+            Optional<Node> parent = callable.getParentNode();
+            if (parent.isPresent() && parent.get() instanceof TypeDeclaration<?>) {
+                return (TypeDeclaration<?>) parent.get();
+            }
+            
+            // Fallback: walk up the tree to find first TypeDeclaration (preserves inner class context)
+            Node current = callable;
+            while (current != null) {
+                Optional<Node> currentParent = current.getParentNode();
+                if (currentParent.isPresent() && currentParent.get() instanceof TypeDeclaration<?>) {
+                    return (TypeDeclaration<?>) currentParent.get();
+                }
+                current = currentParent.orElse(null);
+            }
+            return null;
+        }
+        
+        // For lambdas and initializers, find the immediate containing type
+        // Walk up the AST to find the first TypeDeclaration
+        Node current = container;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> typeDecl) {
+                return typeDecl;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Find the optimal type for helper method placement when duplicates span multiple types.
+     * Returns the common ancestor type (outer class) if duplicates are in different types,
+     * otherwise returns the type where all duplicates are located.
+     */
+    private TypeDeclaration<?> findOptimalHelperType() {
+        Set<TypeDeclaration<?>> containingTypes = new HashSet<>();
+        
+        // Collect all containing types from sequences
+        for (StatementSequence seq : cluster.allSequences()) {
+            TypeDeclaration<?> type = findContainingTypeFromSequence(seq);
+            if (type != null) {
+                containingTypes.add(type);
+            }
+        }
+        
+        if (containingTypes.isEmpty()) {
+            return null;
+        }
+        
+        // If all sequences are in the same type, use that type
+        if (containingTypes.size() == 1) {
+            return containingTypes.iterator().next();
+        }
+        
+        // Multiple types: find the common ancestor (outer class)
+        // Strategy: find the outermost type that contains all the types
+        TypeDeclaration<?> candidate = null;
+        for (TypeDeclaration<?> type : containingTypes) {
+            if (candidate == null) {
+                candidate = type;
+            } else {
+                // Check if candidate is ancestor of type
+                if (isAncestorType(candidate, type)) {
+                    // candidate is already outer, keep it
+                    continue;
+                } else if (isAncestorType(type, candidate)) {
+                    // type is outer, use it
+                    candidate = type;
+                } else {
+                    // Different branches, find common ancestor
+                    candidate = findCommonAncestorType(candidate, type);
+                    if (candidate == null) {
+                        // No common ancestor (different files?), use first one
+                        return containingTypes.iterator().next();
+                    }
+                }
+            }
+        }
+        
+        return candidate;
+    }
+    
+    /**
+     * Check if ancestorType is an ancestor of descendantType in the AST.
+     */
+    private boolean isAncestorType(TypeDeclaration<?> ancestorType, TypeDeclaration<?> descendantType) {
+        Node current = descendantType;
+        while (current != null) {
+            if (current == ancestorType) {
+                return true;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return false;
+    }
+    
+    /**
+     * Find the common ancestor type of two types.
+     */
+    private TypeDeclaration<?> findCommonAncestorType(TypeDeclaration<?> type1, TypeDeclaration<?> type2) {
+        // Collect all ancestors of type1
+        Set<TypeDeclaration<?>> ancestors1 = new HashSet<>();
+        Node current = type1;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> td) {
+                ancestors1.add(td);
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        
+        // Walk up from type2 to find first common ancestor
+        current = type2;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> td && ancestors1.contains(td)) {
+                return td;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        
+        return null;
     }
 
     private void ensureHelperInType(TypeDeclaration<?> containingType, MethodDeclaration helperMethod) {
+        // Validate that we can add methods to this type
+        if (containingType.isEnumDeclaration()) {
+            throw new IllegalStateException(
+                "Cannot add helper method to enum: " + containingType.getNameAsString());
+        }
+        
+        // For anonymous classes, we should have already handled this in findContainingTypeFromSequence
+        // But add a safety check - anonymous classes don't have a name, so check if it's nested and has no name
+        if (containingType.isNestedType() && containingType.getNameAsString().isEmpty()) {
+            throw new IllegalStateException(
+                "Cannot add helper method to anonymous class");
+        }
+        
         if (hasMatchingMethodSignature(containingType, helperMethod)) {
             validateExistingHelper(containingType, helperMethod);
             return;
@@ -580,7 +807,8 @@ public class MethodExtractor extends AbstractExtractor {
     private void applyMethodModifiers(MethodDeclaration method) {
         boolean shouldBeStatic = false;
         for (StatementSequence seq : cluster.allSequences()) {
-            if (seq.containingCallable() != null && seq.containingCallable().isStatic()) {
+            // Use isStaticContext() which handles all container types
+            if (seq.isStaticContext()) {
                 shouldBeStatic = true;
                 break;
             }
@@ -604,7 +832,8 @@ public class MethodExtractor extends AbstractExtractor {
                     new com.raditha.dedup.model.Range(fullRange.startLine(), fullRange.startColumn(), fullRange.startLine(),
                             fullRange.startColumn()),
                     fullSequence.startOffset(),
-                    fullSequence.containingCallable(),
+                    fullSequence.container(),
+                    fullSequence.containerType(),
                     fullSequence.compilationUnit(),
                     fullSequence.sourceFilePath());
         }
@@ -622,7 +851,8 @@ public class MethodExtractor extends AbstractExtractor {
                 prefixStmts,
                 prefixRange,
                 fullSequence.startOffset(),
-                fullSequence.containingCallable(),
+                fullSequence.container(),
+                fullSequence.containerType(),
                 fullSequence.compilationUnit(),
                 fullSequence.sourceFilePath());
     }
@@ -685,12 +915,12 @@ public class MethodExtractor extends AbstractExtractor {
     }
 
     private void copyThrownExceptions(MethodDeclaration method, StatementSequence sequence) {
-        if (sequence.containingCallable() != null) {
-            NodeList<ReferenceType> exceptions = sequence.containingCallable().getThrownExceptions();
+        sequence.getContainingCallable().ifPresent(callable -> {
+            NodeList<ReferenceType> exceptions = callable.getThrownExceptions();
             for (ReferenceType exception : exceptions) {
                 method.addThrownException(exception.clone());
             }
-        }
+        });
     }
 
     private String determineTargetReturnVar(StatementSequence sequence, com.github.javaparser.ast.type.Type returnType) {
@@ -901,7 +1131,8 @@ public class MethodExtractor extends AbstractExtractor {
         if (startIdx < 0)
             return false;
 
-        if (targetCallable.isConstructor() && sequence.containingCallable() instanceof ConstructorDeclaration caller) {
+        Optional<CallableDeclaration<?>> seqCallable = sequence.getContainingCallable();
+        if (targetCallable.isConstructor() && seqCallable.isPresent() && seqCallable.get() instanceof ConstructorDeclaration caller) {
             if (hasExplicitConstructorCall(caller)) {
                 return false;
             }
@@ -945,7 +1176,7 @@ public class MethodExtractor extends AbstractExtractor {
                 && block.getStatements().get(startIdx).isReturnStmt();
 
         boolean returnHasExternalVars = hasExternalVariablesInReturn(sequence);
-        boolean shouldReturnDirectly = canInlineReturn(sequence.containingCallable(), block, originalReturnValues,
+        boolean shouldReturnDirectly = canInlineReturn(sequence.getContainingCallable().orElse(null), block, originalReturnValues,
                 returnHasExternalVars, nextIsReturn);
 
         if (!shouldReturnDirectly && varName == null) {
@@ -1006,7 +1237,7 @@ public class MethodExtractor extends AbstractExtractor {
                     new Range(sequence.range().startLine(), sequence.range().startColumn(),
                             stmts.get(limit - 1).getEnd().map(p -> p.line).orElse(sequence.range().endLine()),
                             stmts.get(limit - 1).getEnd().map(p -> p.column).orElse(sequence.range().endColumn())),
-                    sequence.startOffset(), sequence.containingCallable(), sequence.compilationUnit(),
+                    sequence.startOffset(), sequence.container(), sequence.containerType(), sequence.compilationUnit(),
                     sequence.sourceFilePath());
         }
 
@@ -1240,12 +1471,33 @@ public class MethodExtractor extends AbstractExtractor {
              if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                  return null;
              }
-             CallableDeclaration<?> method = sequence.containingCallable();
-
-             for (Parameter p : method.getParameters()) {
-                 if (p.getNameAsString().equals(varName)) return p.getType();
+             
+             ContainerType containerType = sequence.containerType();
+             if (containerType == null) {
+                 return null;
              }
-
+             
+             // Handle callable containers (methods, constructors, anonymous class methods)
+             Optional<CallableDeclaration<?>> methodOpt = sequence.getContainingCallable();
+             if (methodOpt.isPresent()) {
+                 CallableDeclaration<?> method = methodOpt.get();
+                 
+                 // Check parameters
+                 for (Parameter p : method.getParameters()) {
+                     if (p.getNameAsString().equals(varName)) return p.getType();
+                 }
+             }
+             
+             // Handle lambda parameters
+             if (containerType == ContainerType.LAMBDA && sequence.container() instanceof LambdaExpr lambda) {
+                 for (Parameter p : lambda.getParameters()) {
+                     if (p.getNameAsString().equals(varName)) {
+                         return p.getType();
+                     }
+                 }
+             }
+             
+             // Check for variable declarations in the body (works for all container types)
              for (Statement stmt : bodyOpt.get().getStatements()) {
                   if (stmt.isExpressionStmt() && stmt.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
                       for (com.github.javaparser.ast.body.VariableDeclarator v : stmt.asExpressionStmt().getExpression().asVariableDeclarationExpr().getVariables()) {
@@ -1253,6 +1505,26 @@ public class MethodExtractor extends AbstractExtractor {
                       }
                   }
              }
+             
+             // For initializers and lambdas, also check class fields
+             if (containerType == ContainerType.INSTANCE_INITIALIZER || 
+                 containerType == ContainerType.STATIC_INITIALIZER ||
+                 containerType == ContainerType.LAMBDA) {
+                 
+                 com.github.javaparser.ast.body.ClassOrInterfaceDeclaration clazz = 
+                     sequence.container().findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+                 
+                 if (clazz != null) {
+                     for (com.github.javaparser.ast.body.FieldDeclaration field : clazz.getFields()) {
+                         for (com.github.javaparser.ast.body.VariableDeclarator var : field.getVariables()) {
+                             if (var.getNameAsString().equals(varName)) {
+                                 return field.getElementType();
+                             }
+                         }
+                     }
+                 }
+             }
+             
              return null;
         }
 
@@ -1338,17 +1610,21 @@ public class MethodExtractor extends AbstractExtractor {
          * but NOT in the sequence).
          */
         private boolean isLocalVariable(StatementSequence sequence, String varName) {
-            CallableDeclaration<?> containingCallable = sequence.containingCallable();
             Optional<BlockStmt> bodyOpt = sequence.getCallableBody();
-            if (containingCallable == null || bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
+            if (bodyOpt.isEmpty() || bodyOpt.get().getStatements().isEmpty()) {
                 return false;
             }
-
-            // Search for variable declaration in method body but BEFORE the sequence start
+            
+            ContainerType containerType = sequence.containerType();
+            if (containerType == null) {
+                return false;
+            }
+            
+            // Search for variable declaration in container body but BEFORE the sequence start
             int sequenceStartLine = sequence.range().startLine();
-            BlockStmt methodBody = bodyOpt.get();
+            BlockStmt containerBody = bodyOpt.get();
 
-            for (VariableDeclarationExpr varDecl : methodBody.findAll(VariableDeclarationExpr.class)) {
+            for (VariableDeclarationExpr varDecl : containerBody.findAll(VariableDeclarationExpr.class)) {
                 if (varDecl.getRange().isPresent() &&
                         varDecl.getRange().get().begin.line < sequenceStartLine) {
                     for (var variable : varDecl.getVariables()) {
@@ -1359,10 +1635,23 @@ public class MethodExtractor extends AbstractExtractor {
                 }
             }
 
-            // Also check method parameters
-            for (var param : containingCallable.getParameters()) {
-                if (param.getNameAsString().equals(varName)) {
-                    return true; // It's a method parameter, treated as external
+            // Check callable parameters (methods, constructors, anonymous class methods)
+            Optional<CallableDeclaration<?>> containingCallableOpt = sequence.getContainingCallable();
+            if (containingCallableOpt.isPresent()) {
+                CallableDeclaration<?> containingCallable = containingCallableOpt.get();
+                for (var param : containingCallable.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        return true; // It's a parameter, treated as external
+                    }
+                }
+            }
+            
+            // Check lambda parameters
+            if (containerType == ContainerType.LAMBDA && sequence.container() instanceof LambdaExpr lambda) {
+                for (Parameter param : lambda.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        return true; // It's a lambda parameter, treated as external
+                    }
                 }
             }
 

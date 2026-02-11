@@ -311,14 +311,16 @@ public class DuplicationAnalyzer {
         List<SimilarityPair> candidates = new ArrayList<>();
         com.raditha.dedup.normalization.FuzzyTokenizer tokenizer = new com.raditha.dedup.normalization.FuzzyTokenizer();
 
-        // Cache for strict normalization (computed only on demand for candidates)
-        Map<StatementSequence, NormalizedSequence> normalizationCache = new java.util.HashMap<>();
+        // Separate caches: standard normalization preserves identifiers, fuzzy anonymizes them.
+        // A sequence may participate in both standard and fuzzy pairs, so we need two caches.
+        Map<StatementSequence, NormalizedSequence> standardCache = new java.util.HashMap<>();
+        Map<StatementSequence, NormalizedSequence> fuzzyCache = new java.util.HashMap<>();
 
         // 1. Initialize LSH Index
         int numBands = DuplicationDetectorSettings.getNumBands();
         int rowsPerBand = DuplicationDetectorSettings.getRowsPerBand();
         int numHashes = numBands * rowsPerBand;
-        
+
         com.raditha.dedup.lsh.MinHash minHash = new com.raditha.dedup.lsh.MinHash(numHashes, 3);
         com.raditha.dedup.lsh.LSHIndex lshIndex = new com.raditha.dedup.lsh.LSHIndex(minHash, numBands, rowsPerBand);
 
@@ -340,11 +342,22 @@ public class DuplicationAnalyzer {
                     continue;
                 }
 
-                // Lazy Normalization: Only normalize if we have a candidate pair
-                NormalizedSequence currentNorm = normalizationCache.computeIfAbsent(currentSeq,
-                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
-                NormalizedSequence candidateNorm = normalizationCache.computeIfAbsent(candidateSeq,
-                    s -> new NormalizedSequence(s, astNormalizer.normalize(s.statements())));
+                // Lazy Normalization: Only normalize if we have a candidate pair.
+                // Use fuzzy normalization (anonymizes identifiers) only when at least one
+                // sequence is a non-callable container (initializer, lambda) where different
+                // identifier names represent the same structural pattern.
+                // For method/constructor pairs, use standard normalization to preserve precision.
+                boolean needsFuzzy = needsFuzzyNormalization(currentSeq, candidateSeq);
+                Map<StatementSequence, NormalizedSequence> cache = needsFuzzy ? fuzzyCache : standardCache;
+
+                NormalizedSequence currentNorm = cache.computeIfAbsent(currentSeq,
+                    s -> new NormalizedSequence(s, needsFuzzy
+                        ? astNormalizer.normalizeFuzzy(s.statements())
+                        : astNormalizer.normalize(s.statements())));
+                NormalizedSequence candidateNorm = cache.computeIfAbsent(candidateSeq,
+                    s -> new NormalizedSequence(s, needsFuzzy
+                        ? astNormalizer.normalizeFuzzy(s.statements())
+                        : astNormalizer.normalize(s.statements())));
 
                 // analyzePair expects (Earlier, Later) conceptually, but implementation is symmetric
                 // Passing candidate (earlier) first, then current (later) to match typical discovery order
@@ -354,6 +367,22 @@ public class DuplicationAnalyzer {
         }
 
         return candidates;
+    }
+
+    /**
+     * Determine if a pair of sequences requires fuzzy normalization.
+     * Fuzzy normalization anonymizes identifiers, which is needed when both sequences are
+     * non-callable containers (initializers, lambdas) where structurally identical code
+     * uses different field/variable names (e.g. two static initializers initializing
+     * different fields with the same pattern).
+     * When one side is a callable (method/constructor), standard normalization preserves
+     * identifier precision and avoids false positives.
+     */
+    private boolean needsFuzzyNormalization(StatementSequence seq1, StatementSequence seq2) {
+        ContainerType t1 = seq1.containerType();
+        ContainerType t2 = seq2.containerType();
+        if (t1 == null || t2 == null) return false;
+        return !t1.isCallable() && !t2.isCallable();
     }
 
     /**
@@ -370,9 +399,9 @@ public class DuplicationAnalyzer {
         }
 
         // If both are within methods/constructors, they must be the SAME one
-        var m1 = s1.containingCallable();
-        var m2 = s2.containingCallable();
-        if (m1 != null && m2 != null && !m1.equals(m2)) {
+        var m1Opt = s1.getContainingCallable();
+        var m2Opt = s2.getContainingCallable();
+        if (m1Opt.isPresent() && m2Opt.isPresent() && !m1Opt.get().equals(m2Opt.get())) {
             return false;
         }
 
@@ -413,6 +442,7 @@ public class DuplicationAnalyzer {
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
         int size1 = norm1.sequence().statements().size();
         int size2 = norm2.sequence().statements().size();
+
         if (size1 != size2) {
             return new SimilarityPair(norm1.sequence(), norm2.sequence(),
                     new SimilarityResult(0.0, 0.0, 0.0, 0.0, size1, size2,
@@ -489,30 +519,41 @@ public class DuplicationAnalyzer {
     /**
      * Create canonical method-pair key (order-independent).
      * (methodA, methodB) should equal (methodB, methodA)
+     * For non-callable containers (static/instance initializers, lambdas), use the container node itself.
      */
     private CallablePairKey makeCallablePairKey(SimilarityPair pair) {
-        var m1 = pair.seq1().containingCallable();
-        var m2 = pair.seq2().containingCallable();
+        com.github.javaparser.ast.Node n1 = pair.seq1().getContainingCallable().orElse(null);
+        com.github.javaparser.ast.Node n2 = pair.seq2().getContainingCallable().orElse(null);
+        
+        // For non-callable containers, use the container node for grouping
+        // This ensures sequences from the same initializer/lambda are grouped together
+        if (n1 == null) {
+            n1 = pair.seq1().container();
+        }
+        if (n2 == null) {
+            n2 = pair.seq2().container();
+        }
         
         // Canonical ordering: use identity hash codes for stable comparison
-        int h1 = System.identityHashCode(m1);
-        int h2 = System.identityHashCode(m2);
+        int h1 = System.identityHashCode(n1);
+        int h2 = System.identityHashCode(n2);
         
         // Always put smaller hash first for canonical ordering
         if (h1 <= h2) {
-            return new CallablePairKey(m1, m2);
+            return new CallablePairKey(n1, n2);
         } else {
-            return new CallablePairKey(m2, m1);
+            return new CallablePairKey(n2, n1);
         }
     }
 
     /**
      * Canonical method-pair key for grouping.
      * Ensures (m1, m2) == (m2, m1) via constructor ordering.
+     * For non-callable containers, the "method" fields may contain the container node (InitializerDeclaration, LambdaExpr, etc.)
      */
     private record CallablePairKey(
-        com.github.javaparser.ast.body.CallableDeclaration<?> method1,
-        com.github.javaparser.ast.body.CallableDeclaration<?> method2
+        com.github.javaparser.ast.Node method1,  // Changed to Node to support non-callable containers
+        com.github.javaparser.ast.Node method2   // Changed to Node to support non-callable containers
     ) {}
 
     /**

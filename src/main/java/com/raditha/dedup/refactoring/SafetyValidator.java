@@ -1,6 +1,8 @@
 package com.raditha.dedup.refactoring;
 
 import com.raditha.dedup.analysis.EscapeAnalyzer;
+import com.raditha.dedup.analysis.LambdaClosureAnalyzer;
+import com.raditha.dedup.analysis.OuterClassFieldAnalyzer;
 import com.raditha.dedup.model.*;
 
 import java.util.ArrayList;
@@ -57,7 +59,121 @@ public class SafetyValidator {
                     "Cannot refactor code from nested types (Enums, Inner Classes) using this strategy"));
         }
 
+        // 7. Check for new container type specific issues
+        validateContainerTypeIssues(cluster, recommendation, issues);
+
         return new ValidationResult(issues);
+    }
+
+    /**
+     * Validate issues specific to new container types (lambdas, initializers, anonymous classes).
+     */
+    private void validateContainerTypeIssues(DuplicateCluster cluster, RefactoringRecommendation recommendation, 
+            List<ValidationIssue> issues) {
+        ContainerType containerType = cluster.primary().containerType();
+        if (containerType == null) {
+            return;
+        }
+
+        switch (containerType) {
+            case LAMBDA -> validateLambdaExtraction(cluster, issues);
+            case STATIC_INITIALIZER -> validateStaticInitializerExtraction(cluster, recommendation, issues);
+            case INSTANCE_INITIALIZER -> validateInstanceInitializerExtraction(cluster, issues);
+            case ANONYMOUS_CLASS_METHOD -> validateAnonymousClassExtraction(cluster, issues);
+            default -> {} // METHOD and CONSTRUCTOR handled by existing validations
+        }
+    }
+
+    /**
+     * Validate lambda extraction safety.
+     * Lambdas cannot modify captured variables (they must be effectively final).
+     */
+    private void validateLambdaExtraction(DuplicateCluster cluster, List<ValidationIssue> issues) {
+        for (StatementSequence seq : cluster.allSequences()) {
+            if (seq.containerType() != ContainerType.LAMBDA) continue;
+            
+            // Check if any captured variables are modified
+            Set<String> captured = LambdaClosureAnalyzer.findAllCapturedVariables(seq);
+            if (!captured.isEmpty()) {
+                // Check if captured variables are modified within the sequence
+                EscapeAnalyzer analyzer = new EscapeAnalyzer();
+                Set<String> escaping = analyzer.analyze(seq);
+                
+                // If any captured variable is also escaping (modified), it's a problem
+                captured.retainAll(escaping);
+                if (!captured.isEmpty()) {
+                    issues.add(ValidationIssue.error(
+                            "Lambda modifies captured variables: " + captured + " - cannot safely extract"));
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Validate static initializer extraction safety.
+     * Extracted method must be static and cannot access instance state.
+     */
+    private void validateStaticInitializerExtraction(DuplicateCluster cluster, 
+            RefactoringRecommendation recommendation, List<ValidationIssue> issues) {
+        // Static initializers can only extract to static methods
+        // The MethodExtractor should handle forcing the static modifier
+        // Just add a warning for cross-file cases
+        if (recommendation.getStrategy() == RefactoringStrategy.EXTRACT_TO_UTILITY_CLASS) {
+            issues.add(ValidationIssue.warning(
+                    "Static initializer duplicates will be extracted to utility class - verify execution order is preserved"));
+        }
+    }
+
+    /**
+     * Validate instance initializer extraction safety.
+     */
+    private void validateInstanceInitializerExtraction(DuplicateCluster cluster, List<ValidationIssue> issues) {
+        // Instance initializers can access instance fields, similar to constructors
+        // Main concern is that the extracted method is called before fields are fully initialized
+        // Add a warning for awareness
+        issues.add(ValidationIssue.warning(
+                "Extracted method from instance initializer may be called before all fields are initialized"));
+    }
+
+    /**
+     * Validate anonymous class method extraction safety.
+     * Check for outer class field access patterns.
+     */
+    private void validateAnonymousClassExtraction(DuplicateCluster cluster, List<ValidationIssue> issues) {
+        for (StatementSequence seq : cluster.allSequences()) {
+            if (seq.containerType() != ContainerType.ANONYMOUS_CLASS_METHOD) continue;
+
+            // Check if sequence accesses outer class fields
+            if (OuterClassFieldAnalyzer.requiresOuterClassAccess(seq)) {
+                issues.add(ValidationIssue.warning(
+                        "Anonymous class method accesses outer class fields - extracted method may need outer instance reference"));
+                return;
+            }
+        }
+
+        // For EXTRACT_NAMED_INNER_CLASS, validate that the anonymous classes implement the same type
+        if (cluster.recommendation() != null
+                && cluster.recommendation().getStrategy() == RefactoringStrategy.EXTRACT_NAMED_INNER_CLASS) {
+            String firstType = null;
+            for (StatementSequence seq : cluster.allSequences()) {
+                if (seq.containerType() != ContainerType.ANONYMOUS_CLASS_METHOD || seq.container() == null) continue;
+                var oce = seq.container().findAncestor(com.github.javaparser.ast.expr.ObjectCreationExpr.class)
+                        .filter(o -> o.getAnonymousClassBody().isPresent());
+                if (oce.isEmpty()) {
+                    issues.add(ValidationIssue.error("Could not find anonymous class creation for sequence"));
+                    return;
+                }
+                String typeName = oce.get().getType().getNameAsString();
+                if (firstType == null) {
+                    firstType = typeName;
+                } else if (!firstType.equals(typeName)) {
+                    issues.add(ValidationIssue.error(
+                            "Anonymous classes implement different types: " + firstType + " vs " + typeName));
+                    return;
+                }
+            }
+        }
     }
 
     /**
@@ -65,7 +181,8 @@ public class SafetyValidator {
      */
     private boolean hasMethodNameConflict(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
         StatementSequence primary = cluster.primary();
-        var containingClass = primary.containingCallable() != null ? primary.containingCallable().findAncestor(
+        var callable = primary.getContainingCallable().orElse(null);
+        var containingClass = callable != null ? callable.findAncestor(
                 com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null) : null;
 
         if (containingClass == null) {
@@ -80,7 +197,7 @@ public class SafetyValidator {
     private boolean shouldCheckMethodNameConflict(RefactoringRecommendation recommendation) {
         return switch (recommendation.getStrategy()) {
             case EXTRACT_HELPER_METHOD, EXTRACT_TO_PARAMETERIZED_TEST -> true;
-            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, CONSTRUCTOR_DELEGATION, MANUAL_REVIEW_REQUIRED -> false;
+            case EXTRACT_TO_UTILITY_CLASS, EXTRACT_PARENT_CLASS, CONSTRUCTOR_DELEGATION, EXTRACT_NAMED_INNER_CLASS, MANUAL_REVIEW_REQUIRED -> false;
         };
     }
 
@@ -127,15 +244,10 @@ public class SafetyValidator {
 
     /**
      * Get all field names from the containing class of a sequence.
+     * Works with all container types (methods, constructors, initializers, lambdas, anonymous classes).
      */
     private Set<String> getClassFieldNames(StatementSequence sequence) {
-        var method = sequence.containingCallable();
-        if (method == null) {
-            return java.util.Collections.emptySet();
-        }
-        
-        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .orElse(null);
+        var clazz = findContainingClass(sequence);
         if (clazz == null) {
             return java.util.Collections.emptySet();
         }
@@ -149,18 +261,36 @@ public class SafetyValidator {
         return fieldNames;
     }
 
+    /**
+     * Find the containing class for any container type.
+     */
+    private com.github.javaparser.ast.body.ClassOrInterfaceDeclaration findContainingClass(StatementSequence sequence) {
+        // First try using the callable if available
+        var callable = sequence.getContainingCallable().orElse(null);
+        if (callable != null) {
+            return callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElse(null);
+        }
+        
+        // For non-callable containers, use the container node directly
+        var container = sequence.container();
+        if (container != null) {
+            return container.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                    .orElse(null);
+        }
+        
+        return null;
+    }
+
     private boolean hasFinalFieldAssignments(StatementSequence sequence) {
-        var method = sequence.containingCallable();
-        if (method == null) return false;
-        var clazz = method.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+        var clazz = findContainingClass(sequence);
         if (clazz == null) return false;
 
         Set<String> finalFields = collectFinalFieldNames(clazz);
-
         if (finalFields.isEmpty()) return false;
 
         // Collect local variables and parameters to avoid false positives from shadowing
-        Set<String> localsAndParams = collectLocalAndParameterNames(method);
+        Set<String> localsAndParams = collectLocalAndParameterNames(sequence);
 
         String className = clazz.getNameAsString();
 
@@ -184,11 +314,32 @@ public class SafetyValidator {
         return finalFields;
     }
 
-    private Set<String> collectLocalAndParameterNames(com.github.javaparser.ast.body.CallableDeclaration<?> method) {
+    /**
+     * Collect local variables and parameters from the sequence container.
+     * Works with all container types.
+     */
+    private Set<String> collectLocalAndParameterNames(StatementSequence sequence) {
         Set<String> localsAndParams = new java.util.HashSet<>();
-        method.getParameters().forEach(p -> localsAndParams.add(p.getNameAsString()));
-        method.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
-                .forEach(v -> localsAndParams.add(v.getNameAsString()));
+        
+        // Get parameters from callable if available
+        var callable = sequence.getContainingCallable().orElse(null);
+        if (callable != null) {
+            callable.getParameters().forEach(p -> localsAndParams.add(p.getNameAsString()));
+        }
+        
+        // For lambdas, also get lambda parameters
+        if (sequence.containerType() == ContainerType.LAMBDA 
+                && sequence.container() instanceof com.github.javaparser.ast.expr.LambdaExpr lambda) {
+            lambda.getParameters().forEach(p -> localsAndParams.add(p.getNameAsString()));
+        }
+        
+        // Collect all local variable declarations from the container
+        var container = sequence.container();
+        if (container != null) {
+            container.findAll(com.github.javaparser.ast.body.VariableDeclarator.class)
+                    .forEach(v -> localsAndParams.add(v.getNameAsString()));
+        }
+        
         return localsAndParams;
     }
 
@@ -227,19 +378,28 @@ public class SafetyValidator {
         }
 
         StatementSequence primary = cluster.primary();
-        var callable = primary.containingCallable();
-        if (callable == null) return false;
-
+        
+        // For non-callable containers, check using the container node
+        var container = primary.container();
+        if (container == null) return true;
+        
         // Check if inside an enum - unsupported for EXTRACT_PARENT_CLASS
-        if (callable.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent()) {
+        if (container.findAncestor(com.github.javaparser.ast.body.EnumDeclaration.class).isPresent()) {
             return true;
         }
 
-        var clazz = callable.findAncestor(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class).orElse(null);
+        var clazz = findContainingClass(primary);
         if (clazz == null) return true; // Not in a class
 
-        // Check if the method is inside an anonymous class or similar within a method
-        if (callable.getParentNode().map(p -> p != clazz).orElse(true)) {
+        // Lambda and anonymous class methods are always nested - use EXTRACT_HELPER_METHOD instead
+        ContainerType containerType = primary.containerType();
+        if (containerType == ContainerType.LAMBDA || containerType == ContainerType.ANONYMOUS_CLASS_METHOD) {
+            return true;
+        }
+
+        // For callable containers, check if inside an anonymous class
+        var callable = primary.getContainingCallable().orElse(null);
+        if (callable != null && callable.getParentNode().map(p -> p != clazz).orElse(true)) {
             return true;
         }
 

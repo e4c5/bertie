@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -55,6 +56,7 @@ class EscapeAnalyzerTest {
                 new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("Test.java"));
 
@@ -77,6 +79,7 @@ class EscapeAnalyzerTest {
                 new com.raditha.dedup.model.Range(1, 2, 1, 10),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("Test.java"));
 
@@ -96,6 +99,7 @@ class EscapeAnalyzerTest {
                 new com.raditha.dedup.model.Range(1, 1, 1, 10),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("Test.java"));
 
@@ -128,6 +132,7 @@ class EscapeAnalyzerTest {
                 new com.raditha.dedup.model.Range(1, stmts.size(), 1, 10),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("Test.java"));
 

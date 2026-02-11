@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Extracts parameters and arguments from variation analysis.
@@ -27,14 +28,34 @@ public class ASTParameterExtractor {
      * @param analysis Variation analysis result
      * @return Extraction plan with parameters and arguments
      */
+    public ExtractionPlan extractParameters(VariationAnalysis analysis) {
+        return extractParameters(analysis, Set.of(), Set.of());
+    }
+
+    /**
+     * Extract parameters and arguments from variation analysis with context info.
+     * 
+     * @param analysis          Variation analysis result
+     * @param capturedVariables Variables captured from outer scope (for lambdas/anonymous classes)
+     * @param outerFieldAccess  Fields accessed from outer class (for anonymous classes)
+     * @return Extraction plan with parameters, arguments, and context info
+     */
     public ExtractionPlan extractParameters(
-            VariationAnalysis analysis) {
+            VariationAnalysis analysis,
+            Set<String> capturedVariables,
+            Set<String> outerFieldAccess) {
         List<ParameterSpec> parameters = new ArrayList<>();
         List<VariableReference> arguments = new ArrayList<>();
 
         for (VaryingExpression variation : analysis.varyingExpressions()) {
             String name = inferParameterName(variation.expr1());
             Type type = convertToJavaParserType(variation.type());
+
+            // Skip captured variables - they are available via closure, not as parameters
+            if (capturedVariables.contains(name)) {
+                logger.debug("[ASTParameterExtractor] Skipping captured variable: {}", name);
+                continue;
+            }
 
             // Get example values
             List<String> examples = List.of(
@@ -55,9 +76,15 @@ public class ASTParameterExtractor {
         }
 
         // Variable references can be used directly as arguments
-        arguments.addAll(analysis.variableReferences());
+        // Filter out captured variables and outer field access - they're available via closure
+        for (VariableReference ref : analysis.variableReferences()) {
+            if (!capturedVariables.contains(ref.name()) 
+                    && !outerFieldAccess.contains(ref.name())) {
+                arguments.add(ref);
+            }
+        }
 
-        return new ExtractionPlan(parameters, arguments);
+        return new ExtractionPlan(parameters, arguments, capturedVariables, outerFieldAccess);
     }
 
     /**

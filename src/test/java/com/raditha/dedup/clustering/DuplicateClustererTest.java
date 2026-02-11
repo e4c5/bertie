@@ -151,6 +151,7 @@ class DuplicateClustererTest {
                 0,
                 null,
                 null,
+                null,
                 Paths.get("Test.java"));
     }
 }

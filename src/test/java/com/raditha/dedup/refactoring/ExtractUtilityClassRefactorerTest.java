@@ -226,6 +226,7 @@ class ExtractUtilityClassRefactorerTest {
                 new Range(1, 1, 10, 1),
                 0,
                 method,
+                ContainerType.METHOD,
                 cu,
                 Paths.get("src/main/java/com/example/MyService.java"));
 
@@ -244,7 +245,7 @@ class ExtractUtilityClassRefactorerTest {
 
         StatementSequence seq1 = new StatementSequence(
                 method1.getBody().get().getStatements(),
-                new Range(1, 1, 10, 1), 0, method1, cu1, Paths.get("src/main/java/com/example/ServiceA.java"));
+                new Range(1, 1, 10, 1), 0, method1, ContainerType.METHOD, cu1, Paths.get("src/main/java/com/example/ServiceA.java"));
 
         ClassOrInterfaceDeclaration clazz2 = cu2.findFirst(ClassOrInterfaceDeclaration.class).orElseThrow();
         MethodDeclaration method2 = clazz2.getMethods().stream()
@@ -252,7 +253,7 @@ class ExtractUtilityClassRefactorerTest {
 
         StatementSequence seq2 = new StatementSequence(
                 method2.getBody().get().getStatements(),
-                new Range(1, 1, 10, 1), 0, method2, cu2, Paths.get("src/main/java/com/example/ServiceB.java"));
+                new Range(1, 1, 10, 1), 0, method2, ContainerType.METHOD, cu2, Paths.get("src/main/java/com/example/ServiceB.java"));
 
         // Create SimilarityPair
         SimilarityResult sim = new SimilarityResult(1.0, 1.0, 1.0, 1.0, 10, 10, null, null, true);

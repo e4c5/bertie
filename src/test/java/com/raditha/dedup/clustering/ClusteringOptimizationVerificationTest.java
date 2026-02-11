@@ -5,6 +5,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.ContainerType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -53,7 +54,7 @@ class ClusteringOptimizationVerificationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class).get();
         List<Statement> stmts = method.getBody().get().getStatements();
-        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, cu, Paths.get("Test.java"));
+        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, ContainerType.METHOD, cu, Paths.get("Test.java"));
 
         assertEquals("double", returnTypeResolver.findTypeInContext(sequence, "local").asString());
         assertEquals("int", returnTypeResolver.findTypeInContext(sequence, "param").asString());
@@ -75,7 +76,7 @@ class ClusteringOptimizationVerificationTest {
         CompilationUnit cu = StaticJavaParser.parse(code);
         MethodDeclaration method = cu.findFirst(MethodDeclaration.class).get();
         List<Statement> stmts = method.getBody().get().getStatements();
-        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, cu, Paths.get("Test.java"));
+        StatementSequence sequence = new StatementSequence(stmts, null, 0, method, ContainerType.METHOD, cu, Paths.get("Test.java"));
         
         // We need a cluster for determineReturnType, but we can test internal methods if we make them public or use findTypeInContext
         // Let's use findTypeInContext for a variable assigned a literal
@@ -88,7 +89,7 @@ class ClusteringOptimizationVerificationTest {
                 """;
         CompilationUnit cu2 = StaticJavaParser.parse(code2);
         MethodDeclaration method2 = cu2.findFirst(MethodDeclaration.class).get();
-        StatementSequence sequence2 = new StatementSequence(method2.getBody().get().getStatements(), null, 0, method2, cu2, Paths.get("Test.java"));
+        StatementSequence sequence2 = new StatementSequence(method2.getBody().get().getStatements(), null, 0, method2, ContainerType.METHOD, cu2, Paths.get("Test.java"));
         
         // findTypeInContext should handle 'var' by looking at initializer
         assertEquals("String", returnTypeResolver.findTypeInContext(sequence2, "x").asString());

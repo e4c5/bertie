@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static com.raditha.dedup.model.ContainerType.*;
 
 class StatementSequenceTest {
 
@@ -25,6 +26,7 @@ class StatementSequenceTest {
                 new Range(1, 1, 1, 1),
                 0,
                 method,
+                METHOD,
                 cu,
                 path
         );
@@ -32,7 +34,8 @@ class StatementSequenceTest {
         assertEquals("m", seq.getMethodName());
         assertTrue(seq.getCallableBody().isPresent());
         assertEquals(1, seq.size());
-        assertEquals(method, seq.containingCallable());
+        assertTrue(seq.getContainingCallable().isPresent());
+        assertEquals(method, seq.getContainingCallable().get());
     }
 
     @Test
@@ -46,6 +49,7 @@ class StatementSequenceTest {
                 new Range(1, 1, 1, 1),
                 0,
                 ctor,
+                CONSTRUCTOR,
                 cu,
                 path
         );
@@ -53,7 +57,8 @@ class StatementSequenceTest {
         assertEquals("A", seq.getMethodName());
         assertTrue(seq.getCallableBody().isPresent());
         assertEquals(1, seq.size());
-        assertEquals(ctor, seq.containingCallable());
+        assertTrue(seq.getContainingCallable().isPresent());
+        assertEquals(ctor, seq.getContainingCallable().get());
     }
 
     @Test
@@ -62,6 +67,7 @@ class StatementSequenceTest {
                 Collections.emptyList(),
                 new Range(1, 1, 1, 1),
                 0,
+                null,
                 null,
                 null,
                 null
