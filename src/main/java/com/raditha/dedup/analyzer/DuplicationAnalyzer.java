@@ -442,8 +442,9 @@ public class DuplicationAnalyzer {
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
         int size1 = norm1.sequence().statements().size();
         int size2 = norm2.sequence().statements().size();
+        int sizeDelta = Math.abs(size1 - size2);
 
-        if (size1 != size2) {
+        if (sizeDelta > DuplicationDetectorSettings.getMaxSizeDelta()) {
             return new SimilarityPair(norm1.sequence(), norm2.sequence(),
                     new SimilarityResult(0.0, 0.0, 0.0, 0.0, size1, size2,
                             com.raditha.dedup.model.VariationAnalysis.builder().build(), null, false));
@@ -457,7 +458,42 @@ public class DuplicationAnalyzer {
                 nodes2,
                 DuplicationDetectorSettings.getWeights());
 
+        if (sizeDelta != 0) {
+            similarity = alignedSimilarity(similarity, nodes1, nodes2);
+        }
+
         return new SimilarityPair(norm1.sequence(), norm2.sequence(), similarity);
+    }
+
+    /**
+     * Re-score a pair whose statement counts differ. The LCS / Levenshtein metrics already
+     * tolerate insertions and deletions, but positional structural comparison does not: a
+     * single inserted statement shifts every subsequent position. The structural component is
+     * therefore recomputed over the LCS alignment of the two node lists, and the pair is marked
+     * as not auto-refactorable because statement-level parameter extraction assumes a 1:1
+     * statement mapping.
+     */
+    private SimilarityResult alignedSimilarity(SimilarityResult positional,
+            List<com.raditha.dedup.normalization.NormalizedNode> nodes1,
+            List<com.raditha.dedup.normalization.NormalizedNode> nodes2) {
+        var aligned = com.raditha.dedup.similarity.SequenceAligner.align(nodes1, nodes2);
+
+        // LCS and Levenshtein already tolerate insertions; only the positional structural
+        // score needs the alignment (gaps still count as mismatches).
+        double structural = aligned.structuralScore();
+        double overall = DuplicationDetectorSettings.getWeights().combine(
+                positional.lcsScore(), positional.levenshteinScore(), structural);
+
+        return new SimilarityResult(
+                overall,
+                positional.lcsScore(),
+                positional.levenshteinScore(),
+                structural,
+                nodes1.size(),
+                nodes2.size(),
+                positional.variations(),
+                positional.typeCompatibility(),
+                false);
     }
 
     /**

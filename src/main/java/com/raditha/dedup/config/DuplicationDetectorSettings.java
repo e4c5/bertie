@@ -321,6 +321,19 @@ public class DuplicationDetectorSettings {
     }
 
     /**
+     * Maximum difference in statement count between two sequences for them to still be
+     * scored for similarity. {@code 0} restores the strict equal-length requirement; a
+     * value of {@code 1} lets an otherwise identical block with one extra statement
+     * (e.g. an added log line) be reported as a near-duplicate. Such pairs are never
+     * marked as auto-refactorable.
+     * Default: 1
+     * @return maximum allowed statement-count delta
+     */
+    public static int getMaxSizeDelta() {
+        return Math.max(0, getOverriddenInt("max_size_delta", 1));
+    }
+
+    /**
      * Get boundary refinement flag.
      * @return true if boundary refinement is enabled
      */

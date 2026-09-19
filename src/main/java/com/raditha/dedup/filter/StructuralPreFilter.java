@@ -4,6 +4,7 @@ import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.normalization.ASTNormalizer;
 import com.raditha.dedup.normalization.NormalizedNode;
 import com.raditha.dedup.similarity.ASTStructuralSimilarity;
+import com.raditha.dedup.similarity.SequenceAligner;
 
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -60,8 +61,11 @@ public class StructuralPreFilter {
         List<NormalizedNode> nodes1 = getCachedFuzzyNorm(seq1);
         List<NormalizedNode> nodes2 = getCachedFuzzyNorm(seq2);
 
-        // Calculate structural similarity (Jaccard)
-        double structuralScore = structuralSimilarity.calculate(nodes1, nodes2);
+        // Positional comparison is only meaningful for equal-length sequences; an inserted
+        // statement shifts every later position, so unequal lengths are aligned first.
+        double structuralScore = nodes1.size() == nodes2.size()
+                ? structuralSimilarity.calculate(nodes1, nodes2)
+                : SequenceAligner.align(nodes1, nodes2).structuralScore();
 
         // Only compare if structural similarity meets threshold
         return structuralScore >= minJaccardThreshold;
