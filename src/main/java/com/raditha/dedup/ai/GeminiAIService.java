@@ -39,9 +39,9 @@ public class GeminiAIService {
             if (aiConfig instanceof Map) {
                 this.config = (Map<String, Object>) aiConfig;
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             // Settings not available or not configured
-            logger.debug("AI service configuration not found in Settings");
+            logger.debug("AI service configuration not found in Settings", e);
         }
 
         // Validate API key is available - fail fast if not
@@ -139,6 +139,7 @@ public class GeminiAIService {
             try {
                 return Integer.parseInt(str);
             } catch (NumberFormatException e) {
+                logger.debug("Invalid integer configuration for {}", key, e);
                 return defaultValue;
             }
         }

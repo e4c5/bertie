@@ -1,6 +1,7 @@
 package com.raditha.dedup.analysis;
 
 import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
@@ -125,8 +126,8 @@ public class ASTParameterExtractor {
             // Try to parse the type description
             String typeDesc = resolvedType.describe();
             return StaticJavaParser.parseType(typeDesc);
-        } catch (Exception e) {
-            logger.debug("[ASTParameterExtractor] Could not parse type: {}", resolvedType.describe());
+        } catch (ParseProblemException e) {
+            logger.debug("[ASTParameterExtractor] Could not parse type: {}", resolvedType.describe(), e);
             // Fallback to simple class name
             return new ClassOrInterfaceType(null, resolvedType.describe());
         }

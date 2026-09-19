@@ -4,6 +4,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
@@ -261,7 +262,9 @@ public class ASTVariationAnalyzer {
                 logger.debug("[ASTVariationAnalyzer] Variable reference: {} (scope: {})",
                         name, scope);
 
-            } catch (Exception e) {
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                    | IllegalArgumentException e) {
+                logger.debug("[ASTVariationAnalyzer] Variable reference resolution failed for {}", name, e);
                 // Heuristic: If name starts with Uppercase and resolution failed, assume it's a
                 // Class reference (e.g. System)
                 if (Character.isUpperCase(name.charAt(0))) {
@@ -278,7 +281,7 @@ public class ASTVariationAnalyzer {
                 } else {
                     // If resolution fails, add as UNKNOWN
                     varRefs.add(VariableReference.unknown(name));
-                    logger.debug("[ASTVariationAnalyzer] Could not resolve variable: {}", name);
+                    logger.debug("[ASTVariationAnalyzer] Could not resolve variable: {}", name, e);
                 }
             }
         });
@@ -304,7 +307,9 @@ public class ASTVariationAnalyzer {
     private ResolvedType resolveExpressionType(Expression expr) {
         try {
             return expr.calculateResolvedType();
-        } catch (Exception e) {
+        } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                | IllegalArgumentException e) {
+            logger.debug("[ASTVariationAnalyzer] Could not resolve expression type", e);
             // Fallback: manual AST lookup for fields
             if (expr.isNameExpr()) {
                 String name = expr.asNameExpr().getNameAsString();
@@ -348,9 +353,10 @@ public class ASTVariationAnalyzer {
         if (t1 instanceof ResolvedReferenceType && t2 instanceof ResolvedReferenceType) {
             try {
                 return findLCA((ResolvedReferenceType) t1, (ResolvedReferenceType) t2);
-            } catch (Exception e) {
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                    | IllegalArgumentException e) {
                 // If resolution fails, fallback to Object
-                logger.debug("Failed to resolve LCA for types {} and {}: {}", t1.describe(), t2.describe(), e.getMessage());
+                logger.debug("Failed to resolve LCA for types {} and {}", t1.describe(), t2.describe(), e);
                 return null;
             }
         }
@@ -412,6 +418,7 @@ public class ASTVariationAnalyzer {
             return target.isAssignableBy(source);
         } catch (UnsupportedOperationException e) {
             // NullType.isAssignableBy(Other) throws this
+            logger.debug("Could not check assignability", e);
             return false;
         }
     }

@@ -23,6 +23,8 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Command-line interface for the Duplication Detector.
@@ -36,6 +38,7 @@ import java.util.concurrent.Callable;
 public class BertieCLI implements Callable<Integer> {
 
     private static final String VERSION = "1.0.0";
+    private static final Logger logger = LoggerFactory.getLogger(BertieCLI.class);
     private final ConsoleWriter console = new ConsoleWriter();
 
     // Global Options
@@ -138,7 +141,8 @@ public class BertieCLI implements Callable<Integer> {
         if (verifyProp != null) {
             try {
                 this.verifyMode = VerifyMode.fromString(verifyProp.toString());
-            } catch (Exception e) {
+            } catch (IllegalArgumentException e) {
+                logger.debug("Invalid verify mode in configuration: {}", verifyProp, e);
                 System.err.println("Warning: Invalid verify mode in config: " + verifyProp);
             }
         }
@@ -251,6 +255,7 @@ public class BertieCLI implements Callable<Integer> {
                 try {
                     outputDir.mkdirs();
                 } catch (SecurityException e) {
+                    logger.debug("Cannot create output directory {}", outputPath, e);
                     throw new IllegalArgumentException("Cannot create output directory: " + outputPath);
                 }
             }

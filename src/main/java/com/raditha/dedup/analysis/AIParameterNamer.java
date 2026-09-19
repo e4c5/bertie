@@ -4,6 +4,7 @@ import com.raditha.dedup.ai.GeminiAIService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -27,8 +28,8 @@ public class AIParameterNamer {
         try {
             service = new GeminiAIService();
             logger.info("AI parameter naming enabled");
-        } catch (Exception e) {
-            logger.debug("AI service not configured - will use pattern-based fallback: {}", e.getMessage());
+        } catch (IOException | RuntimeException e) {
+            logger.warn("AI service not configured - will use pattern-based fallback", e);
         }
         this.aiService = service;
         this.aiAvailable = (service != null);
@@ -61,8 +62,8 @@ public class AIParameterNamer {
             } else {
                 logger.debug("AI response '{}' is not a valid Java identifier", response);
             }
-        } catch (Exception e) {
-            logger.debug("AI naming failed, falling back to patterns: {}", e.getMessage());
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            logger.warn("AI naming failed, falling back to patterns", e);
         }
 
         return null;

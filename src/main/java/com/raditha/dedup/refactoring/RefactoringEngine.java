@@ -140,7 +140,7 @@ public class RefactoringEngine {
                     DiffGenerator.DiffStats stats = diffGenerator.calculateDiffStats(originalContent, fileEntry.getValue());
                     diffStatsByFile.put(fileEntry.getKey(), stats);
                 } catch (IOException e) {
-                    logger.warn("Could not compute diff stats for {}: {}", fileEntry.getKey(), e.getMessage());
+                    logger.warn("Could not compute diff stats for {}", fileEntry.getKey(), e);
                 }
             }
 
@@ -161,9 +161,10 @@ public class RefactoringEngine {
                 session.addFailed(cluster, String.join("; ", verify.errors()));
             }
         } catch (InterruptedException ie) {
+            logger.debug("Refactoring interrupted", ie);
             throw ie;
-        } catch (Exception t) {
-            logger.error("Refactoring failed: {}", t.getMessage());
+        } catch (RuntimeException t) {
+            logger.error("Refactoring failed for cluster {}", cluster, t);
             // Ensure checking if rollback is needed in case files offered partial writes
             // (unlikely based on implementation but safe)
             verifier.rollback();
@@ -275,8 +276,8 @@ public class RefactoringEngine {
                         yield fallback.refactor(cluster, recommendation);
                     }
                     yield result;
-                } catch (Exception e) {
-                    logger.info("Named inner class extraction failed, falling back to helper method: {}", e.getMessage());
+                } catch (RuntimeException e) {
+                    logger.info("Named inner class extraction failed, falling back to helper method", e);
                     MethodExtractor fallback = new MethodExtractor();
                     yield fallback.refactor(cluster, recommendation);
                 }
@@ -308,7 +309,7 @@ public class RefactoringEngine {
                 logger.debug("{} more file(s) will be modified", result.modifiedFiles().size() - 1);
             }
             logger.debug("{}", "=".repeat(70));
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             logger.warn("Could not generate diff preview", e);
         }
 
@@ -347,7 +348,7 @@ public class RefactoringEngine {
             entry.append("%n");
 
             dryRunDiffs.add(entry.toString());
-        } catch (Exception e) {
+        } catch (IOException | RuntimeException e) {
             logger.warn("Could not collect dry-run diff for cluster {}", clusterNum, e);
             dryRunDiffs.add(String.format("%n### Cluster #%d: ERROR ###%n%s%n", clusterNum, e.getMessage()));
         }

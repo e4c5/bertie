@@ -8,6 +8,8 @@ import com.raditha.dedup.ai.GeminiAIService;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringStrategy;
 import com.raditha.dedup.model.StatementSequence;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -20,6 +22,7 @@ import java.util.Set;
  */
 public class MethodNameGenerator {
 
+    private static final Logger logger = LoggerFactory.getLogger(MethodNameGenerator.class);
     /**
      * Strategy for generating method names.
      */
@@ -56,8 +59,9 @@ public class MethodNameGenerator {
         if (useAI) {
             try {
                 this.aiService = new GeminiAIService();
-            } catch (Exception e) {
+            } catch (java.io.IOException | RuntimeException e) {
                 // AI service not available, will fall back to semantic/sequential
+                logger.warn("AI service unavailable; falling back to semantic/sequential naming", e);
                 this.aiService = null;
             }
         }
@@ -178,8 +182,9 @@ public class MethodNameGenerator {
                     return ensureUnique(cleaned, containingClass);
                 }
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             // AI failed, will fall back to other strategies
+            logger.debug("AI method naming failed; falling back to other strategies", e);
             return null;
         }
 
@@ -206,8 +211,9 @@ public class MethodNameGenerator {
 
             // Extract text from response
             return extractTextFromGeminiResponse(responseBody);
-        } catch (Exception e) {
+        } catch (java.io.IOException | InterruptedException | RuntimeException e) {
             // AI service failed - fall back to semantic/sequential naming
+            logger.debug("AI service request failed; falling back to other naming strategies", e);
             return null;
         }
     }
@@ -250,7 +256,8 @@ public class MethodNameGenerator {
                     .path("content").path("parts").path(0)
                     .path("text");
             return text.isTextual() ? text.asText() : null;
-        } catch (Exception e) {
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | RuntimeException e) {
+            logger.debug("Could not parse Gemini response", e);
             return null;
         }
     }

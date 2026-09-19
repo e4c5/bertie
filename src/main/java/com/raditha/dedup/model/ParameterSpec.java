@@ -4,15 +4,20 @@ import java.util.List;
 import java.util.ArrayList;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ast.CompilationUnit;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Specification for a method parameter to be extracted during refactoring.
  * 
  */
 public class ParameterSpec {
+
+    private static final Logger logger = LoggerFactory.getLogger(ParameterSpec.class);
     private final String name;
     private final com.github.javaparser.ast.type.Type type;
     private final List<String> exampleValues;
@@ -149,8 +154,8 @@ public class ParameterSpec {
                 for (String ex : exampleValues) {
                     try {
                         parsedExamples.add(StaticJavaParser.parseExpression(ex));
-                    } catch (Exception e) {
-                        // ignore unparseable examples
+                    } catch (ParseProblemException e) {
+                        logger.debug("Could not parse parameter example {}", ex, e);
                     }
                 }
             }
