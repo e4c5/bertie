@@ -1,6 +1,7 @@
 package com.raditha.dedup.refactoring;
 
 import com.raditha.dedup.analyzer.DuplicationReport;
+import com.raditha.dedup.cli.ConsoleWriter;
 import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
@@ -27,6 +28,7 @@ public class RefactoringEngine {
     private final RefactoringVerifier verifier;
     private final DiffGenerator diffGenerator;
     private final RefactoringMode mode;
+    private final ConsoleWriter console;
     private final List<String> dryRunDiffs = new ArrayList<>();
 
     /**
@@ -48,17 +50,24 @@ public class RefactoringEngine {
      */
     public RefactoringEngine(Path projectRoot, RefactoringMode mode,
             com.raditha.dedup.cli.VerifyMode verificationLevel) {
-        this(mode, new SafetyValidator(), new RefactoringVerifier(projectRoot, verificationLevel), new DiffGenerator());
+        this(mode, new SafetyValidator(), new RefactoringVerifier(projectRoot, verificationLevel),
+                new DiffGenerator(), new ConsoleWriter());
     }
 
     /**
      * Package-private constructor for unit testing.
      */
     RefactoringEngine(RefactoringMode mode, SafetyValidator validator, RefactoringVerifier verifier, DiffGenerator diffGenerator) {
+        this(mode, validator, verifier, diffGenerator, new ConsoleWriter());
+    }
+
+    RefactoringEngine(RefactoringMode mode, SafetyValidator validator, RefactoringVerifier verifier,
+            DiffGenerator diffGenerator, ConsoleWriter console) {
         this.mode = mode;
         this.validator = validator;
         this.verifier = verifier;
         this.diffGenerator = diffGenerator;
+        this.console = console;
     }
 
     /**
@@ -291,11 +300,11 @@ public class RefactoringEngine {
      * Show diff and ask user for confirmation (interactive mode).
      */
     boolean showDiffAndConfirm(DuplicateCluster cluster, RefactoringRecommendation recommendation) {
-        logger.info("=== PROPOSED REFACTORING ===");
-        logger.info("Strategy: {}", recommendation.getStrategy());
-        logger.info("Method: {}", recommendation.generateMethodSignature());
-        logger.info("Confidence: {}", recommendation.formatConfidence());
-        logger.info("LOC Reduction: {}", cluster.estimatedLOCReduction());
+        console.println("=== PROPOSED REFACTORING ===");
+        console.println("Strategy: " + recommendation.getStrategy());
+        console.println("Method: " + recommendation.generateMethodSignature());
+        console.println("Confidence: " + recommendation.formatConfidence());
+        console.println("LOC Reduction: " + cluster.estimatedLOCReduction());
 
         // Generate and show actual diff
         try {
@@ -304,16 +313,17 @@ public class RefactoringEngine {
             Map.Entry<Path, String> primaryFile = result.modifiedFiles().entrySet().iterator().next();
             String diff = diffGenerator.generateUnifiedDiff(primaryFile.getKey(), primaryFile.getValue());
 
-            logger.debug("=== DIFF PREVIEW ===\n{}", diff);
+            console.println("=== DIFF PREVIEW ===");
+            console.println(diff);
             if (result.modifiedFiles().size() > 1) {
-                logger.debug("{} more file(s) will be modified", result.modifiedFiles().size() - 1);
+                console.println((result.modifiedFiles().size() - 1) + " more file(s) will be modified");
             }
-            logger.debug("{}", "=".repeat(70));
+            console.println("=".repeat(70));
         } catch (IOException | RuntimeException e) {
             logger.warn("Could not generate diff preview", e);
         }
 
-        logger.info("Apply this refactoring? (y/n): ");
+        console.print("Apply this refactoring? (y/n): ");
         try {
             int response = System.in.read();
             // Clear buffer
@@ -358,16 +368,16 @@ public class RefactoringEngine {
      * Print dry-run summary report with all diffs.
      */
     void printDryRunReport() {
-        logger.info("{}", "=".repeat(80));
-        logger.info("DRY-RUN SUMMARY REPORT");
-        logger.info("{}", "=".repeat(80));
-        logger.info("The following changes would be applied:");
+        console.println("=".repeat(80));
+        console.println("DRY-RUN SUMMARY REPORT");
+        console.println("=".repeat(80));
+        console.println("The following changes would be applied:");
 
-        dryRunDiffs.forEach(diff -> logger.debug("{}", diff));
+        dryRunDiffs.forEach(console::println);
 
-        logger.info("{}", "=".repeat(80));
-        logger.info("Total refactorings previewed: {}", dryRunDiffs.size());
-        logger.info("{}", "=".repeat(80));
+        console.println("=".repeat(80));
+        console.println("Total refactorings previewed: " + dryRunDiffs.size());
+        console.println("=".repeat(80));
     }
 
     /**

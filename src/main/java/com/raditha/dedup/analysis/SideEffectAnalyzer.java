@@ -41,7 +41,7 @@ public class SideEffectAnalyzer {
     public record SideEffect(Category category, String signature, String snippet) {
     }
 
-    private static final Set<String> CONSOLE_SCOPES = Set.of("System" + ".out", "System" + ".err", "System" + ".in");
+    private static final Set<String> CONSOLE_SCOPES = Set.of("System.out", "System.err", "System.in");
 
     private static final Pattern FILE_TYPES = Pattern.compile(
             "^(java\\.io\\.|java\\.nio\\.file\\.)?(File|Files|Path|Paths|FileInputStream|FileOutputStream|"
