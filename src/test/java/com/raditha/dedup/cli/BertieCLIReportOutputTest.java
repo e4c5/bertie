@@ -4,6 +4,7 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.raditha.dedup.analyzer.DuplicationAnalyzer;
 import com.raditha.dedup.analyzer.DuplicationReport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,14 +28,25 @@ class BertieCLIReportOutputTest {
     @TempDir
     Path tempDir;
 
+    private Object previousDuplicationDetector;
+    private Object previousDuplicationDetectorCli;
+
     @BeforeEach
     void setUp() throws IOException {
+        previousDuplicationDetector = Settings.getProperty("duplication_detector");
+        previousDuplicationDetectorCli = Settings.getProperty("duplication_detector_cli");
         Settings.loadConfigMap(new File("src/test/resources/analyzer-tests.yml"));
         Map<String, Object> config = new HashMap<>();
         config.put("min_lines", 3);
         config.put("threshold", 0.75);
         Settings.setProperty("duplication_detector", config);
         Settings.setProperty("duplication_detector_cli", new HashMap<String, Object>());
+    }
+
+    @AfterEach
+    void restoreSettings() {
+        Settings.setProperty("duplication_detector", previousDuplicationDetector);
+        Settings.setProperty("duplication_detector_cli", previousDuplicationDetectorCli);
     }
 
     @Test
@@ -76,6 +88,7 @@ class BertieCLIReportOutputTest {
         String json = output.toString(StandardCharsets.UTF_8).trim();
         assertTrue(json.startsWith("{"));
         assertTrue(json.contains("\"filesAnalyzed\": 1"));
+        assertTrue(json.matches("(?s).*\"duplicates\"\\s*:\\s*[1-9][0-9]*.*"));
         assertTrue(json.endsWith("}"));
     }
 

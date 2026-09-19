@@ -480,6 +480,10 @@ public class ASTVariationAnalyzer {
         }
     }
 
+    private static String stripTypeArguments(String typeName) {
+        return typeName.replaceFirst("<.*>", "");
+    }
+
     /**
      * Find the most specific common supertype of two types.
      */
@@ -587,7 +591,7 @@ public class ASTVariationAnalyzer {
 
         public SimpleResolvedType(String typeName, CompilationUnit context) {
             this.typeName = typeName;
-            this.rawName = typeName.replaceFirst("<.*>", "");
+            this.rawName = stripTypeArguments(typeName);
             this.context = context;
         }
 
@@ -654,7 +658,7 @@ public class ASTVariationAnalyzer {
             TypeWrapper self = lookupType(context, rawName);
             String otherName = other.isReferenceType() && !(other instanceof SimpleResolvedType)
                     ? other.asReferenceType().getQualifiedName()
-                    : other.describe();
+                    : stripTypeArguments(other.describe());
             TypeWrapper otherWrapper = lookupType(context, otherName);
             if (self == null || otherWrapper == null) return null;
             return self.isAssignableFrom(otherWrapper);

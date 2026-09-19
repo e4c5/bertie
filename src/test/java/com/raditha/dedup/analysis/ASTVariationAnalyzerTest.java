@@ -316,10 +316,9 @@ class ASTVariationAnalyzerTest {
 
         assertEquals(1, result.varyingExpressions().size());
         var commonType = result.varyingExpressions().get(0).type();
-        if (commonType != null) {
-            assertTrue(commonType.describe().contains("List"));
-            assertFalse(commonType.describe().contains("ArrayList"));
-        }
+        assertNotNull(commonType);
+        assertTrue(commonType.describe().contains("List"));
+        assertFalse(commonType.describe().contains("ArrayList"));
     }
 
     @Test
