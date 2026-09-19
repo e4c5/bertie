@@ -27,7 +27,7 @@ import java.util.*;
  * // Before:
  * User user = new User(); // defines 'user'
  * user.setName("John"); // modifies 'user'
- * System.out.println(user); // only reads 'user' ← TRIMMED
+ * Console output of user; // only reads 'user' ← TRIMMED
  * 
  * // After trimming:
  * User user = new User();
