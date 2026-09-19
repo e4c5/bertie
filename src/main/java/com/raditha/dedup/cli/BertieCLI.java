@@ -39,7 +39,15 @@ public class BertieCLI implements Callable<Integer> {
 
     private static final String VERSION = "1.0.0";
     private static final Logger logger = LoggerFactory.getLogger(BertieCLI.class);
-    private final ConsoleWriter console = new ConsoleWriter();
+    private final ConsoleWriter console;
+
+    public BertieCLI() {
+        this(new ConsoleWriter());
+    }
+
+    BertieCLI(ConsoleWriter console) {
+        this.console = console;
+    }
 
     // Global Options
     @Option(names = "--config-file", description = "Use custom configuration file", paramLabel = "<path>")
@@ -405,7 +413,7 @@ public class BertieCLI implements Callable<Integer> {
     }
 
 
-    private void printTextReport(List<DuplicationReport> reports) {
+    void printTextReport(List<DuplicationReport> reports) {
         int totalDuplicates = reports.stream()
                 .mapToInt(DuplicationReport::getDuplicateCount)
                 .sum();
@@ -452,7 +460,7 @@ public class BertieCLI implements Callable<Integer> {
         console.println();
     }
 
-    private void showReport(DuplicationReport report) {
+    void showReport(DuplicationReport report) {
         if (!report.hasDuplicates()) {
             return;
         }
@@ -491,7 +499,7 @@ public class BertieCLI implements Callable<Integer> {
         }
     }
 
-    private void showDuplications(DuplicationReport report, List<SimilarityPair> duplicates, int i) {
+    void showDuplications(DuplicationReport report, List<SimilarityPair> duplicates, int i) {
         var pair = duplicates.get(i);
         var seq1 = pair.seq1();
         var seq2 = pair.seq2();
@@ -534,7 +542,7 @@ public class BertieCLI implements Callable<Integer> {
     /**
      * Print location information for a code sequence.
      */
-    private void printLocation(DuplicationReport report,
+    void printLocation(DuplicationReport report,
             StatementSequence seq,
             int locNum) {
         Path sourcePath = seq.sourceFilePath() != null ? seq.sourceFilePath() : report.sourceFile();
@@ -560,7 +568,7 @@ public class BertieCLI implements Callable<Integer> {
     /**
      * Print the full code snippet without truncation.
      */
-    private void printFullCodeSnippet(List<com.github.javaparser.ast.stmt.Statement> statements) {
+    void printFullCodeSnippet(List<com.github.javaparser.ast.stmt.Statement> statements) {
         if (statements.isEmpty()) {
             console.println("    (empty)");
             return;
@@ -576,7 +584,7 @@ public class BertieCLI implements Callable<Integer> {
         }
     }
 
-    private void printJsonReport(List<DuplicationReport> reports) {
+    void printJsonReport(List<DuplicationReport> reports) {
         // Simple JSON output (would use proper JSON library in production)
         console.println("{");
         console.printf("  \"version\": \"%s\",%n", VERSION);
