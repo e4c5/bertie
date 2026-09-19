@@ -10,8 +10,8 @@
 | Phase | Focus | Status |
 |-------|-------|--------|
 | **1-10** | **Core Detection & Refactoring** | ✅ **COMPLETE** |
-| **11** | **Scalability Optimization (LSH)** | 🚧 **Ready for Implementation** |
-| **12** | **Functional Reliability (P0 Fixes)** | 📋 **Planned** |
+| **11** | **Scalability Optimization (LSH)** | ✅ **Implemented & wired in** (tuning/validation ongoing, see 11.3) |
+| **12** | **Functional Reliability (P0 Fixes)** | 🚧 **In Progress** |
 | **13** | **Production Release** | 📋 **Planned** |
 
 ---
@@ -27,40 +27,35 @@
 
 ---
 
-## 🚧 Phase 11: Scalability Optimization (LSH)
+## ✅ Phase 11: Scalability Optimization (LSH)
 
 **Goal**: Replace $O(N^2)$ pairwise comparison with $O(N)$ Locality Sensitive Hashing to enable enterprise-scale analysis.
 
+**Status**: The LSH path is implemented and is the **default** candidate generator.
+`DuplicationAnalyzer.findCandidates` calls `findCandidatesLSH` when `enable_lsh` is true
+(default) and falls back to the exhaustive `findCandidatesBruteForce` only when it is
+explicitly disabled. See `docs/duplication-detector/SCALABILITY_ANALYSIS.md` for the
+architecture, recall measurements and memory notes.
+
 ### 11.1 LSH Infrastructure
-- [ ] **Implement MinHash**: Create `MinHash` class to generate signatures from token sequences (k-shingles).
-- [ ] **Implement LSH Index**: Create `LSHIndex` class using Banding technique (bands/rows configuration).
-- [ ] **Add Unit Tests**:
-    - [ ] `MinHashTest`: Verify deterministic signatures for identical sequences.
-    - [ ] `LSHIndexTest`:
-        - [ ] `testExactMatch`: Identical sequences must collide.
-        - [ ] `testNoMatch`: Completely distinct sequences (Jaccard=0) must NOT collide.
-        - [ ] `testNearMatch`: Sequences with high Jaccard (>0.8) should collide with high probability.
-        - [ ] `testThreshold`: Verify cutoff behavior (approximate).
+- [x] **Implement MinHash**: `com.raditha.dedup.lsh.MinHash` generates signatures from k-shingles (k=3) of `FuzzyTokenizer` tokens.
+- [x] **Implement LSH Index**: `com.raditha.dedup.lsh.LSHIndex` uses the banding technique with bit-packed `long` bucket keys.
+- [x] **Add Unit Tests**: `MinHashTest`, `LSHIndexTest` (exact match, no match, near match, threshold).
 
 ### 11.2 Integration
-- [ ] **Update DuplicationAnalyzer**: Replace nested loop with `LSHIndex` candidate generation.
-- [ ] **Pipeline Update**: Ensure Pre-Filters (Size/Structural) run *after* LSH candidate generation to verify matches.
-- [ ] **Add Integration Tests**:
-    - [ ] `ScalabilityIntegrationTest`: Run on 50k generated sequences, assert time < 5s.
-    - [ ] `RecallVerificationTest`: Ensure known duplicates in the `test-bed` submodule (and `commons-lang` sample) are still found.
+- [x] **Update DuplicationAnalyzer**: `findCandidatesLSH` replaces the nested loop (fused query-and-add, lazy normalization of colliding pairs only).
+- [x] **Pipeline Update**: `PreFilterChain` and `ASTSimilarityCalculator` run *after* LSH candidate generation.
+- [x] **Add Integration Tests**:
+    - [x] `ScalabilityIntegrationTest`: 50k generated sequences.
+    - [x] `RecallVerificationTest`: LSH vs `findCandidatesBruteForce` baseline; asserts recall = 1.0 with default settings on planted duplicates.
 
-### 11.3 Tuning & Benchmarking
-- [ ] **Parameter Sweep**:
-    - Vary `numHashFunctions` (e.g., 64, 100, 128, 256).
-    - Vary `numBands` (e.g., 10, 20, 25, 50).
-    - **Target**: Find configuration yielding >95% recall for Jaccard > 0.5 with minimal candidates.
-- [ ] **Benchmark Harness**:
+### 11.3 Tuning & Benchmarking (remaining)
+- [x] **Parameter Sweep (harness)**: `RecallVerificationTest.parameterSweep` reports recall, LSH candidate count and brute-force candidate count over a `num_bands x rows_per_band` grid.
+- [ ] **Parameter Sweep (real data)**: Run the sweep against large real repositories (test-bed is small and duplicate-dense) and pick defaults targeting >95% recall for Jaccard > 0.5 with minimal candidates. Current defaults: `num_bands=25`, `rows_per_band=4`.
+- [ ] **Benchmark Harness CLI**:
     - **Command**: `java -jar bertie.jar benchmark --mode lsh --input /path/to/large/repo`
-    - **Metrics**:
-        - Indexing Time (ms)
-        - Candidate Pair Count
-        - Candidate/Total Ratio (Filtering Power)
-        - Recall (vs Brute Force baseline)
+    - **Metrics**: indexing time, candidate pair count, candidate/total ratio, recall vs brute force.
+- [ ] **Memory Profiling on 100k+ sequences**: verify heap of `LSHIndex` buckets (see memory notes in `SCALABILITY_ANALYSIS.md` §4); consider a primitive-keyed bucket map if `HashMap$Node`/`Long` dominate.
 
 ---
 
@@ -69,13 +64,17 @@
 **Goal**: Address known functional equivalence gaps preventing safe auto-refactoring.
 
 ### 12.1 Refactoring Correctness
-- [ ] **Fix Argument Extraction**: Ensure extracted parameters bind to correct values (fix `ArgumentExtraction` logic).
-- [ ] **Fix Return Value Detection**: Improve live variable analysis to correctly identify required return values.
-- [ ] **Fix Literal Normalization**: Ensure string literals are correctly matched/parameterized.
+- [x] **Fix Argument Extraction**: Parameters bind to the innermost expression at the recorded source position (`AbstractExtractor.findNodeForParameter`); covered by `RefactoringBehavioralEquivalenceTest` (compiles before/after and asserts identical runtime output).
+- [x] **Fix Return Value Detection**: `DataFlowAnalyzer.isTypeCompatible` hardened; multi-live-out relaxation covered by behavioural equivalence tests.
+- [x] **Fix Literal Normalization**: String/numeric literals parameterized per occurrence (behavioural equivalence tests).
 
 ### 12.2 Type Inference
-- [ ] **Enhance TypeAnalyzer**: Support complex expression type inference (e.g., chained method calls).
-- [ ] **Fix Generic Types**: Better handling of `List<T>` and diamond operators during extraction.
+- [x] **Enhance TypeAnalyzer**: `AbstractResolver` source-level fallback for chained method calls (`AbstractResolverTypeInferenceTest`).
+- [x] **Fix Generic Types**: Recursive generic conversion, diamond inference from declarations, erasure-aware `ASTVariationAnalyzer.findLCA` (`CommonSupertypeTest`).
+
+### 12.3 Safety Validation
+- [x] **Side-effect detection**: `SafetyValidator.hasDifferentSideEffects` blocks clusters whose duplicates differ in I/O, network, DB, external API or non-idempotent calls (`SideEffectAnalyzer`).
+- [x] **Control-flow variation**: `ControlFlowVariationAnalyzer` distinguishes unsafe (structural) from parameterizable (condition-only) variation; the latter can be downgraded to a warning via `allow_parameterizable_control_flow` (default off).
 
 ---
 
@@ -85,8 +84,9 @@
 
 ### 13.1 Testing & Verification
 - [ ] **Regression Suite**: Ensure no regressions in detection quality after LSH integration.
-- [ ] **False Positive Analysis**: Validate LSH doesn't introduce excessive false negatives (missed duplicates).
-- [ ] **Memory Profiling**: Ensure `LSHIndex` doesn't consume excessive heap for large projects.
+- [x] **False Negative Analysis (synthetic)**: `RecallVerificationTest` shows no lost duplicates vs brute force with default banding.
+- [ ] **False Negative Analysis (real data)**: Repeat on large repositories.
+- [ ] **Memory Profiling**: Ensure `LSHIndex` doesn't consume excessive heap for large projects (notes in `SCALABILITY_ANALYSIS.md` §4).
 
 ### 13.2 Documentation & UX
 - [ ] **Update User Guide**: Document performance characteristics.
