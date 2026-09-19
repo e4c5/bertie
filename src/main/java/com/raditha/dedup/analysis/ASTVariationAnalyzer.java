@@ -580,6 +580,7 @@ public class ASTVariationAnalyzer {
      */
     static class SimpleResolvedType implements ResolvedType {
         private final String typeName;
+        private final String rawName;
         private final CompilationUnit context;
 
         /**
@@ -592,7 +593,8 @@ public class ASTVariationAnalyzer {
         }
 
         public SimpleResolvedType(String typeName, CompilationUnit context) {
-            this.typeName = typeName.replaceFirst("<.*>", "");
+            this.typeName = typeName;
+            this.rawName = typeName.replaceFirst("<.*>", "");
             this.context = context;
         }
 
@@ -645,7 +647,7 @@ public class ASTVariationAnalyzer {
             if (other.isNull()) return true;
 
             if (context != null) {
-                TypeWrapper self = lookupType(context, typeName);
+                TypeWrapper self = lookupType(context, rawName);
                 String otherName = other.isReferenceType() && !(other instanceof SimpleResolvedType)
                         ? other.asReferenceType().getQualifiedName()
                         : other.describe();
@@ -670,7 +672,7 @@ public class ASTVariationAnalyzer {
         }
 
         private boolean matchesName(String qualifiedName) {
-            return qualifiedName.equals(typeName) || qualifiedName.endsWith("." + typeName);
+            return qualifiedName.equals(rawName) || qualifiedName.endsWith("." + rawName);
         }
 
         @Override
