@@ -29,7 +29,8 @@ public class AIParameterNamer {
             service = new GeminiAIService();
             logger.info("AI parameter naming enabled");
         } catch (IOException | RuntimeException e) {
-            logger.warn("AI service not configured - will use pattern-based fallback", e);
+            logger.info("AI service not configured - will use pattern-based fallback: {}", e.getMessage());
+            logger.debug("AI service initialization failure", e);
         }
         this.aiService = service;
         this.aiAvailable = (service != null);

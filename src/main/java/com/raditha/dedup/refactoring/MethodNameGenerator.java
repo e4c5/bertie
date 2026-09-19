@@ -61,7 +61,8 @@ public class MethodNameGenerator {
                 this.aiService = new GeminiAIService();
             } catch (java.io.IOException | RuntimeException e) {
                 // AI service not available, will fall back to semantic/sequential
-                logger.warn("AI service unavailable; falling back to semantic/sequential naming", e);
+                logger.info("AI service unavailable; falling back to semantic/sequential naming: {}", e.getMessage());
+                logger.debug("AI service initialization failure", e);
                 this.aiService = null;
             }
         }
