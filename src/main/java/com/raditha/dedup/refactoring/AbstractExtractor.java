@@ -12,6 +12,7 @@ import com.github.javaparser.ast.nodeTypes.NodeWithName;
 import com.github.javaparser.ast.stmt.Statement;
 import org.jspecify.annotations.NonNull;
 import com.raditha.dedup.model.DuplicateCluster;
+import com.raditha.dedup.model.ParameterSpec;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.StatementSequence;
 import sa.com.cloudsolutions.antikythera.depsolver.DependencyAnalyzer;
@@ -239,17 +240,47 @@ public abstract class AbstractExtractor {
     }
 
     protected Expression findNodeByCoordinates(StatementSequence sequence, int line, int column) {
+        return findNodeByCoordinates(sequence, line, column, null);
+    }
+
+    /**
+     * Locate the expression recorded on a parameter. Several nested expressions can share
+     * the same start position (e.g. {@code "a" + b} and {@code "a"}), so the candidate whose
+     * source text equals {@code expectedText} wins; failing that the innermost one is used,
+     * matching {@code ASTVariationAnalyzer}, which keeps the most specific variation.
+     */
+    protected Expression findNodeByCoordinates(StatementSequence sequence, int line, int column,
+            String expectedText) {
+        Expression innermost = null;
         for (Statement stmt : sequence.statements()) {
             for (Expression expr : stmt.findAll(Expression.class)) {
-                if (expr.getRange().isPresent()) {
-                    com.github.javaparser.Position begin = expr.getRange().get().begin;
-                    if (begin.line == line && begin.column == column) {
-                        return expr;
-                    }
+                if (expr.getRange().isEmpty()) {
+                    continue;
+                }
+                com.github.javaparser.Position begin = expr.getRange().get().begin;
+                if (begin.line != line || begin.column != column) {
+                    continue;
+                }
+                if (expectedText != null && expr.toString().equals(expectedText)) {
+                    return expr;
+                }
+                if (innermost == null || innermost.isAncestorOf(expr)) {
+                    innermost = expr;
                 }
             }
+            if (innermost != null) {
+                break;
+            }
         }
-        return null;
+        return innermost;
+    }
+
+    protected Expression findNodeForParameter(StatementSequence sequence, ParameterSpec param) {
+        if (param.getStartLine() == null || param.getStartColumn() == null) {
+            return null;
+        }
+        String expected = param.getExampleValues().isEmpty() ? null : param.getExampleValues().getFirst();
+        return findNodeByCoordinates(sequence, param.getStartLine(), param.getStartColumn(), expected);
     }
 
     protected @NonNull MethodDeclaration createMethodDeclaration(CallableDeclaration<?> originalMethod) {

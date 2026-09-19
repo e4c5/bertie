@@ -405,23 +405,29 @@ public class DataFlowAnalyzer {
         VariableDeclarator targetVar = getVariableDeclarator(sequence, varName);
         if (targetVar == null) return false;
 
-        List<TypeWrapper> varTypes = AbstractCompiler.findTypesInVariable(targetVar);
-        if (varTypes.isEmpty()) return false;
-        TypeWrapper varWrapper = varTypes.getLast();
-
         String typeStr = expectedType.asString();
         if (typeStr.contains("<")) {
             typeStr = typeStr.substring(0, typeStr.indexOf('<'));
         }
 
+        List<TypeWrapper> varTypes = AbstractCompiler.findTypesInVariable(targetVar);
+        TypeWrapper varWrapper = varTypes.isEmpty() ? null : varTypes.getLast();
+        if (varWrapper == null) {
+            return sameErasedTypeName(targetVar.getType().asString(), typeStr);
+        }
+
         TypeWrapper expectedWrapper = AbstractCompiler.findType(sequence.compilationUnit(), typeStr);
 
         if (expectedWrapper == null) {
-            return varWrapper.getName() != null && (varWrapper.getName().equals(typeStr) ||
-                    varWrapper.getName().endsWith("." + typeStr));
+            return varWrapper.getName() != null && sameErasedTypeName(varWrapper.getName(), typeStr);
         }
 
         return expectedWrapper.isAssignableFrom(varWrapper);
+    }
+
+    private static boolean sameErasedTypeName(String declared, String expected) {
+        String erased = declared.contains("<") ? declared.substring(0, declared.indexOf('<')) : declared;
+        return erased.equals(expected) || erased.endsWith("." + expected) || expected.endsWith("." + erased);
     }
 
     private static VariableDeclarator getVariableDeclarator(StatementSequence sequence, String varName) {
