@@ -33,9 +33,9 @@ class BertieCLIReportOutputTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        Settings.loadConfigMap(new File("src/test/resources/analyzer-tests.yml"));
         previousDuplicationDetector = Settings.getProperty("duplication_detector");
         previousDuplicationDetectorCli = Settings.getProperty("duplication_detector_cli");
-        Settings.loadConfigMap(new File("src/test/resources/analyzer-tests.yml"));
         Map<String, Object> config = new HashMap<>();
         config.put("min_lines", 3);
         config.put("threshold", 0.75);
