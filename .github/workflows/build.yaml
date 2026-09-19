@@ -37,6 +37,9 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Prepare Maven cache (hql-parser from source, Central mirror)
+        run: scripts/setup-dev-env.sh --skip-build
+
       - name: Build and Test
         run: MAVEN_OPTS="--add-opens java.base/java.util.stream=ALL-UNNAMED --add-exports java.base/java.util.stream=ALL-UNNAMED" mvn clean install
 
