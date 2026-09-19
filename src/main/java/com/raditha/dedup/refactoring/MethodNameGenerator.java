@@ -1,5 +1,7 @@
 package com.raditha.dedup.refactoring;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.raditha.dedup.ai.GeminiAIService;
@@ -26,6 +28,8 @@ public class MethodNameGenerator {
         SEMANTIC, // Code analysis
         AI_POWERED // Gemini AI
     }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private int methodCounter = 0;
     private final SemanticNameAnalyzer semanticAnalyzer;
@@ -57,6 +61,12 @@ public class MethodNameGenerator {
                 this.aiService = null;
             }
         }
+    }
+
+    MethodNameGenerator(GeminiAIService aiService) {
+        this.semanticAnalyzer = new SemanticNameAnalyzer();
+        this.useAI = true;
+        this.aiService = aiService;
     }
 
     /**
@@ -230,23 +240,16 @@ public class MethodNameGenerator {
     /**
      * Extract text response from Gemini API JSON response.
      */
-    private String extractTextFromGeminiResponse(String responseBody) {
+    static String extractTextFromGeminiResponse(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
         try {
-            // Simple JSON parsing to extract text
-            // Response format: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
-            int textStart = responseBody.indexOf("\"text\":");
-            if (textStart == -1) {
-                return null;
-            }
-
-            textStart += 8; // Skip "text":"
-            int textEnd = responseBody.indexOf("\"", textStart);
-
-            if (textEnd == -1) {
-                return null;
-            }
-
-            return responseBody.substring(textStart, textEnd);
+            JsonNode text = JSON.readTree(responseBody)
+                    .path("candidates").path(0)
+                    .path("content").path("parts").path(0)
+                    .path("text");
+            return text.isTextual() ? text.asText() : null;
         } catch (Exception e) {
             return null;
         }
