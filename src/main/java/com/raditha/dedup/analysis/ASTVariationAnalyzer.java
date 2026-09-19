@@ -17,6 +17,8 @@ import com.github.javaparser.resolution.types.ResolvedType;
 import com.raditha.dedup.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.*;
 
@@ -400,6 +402,11 @@ public class ASTVariationAnalyzer {
             } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
                     | IllegalArgumentException e) {
                 logger.debug("[ASTVariationAnalyzer] Variable reference resolution failed for {}", name, e);
+                CompilationUnit cu = nameExpr.findCompilationUnit().orElse(null);
+                if (cu != null && lookupType(cu, name) != null) {
+                    logger.debug("[ASTVariationAnalyzer] Resolved as type reference: {}", name);
+                    return;
+                }
                 // Heuristic: If name starts with Uppercase and resolution failed, assume it's a
                 // Class reference (e.g. System)
                 if (Character.isUpperCase(name.charAt(0))) {
@@ -464,10 +471,20 @@ public class ASTVariationAnalyzer {
             Optional<com.github.javaparser.ast.body.FieldDeclaration> field = classDecl.get().getFieldByName(name);
             if (field.isPresent()) {
                 String typeName = field.get().getCommonType().asString();
-                return new SimpleResolvedType(typeName);
+                CompilationUnit cu = node.findCompilationUnit().orElse(null);
+                return new SimpleResolvedType(typeName, cu);
             }
         }
         return null;
+    }
+
+    private static TypeWrapper lookupType(CompilationUnit cu, String name) {
+        try {
+            return AbstractCompiler.findType(cu, name);
+        } catch (RuntimeException e) {
+            logger.debug("[ASTVariationAnalyzer] Type lookup failed for {}", name, e);
+            return null;
+        }
     }
 
     /**
@@ -561,8 +578,9 @@ public class ASTVariationAnalyzer {
     /**
      * Minimal implementation of ResolvedType for fallback scenarios.
      */
-    private static class SimpleResolvedType implements ResolvedType {
+    static class SimpleResolvedType implements ResolvedType {
         private final String typeName;
+        private final CompilationUnit context;
 
         /**
          * Creates a new SimpleResolvedType.
@@ -570,7 +588,12 @@ public class ASTVariationAnalyzer {
          * @param typeName The type name
          */
         public SimpleResolvedType(String typeName) {
-            this.typeName = typeName;
+            this(typeName, null);
+        }
+
+        public SimpleResolvedType(String typeName, CompilationUnit context) {
+            this.typeName = typeName.replaceFirst("<.*>", "");
+            this.context = context;
         }
 
         /**
@@ -618,8 +641,48 @@ public class ASTVariationAnalyzer {
          */
         @Override
         public boolean isAssignableBy(ResolvedType other) {
-            // Minimal implementation: exact name match
-            return other.describe().equals(this.describe());
+            if (other.describe().equals(typeName)) return true;
+            if (other.isNull()) return true;
+
+            if (context != null) {
+                TypeWrapper self = lookupType(context, typeName);
+                String otherName = other.isReferenceType() && !(other instanceof SimpleResolvedType)
+                        ? other.asReferenceType().getQualifiedName()
+                        : other.describe();
+                TypeWrapper otherWrapper = lookupType(context, otherName);
+                if (self != null && otherWrapper != null) {
+                    return self.isAssignableFrom(otherWrapper);
+                }
+            }
+
+            if (other.isReferenceType() && !(other instanceof SimpleResolvedType)) {
+                ResolvedReferenceType ref = other.asReferenceType();
+                if (matchesName(ref.getQualifiedName())) return true;
+                try {
+                    for (ResolvedReferenceType ancestor : ref.getAllAncestors()) {
+                        if (matchesName(ancestor.getQualifiedName())) return true;
+                    }
+                } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException e) {
+                    logger.debug("[ASTVariationAnalyzer] Failed to inspect type ancestors", e);
+                }
+            }
+            return false;
+        }
+
+        private boolean matchesName(String qualifiedName) {
+            return qualifiedName.equals(typeName) || qualifiedName.endsWith("." + typeName);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof SimpleResolvedType other)) return false;
+            return typeName.equals(other.typeName);
+        }
+
+        @Override
+        public int hashCode() {
+            return typeName.hashCode();
         }
     }
 }

@@ -1,10 +1,14 @@
 package com.raditha.dedup.analysis;
 
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.*;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import com.raditha.dedup.model.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -249,6 +253,92 @@ class ASTVariationAnalyzerTest {
 
         assertEquals(1, result.varyingExpressions().size());
         assertEquals("svc.get(1)", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    @Test
+    void testSimpleResolvedTypeAssignability() {
+        assertTrue(new ASTVariationAnalyzer.SimpleResolvedType("String")
+                .isAssignableBy(new ASTVariationAnalyzer.SimpleResolvedType("String")));
+        assertFalse(new ASTVariationAnalyzer.SimpleResolvedType("String")
+                .isAssignableBy(new ASTVariationAnalyzer.SimpleResolvedType("Integer")));
+    }
+
+    @Test
+    void testSimpleResolvedTypeMatchesReferenceAncestors() {
+        ParserConfiguration configuration = new ParserConfiguration()
+                .setSymbolResolver(new JavaSymbolSolver(new ReflectionTypeSolver()));
+        JavaParser parser = new JavaParser(configuration);
+        CompilationUnit cu = parser.parse("""
+                import java.util.ArrayList;
+                class Test {
+                    ArrayList<String> values;
+                }
+                """).getResult().orElseThrow();
+        ResolvedReferenceType arrayListType = cu.findFirst(FieldDeclaration.class)
+                .orElseThrow()
+                .getVariable(0)
+                .getType()
+                .resolve()
+                .asReferenceType();
+
+        assertTrue(new ASTVariationAnalyzer.SimpleResolvedType("List").isAssignableBy(arrayListType));
+        assertFalse(new ASTVariationAnalyzer.SimpleResolvedType("Map").isAssignableBy(arrayListType));
+    }
+
+    @Test
+    void testManualFieldLookupCarriesCompilationUnitContext() {
+        VariationAnalysis result = analyzeMethods("""
+                import java.util.List;
+                import java.util.ArrayList;
+                class Test {
+                    List<String> a;
+                    ArrayList<String> b;
+                    void method1() {
+                        use(a);
+                    }
+                    void use(Object value) {}
+                }
+                """, """
+                import java.util.List;
+                import java.util.ArrayList;
+                class Test {
+                    List<String> a;
+                    ArrayList<String> b;
+                    void method2() {
+                        use(b);
+                    }
+                    void use(Object value) {}
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        var commonType = result.varyingExpressions().get(0).type();
+        if (commonType != null) {
+            assertTrue(commonType.describe().contains("List"));
+            assertFalse(commonType.describe().contains("ArrayList"));
+        }
+    }
+
+    @Test
+    void testVariableReferenceTypeFallbackAndUnknownName() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+                import java.util.Collections;
+                class Test {
+                    void method() {
+                        Collections;
+                        foo;
+                    }
+                }
+                """);
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+        StatementSequence sequence = new StatementSequence(method.getBody().orElseThrow().getStatements(),
+                null, 0, method, ContainerType.METHOD, cu, null);
+
+        VariationAnalysis result = analyzer.analyzeVariations(sequence, sequence, cu);
+
+        assertTrue(result.variableReferences().stream().noneMatch(ref -> ref.name().equals("Collections")));
+        assertTrue(result.variableReferences().stream()
+                .anyMatch(ref -> ref.name().equals("foo") && ref.type() == null));
     }
 
     @Test
