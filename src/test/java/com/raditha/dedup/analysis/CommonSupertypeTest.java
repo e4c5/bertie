@@ -181,4 +181,159 @@ class CommonSupertypeTest {
         }
         // Implicitly passes if null
     }
+
+    @Test
+    void testGenericsWithDifferentArgumentsFallBackToRawType() {
+        VaryingExpression var = singleVariation(
+                """
+                import java.util.List;
+                class Test {
+                    void method1(List<String> list1) {
+                        print(list1);
+                    }
+                    void print(Object o) {}
+                }
+                """,
+                """
+                import java.util.List;
+                class Test {
+                    void method2(List<Integer> list2) {
+                        print(list2);
+                    }
+                    void print(Object o) {}
+                }
+                """);
+
+        assertNotNull(var.type());
+        assertEquals("java.util.List", var.type().describe(),
+                "List<String> and List<Integer> should meet at raw List, not Object");
+    }
+
+    @Test
+    void testChainedCallsWithDifferentPrimitiveResults() {
+        VaryingExpression var = singleVariation(
+                """
+                import java.util.List;
+                class Test {
+                    void method1(List<Double> a) {
+                        print(a.get(0).longValue());
+                    }
+                    void print(Object o) {}
+                }
+                """,
+                """
+                import java.util.List;
+                class Test {
+                    void method2(List<Double> a) {
+                        print(a.get(0).intValue());
+                    }
+                    void print(Object o) {}
+                }
+                """);
+
+        assertEquals("a.get(0).longValue()", var.expr1().toString());
+        assertNotNull(var.type());
+        assertEquals("long", var.type().describe(), "int widens to long");
+    }
+
+    @Test
+    void testChainedScopeVariationWithDifferentGenericInstantiations() {
+        VaryingExpression var = singleVariation(
+                """
+                import java.util.Map;
+                class Test {
+                    void method1(Map<String, Integer> map) {
+                        print(map.keySet().iterator());
+                    }
+                    void print(Object o) {}
+                }
+                """,
+                """
+                import java.util.List;
+                class Test {
+                    void method2(List<Integer> list) {
+                        print(list.iterator());
+                    }
+                    void print(Object o) {}
+                }
+                """);
+
+        // The innermost varying expression is the scope of the chain: Set<String> vs List<Integer>
+        assertEquals("map.keySet()", var.expr1().toString());
+        assertNotNull(var.type());
+        assertEquals("java.util.Collection", var.type().describe(),
+                "incompatible type arguments should meet at the erased shared ancestor");
+    }
+
+    @Test
+    void testChainedScopeVariationWithSameGenericInstantiationKeepsTypeArguments() {
+        VaryingExpression var = singleVariation(
+                """
+                import java.util.Map;
+                class Test {
+                    void method1(Map<String, Integer> map) {
+                        print(map.keySet().stream());
+                    }
+                    void print(Object o) {}
+                }
+                """,
+                """
+                import java.util.List;
+                class Test {
+                    void method2(List<String> list) {
+                        print(list.stream());
+                    }
+                    void print(Object o) {}
+                }
+                """);
+
+        assertEquals("map.keySet()", var.expr1().toString());
+        assertNotNull(var.type());
+        assertEquals("java.util.Collection<java.lang.String>", var.type().describe());
+    }
+
+    @Test
+    void testDifferentCollectionImplementationsMeetAtSharedAncestor() {
+        VaryingExpression var = singleVariation(
+                """
+                import java.util.ArrayList;
+                class Test {
+                    void method1(ArrayList<String> a) {
+                        print(a);
+                    }
+                    void print(Object o) {}
+                }
+                """,
+                """
+                import java.util.LinkedList;
+                class Test {
+                    void method2(LinkedList<String> b) {
+                        print(b);
+                    }
+                    void print(Object o) {}
+                }
+                """);
+
+        assertNotNull(var.type());
+        String desc = var.type().describe();
+        assertTrue(desc.equals("java.util.AbstractList<java.lang.String>")
+                        || desc.equals("java.util.List<java.lang.String>"),
+                "Expected a shared List ancestor but got " + desc);
+    }
+
+    private VaryingExpression singleVariation(String code1, String code2) {
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+
+        MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method1")).get();
+        MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class, m -> m.getNameAsString().equals("method2")).get();
+
+        StatementSequence seq1 = new StatementSequence(m1.getBody().get().getStatements(), null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().get().getStatements(), null, 0, m2, ContainerType.METHOD, cu2, null);
+
+        VariationAnalysis result = analyzer.analyzeVariations(seq1, seq2, cu1);
+        List<VaryingExpression> variations = result.varyingExpressions();
+        assertEquals(1, variations.size(), "expected exactly one variation: " + variations);
+        return variations.get(0);
+    }
 }

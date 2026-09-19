@@ -321,6 +321,31 @@ public class DuplicationDetectorSettings {
     }
 
     /**
+     * Maximum difference in statement count between two sequences for them to still be
+     * scored for similarity. {@code 0} restores the strict equal-length requirement; a
+     * value of {@code 1} lets an otherwise identical block with one extra statement
+     * (e.g. an added log line) be reported as a near-duplicate. Such pairs are never
+     * marked as auto-refactorable.
+     * Default: 1
+     * @return maximum allowed statement-count delta
+     */
+    public static int getMaxSizeDelta() {
+        return Math.max(0, getOverriddenInt("max_size_delta", 1));
+    }
+
+    /**
+     * When enabled, duplicates whose control-flow skeleton is identical but whose branch or
+     * loop <em>conditions</em> differ are reported as a warning (manual review required)
+     * instead of a blocking error. Structural control-flow differences remain errors
+     * regardless of this flag.
+     * Default: false
+     * @return true if parameterizable control-flow variation is allowed
+     */
+    public static boolean getAllowParameterizableControlFlow() {
+        return getOverriddenBoolean("allow_parameterizable_control_flow", false);
+    }
+
+    /**
      * Get boundary refinement flag.
      * @return true if boundary refinement is enabled
      */

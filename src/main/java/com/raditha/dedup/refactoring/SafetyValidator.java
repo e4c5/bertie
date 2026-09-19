@@ -1,11 +1,15 @@
 package com.raditha.dedup.refactoring;
 
+import com.raditha.dedup.analysis.ControlFlowVariationAnalyzer;
 import com.raditha.dedup.analysis.EscapeAnalyzer;
 import com.raditha.dedup.analysis.LambdaClosureAnalyzer;
 import com.raditha.dedup.analysis.OuterClassFieldAnalyzer;
+import com.raditha.dedup.analysis.SideEffectAnalyzer;
+import com.raditha.dedup.config.DuplicationDetectorSettings;
 import com.raditha.dedup.model.*;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -14,6 +18,14 @@ import java.util.Set;
  * Checks for conflicts, scope issues, and incompatibilities.
  */
 public class SafetyValidator {
+
+    static final String CONTROL_FLOW_ERROR = "Control flow differs between duplicates - cannot safely refactor";
+    static final String CONTROL_FLOW_WARNING =
+            "Control flow condition differs between duplicates - parameterizable, manual review required";
+    static final String SIDE_EFFECT_ERROR = "Side effects differ between duplicates - cannot safely refactor";
+
+    private final SideEffectAnalyzer sideEffectAnalyzer = new SideEffectAnalyzer();
+    private final ControlFlowVariationAnalyzer controlFlowAnalyzer = new ControlFlowVariationAnalyzer();
 
     /**
      * Validate a refactoring is safe to apply.
@@ -34,10 +46,11 @@ public class SafetyValidator {
         }
 
         // 3. Check for control flow differences
-        SimilarityResult similarity = cluster.duplicates().isEmpty() ? null : cluster.duplicates().get(0).similarity();
-        if (similarity != null && similarity.variations().hasControlFlowDifferences()) {
-            issues.add(ValidationIssue.error(
-                    "Control flow differs between duplicates - cannot safely refactor"));
+        validateControlFlow(cluster, issues);
+
+        // 3b. Duplicates must perform the same observable side effects
+        if (hasDifferentSideEffects(cluster)) {
+            issues.add(ValidationIssue.error(SIDE_EFFECT_ERROR));
         }
 
         // 4. Check parameter count
@@ -63,6 +76,82 @@ public class SafetyValidator {
         validateContainerTypeIssues(cluster, recommendation, issues);
 
         return new ValidationResult(issues);
+    }
+
+    /**
+     * Structural control-flow differences (extra branch, different jumps, different catch
+     * clauses, ...) are always blocking. A difference confined to a branch/loop condition is
+     * parameterizable; it is still blocking unless
+     * {@code allow_parameterizable_control_flow} is enabled, in which case it is downgraded
+     * to a warning that requires manual review of the extracted helper.
+     */
+    private void validateControlFlow(DuplicateCluster cluster, List<ValidationIssue> issues) {
+        SimilarityResult similarity = cluster.duplicates().isEmpty() ? null : cluster.duplicates().get(0).similarity();
+        boolean flaggedByVariationAnalysis = similarity != null && similarity.variations() != null
+                && similarity.variations().hasControlFlowDifferences();
+
+        ControlFlowVariationAnalyzer.Result worst = ControlFlowVariationAnalyzer.Result.NONE;
+        StatementSequence primary = cluster.primary();
+        for (StatementSequence other : otherSequences(cluster)) {
+            ControlFlowVariationAnalyzer.Result r = controlFlowAnalyzer.analyze(primary, other);
+            if (r.kind().ordinal() > worst.kind().ordinal()) {
+                worst = r;
+            }
+        }
+
+        switch (worst.kind()) {
+            case NONE -> {
+                if (flaggedByVariationAnalysis) {
+                    issues.add(ValidationIssue.error(CONTROL_FLOW_ERROR));
+                }
+            }
+            case UNSAFE -> issues.add(ValidationIssue.error(CONTROL_FLOW_ERROR + ": " + worst.detail()));
+            case PARAMETERIZABLE -> {
+                if (DuplicationDetectorSettings.getAllowParameterizableControlFlow()) {
+                    issues.add(ValidationIssue.warning(CONTROL_FLOW_WARNING + ": " + worst.detail()));
+                } else {
+                    issues.add(ValidationIssue.error(CONTROL_FLOW_ERROR + ": " + worst.detail()));
+                }
+            }
+        }
+    }
+
+    /**
+     * Duplicates are only interchangeable if every occurrence performs the same observable
+     * side effects (I/O, network, database, external API calls, non-idempotent operations)
+     * in the same order. Detection is name-based and conservative; see
+     * {@link SideEffectAnalyzer}.
+     */
+    boolean hasDifferentSideEffects(DuplicateCluster cluster) {
+        StatementSequence primary = cluster.primary();
+        if (primary == null) {
+            return false;
+        }
+        List<String> reference = signatures(primary);
+        for (StatementSequence other : otherSequences(cluster)) {
+            if (!reference.equals(signatures(other))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<String> signatures(StatementSequence sequence) {
+        return sideEffectAnalyzer.analyze(sequence).stream()
+                .map(e -> e.category() + ":" + e.signature())
+                .toList();
+    }
+
+    private Set<StatementSequence> otherSequences(DuplicateCluster cluster) {
+        Set<StatementSequence> others = new LinkedHashSet<>();
+        if (cluster.duplicates() == null) {
+            return others;
+        }
+        for (SimilarityPair pair : cluster.duplicates()) {
+            if (pair.seq1() != null && pair.seq1() != cluster.primary()) others.add(pair.seq1());
+            if (pair.seq2() != null && pair.seq2() != cluster.primary()) others.add(pair.seq2());
+        }
+        return others;
     }
 
     /**

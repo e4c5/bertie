@@ -59,6 +59,10 @@ public class DuplicationAnalyzer {
                 DuplicationDetectorSettings.getThreshold());
     }
 
+    List<StatementSequence> extractSequences(CompilationUnit cu, Path sourceFile) {
+        return extractor.extractSequences(cu, sourceFile);
+    }
+
     public Map<String, CompilationUnit> getAllCUs() {
         return allCUs;
     }
@@ -294,20 +298,26 @@ public class DuplicationAnalyzer {
         if (DuplicationDetectorSettings.getEnableLSH()) {
             return findCandidatesLSH(sequences);
         }
-        // Brute force fallback - requires full normalization
+        return findCandidatesBruteForce(sequences);
+    }
+
+    /**
+     * Brute force fallback - requires full (eager) normalization of every sequence.
+     */
+    List<SimilarityPair> findCandidatesBruteForce(List<StatementSequence> sequences) {
         List<NormalizedSequence> normalizedSequences = sequences.stream()
             .map(seq -> new NormalizedSequence(
                     seq,
                     astNormalizer.normalize(seq.statements())))
             .toList();
-        return findCandidatesBruteForce(normalizedSequences);
+        return compareAllPairs(normalizedSequences);
     }
 
     /**
      * Find candidate duplicate pairs using LSH and pre-filtering.
      * Uses FuzzyTokenizer for fast indexing and Lazy Normalization for verification.
      */
-    private List<SimilarityPair> findCandidatesLSH(List<StatementSequence> sequences) {
+    List<SimilarityPair> findCandidatesLSH(List<StatementSequence> sequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
         com.raditha.dedup.normalization.FuzzyTokenizer tokenizer = new com.raditha.dedup.normalization.FuzzyTokenizer();
 
@@ -413,7 +423,7 @@ public class DuplicationAnalyzer {
      * Find candidate duplicate pairs using O(N^2) brute force comparison.
      * Fallback when LSH is disabled.
      */
-    private List<SimilarityPair> findCandidatesBruteForce(List<NormalizedSequence> normalizedSequences) {
+    private List<SimilarityPair> compareAllPairs(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
 
         // Compare all pairs
@@ -442,8 +452,9 @@ public class DuplicationAnalyzer {
     private SimilarityPair analyzePair(NormalizedSequence norm1, NormalizedSequence norm2) {
         int size1 = norm1.sequence().statements().size();
         int size2 = norm2.sequence().statements().size();
+        int sizeDelta = Math.abs(size1 - size2);
 
-        if (size1 != size2) {
+        if (sizeDelta > DuplicationDetectorSettings.getMaxSizeDelta()) {
             return new SimilarityPair(norm1.sequence(), norm2.sequence(),
                     new SimilarityResult(0.0, 0.0, 0.0, 0.0, size1, size2,
                             com.raditha.dedup.model.VariationAnalysis.builder().build(), null, false));
@@ -457,7 +468,42 @@ public class DuplicationAnalyzer {
                 nodes2,
                 DuplicationDetectorSettings.getWeights());
 
+        if (sizeDelta != 0) {
+            similarity = alignedSimilarity(similarity, nodes1, nodes2);
+        }
+
         return new SimilarityPair(norm1.sequence(), norm2.sequence(), similarity);
+    }
+
+    /**
+     * Re-score a pair whose statement counts differ. The LCS / Levenshtein metrics already
+     * tolerate insertions and deletions, but positional structural comparison does not: a
+     * single inserted statement shifts every subsequent position. The structural component is
+     * therefore recomputed over the LCS alignment of the two node lists, and the pair is marked
+     * as not auto-refactorable because statement-level parameter extraction assumes a 1:1
+     * statement mapping.
+     */
+    private SimilarityResult alignedSimilarity(SimilarityResult positional,
+            List<com.raditha.dedup.normalization.NormalizedNode> nodes1,
+            List<com.raditha.dedup.normalization.NormalizedNode> nodes2) {
+        var aligned = com.raditha.dedup.similarity.SequenceAligner.align(nodes1, nodes2);
+
+        // LCS and Levenshtein already tolerate insertions; only the positional structural
+        // score needs the alignment (gaps still count as mismatches).
+        double structural = aligned.structuralScore();
+        double overall = DuplicationDetectorSettings.getWeights().combine(
+                positional.lcsScore(), positional.levenshteinScore(), structural);
+
+        return new SimilarityResult(
+                overall,
+                positional.lcsScore(),
+                positional.levenshteinScore(),
+                structural,
+                nodes1.size(),
+                nodes2.size(),
+                positional.variations(),
+                positional.typeCompatibility(),
+                false);
     }
 
     /**

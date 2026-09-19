@@ -16,6 +16,12 @@ import java.util.Set;
  * 
  * OPTIMIZATION: Uses bit-packed long keys instead of String to eliminate
  * object allocations (benefits large projects with 100k+ sequences).
+ *
+ * <p>Memory: the index retains one bucket membership per band per sequence
+ * ({@code N * numBands} references; sequences are not copied) plus one boxed
+ * {@code Long} key and {@code ArrayList} per distinct bucket. Signatures are
+ * transient, so {@code rowsPerBand} does not add retained memory. See
+ * {@code docs/duplication-detector/SCALABILITY_ANALYSIS.md} for profiling notes.</p>
  */
 public class LSHIndex {
 

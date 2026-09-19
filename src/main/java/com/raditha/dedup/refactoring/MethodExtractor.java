@@ -622,7 +622,7 @@ public class MethodExtractor extends AbstractExtractor {
         for (ParameterSpec param : effectiveParams) {
             // Only structural params need paths (variationIndex != -1 usually, but check
             // all with coords)
-            Expression node = findNodeByCoordinates(cluster.primary(), param.getStartLine(), param.getStartColumn());
+            Expression node = findNodeForParameter(cluster.primary(), param);
             if (node != null) {
                 ASTNodePath path = computePath(node);
                 if (path != null) {
@@ -765,7 +765,7 @@ public class MethodExtractor extends AbstractExtractor {
         if (param.getStartLine() == null || param.getStartColumn() == null) {
             return false;
         }
-        Expression expr = findNodeByCoordinates(sequence, param.getStartLine(), param.getStartColumn());
+        Expression expr = findNodeForParameter(sequence, param);
         if (expr == null) {
             return false;
         }
@@ -1558,7 +1558,7 @@ public class MethodExtractor extends AbstractExtractor {
                 return null;
 
             // 1. Find the node in the primary sequence using coordinates
-            Expression primaryNode = findNodeByCoordinates(cluster.primary(), param.getStartLine(), param.getStartColumn());
+            Expression primaryNode = findNodeForParameter(cluster.primary(), param);
             if (primaryNode == null) {
                 return null;
             }
@@ -1887,16 +1887,28 @@ public class MethodExtractor extends AbstractExtractor {
         if (line == null || col == null) {
             return false;
         }
+        String expected = param.getExampleValues().isEmpty() ? null : param.getExampleValues().getFirst();
+        Expression innermost = null;
         for (Expression expr : stmt.findAll(Expression.class)) {
-            if (expr.getRange().isEmpty())
+            if (expr.getRange().isEmpty() || expr.getParentNode().isEmpty())
                 continue;
             var begin = expr.getRange().get().begin;
-            if (begin.line == line && begin.column == col && expr.getParentNode().isPresent()) {
-                expr.replace(new NameExpr(paramName));
-                return true;
+            if (begin.line != line || begin.column != col) {
+                continue;
+            }
+            if (expected != null && expr.toString().equals(expected)) {
+                innermost = expr;
+                break;
+            }
+            if (innermost == null || innermost.isAncestorOf(expr)) {
+                innermost = expr;
             }
         }
-        return false;
+        if (innermost == null) {
+            return false;
+        }
+        innermost.replace(new NameExpr(paramName));
+        return true;
     }
 
     // Helper-reuse: find an existing equivalent helper in the same class to avoid
