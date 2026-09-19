@@ -159,6 +159,25 @@ Bertie depends on:
 - **JavaParser** - Code analysis and AST manipulation
 - **java-diff-utils** - Unified diff generation
 
+### Antikythera dependency (JitPack)
+
+Bertie uses Antikythera for Settings/YAML configuration, AbstractCompiler type resolution,
+the AntikytheraRunTime compilation-unit cache, TypeWrapper assignability, and DepSolver.
+The Maven coordinate is `com.github.Cloud-Solutions-International:antikythera:0.1.3.0`.
+It is resolved from [JitPack](https://jitpack.io), via the `jitpack.io` repository block
+in `pom.xml`, rather than Maven Central. Tag `0.1.3.0` currently maps to commit
+`837c900e606d509a2aad6257bd5ea1ef6c89aa94`. The cached jar SHA-1 is
+`bda0d048b49defc5d7beac365b2005ed9ccc390a`.
+
+This dependency has supply-chain and reproducibility risks: JitPack builds from source
+on demand, Git tags can be moved, and artifact availability depends on JitPack. As of
+this writing, our observation is that Antikythera is not published to Maven Central.
+For verification, compare the downloaded jar's SHA-1 with the value above. To pin
+harder, use the commit hash as the dependency version; alternatively, vendor the jar
+in an internal Maven repository or install it with `mvn install:install-file`.
+This development environment already pre-installs `hql-parser` into `~/.m2` for the
+same availability reason.
+
 ---
 
 ## Known Issues

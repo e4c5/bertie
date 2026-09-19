@@ -55,6 +55,11 @@ graph TD
 ## 🛠️ Antikythera Power Tools
 Leverage these core library utilities to avoid reinventing the wheel:
 
+For the JitPack coordinate, tag-to-commit mapping, checksum, and reproducibility
+mitigations, see [README.md — Antikythera dependency (JitPack)](README.md#antikythera-dependency-jitpack).
+The current tag `0.1.3.0` is documented as commit
+`837c900e606d509a2aad6257bd5ea1ef6c89aa94`.
+
 ### `AntikytheraRunTime` (Global Cache)
 Acts as the central runtime state manager. Use `getCompilationUnit(String fqn)` to access cached ASTs instantaneously without re-parsing files.
 It also maintains global type caches, ensuring consistent state across the entire analysis pipeline.
