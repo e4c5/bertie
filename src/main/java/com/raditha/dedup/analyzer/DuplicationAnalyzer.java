@@ -59,6 +59,10 @@ public class DuplicationAnalyzer {
                 DuplicationDetectorSettings.getThreshold());
     }
 
+    List<StatementSequence> extractSequences(CompilationUnit cu, Path sourceFile) {
+        return extractor.extractSequences(cu, sourceFile);
+    }
+
     public Map<String, CompilationUnit> getAllCUs() {
         return allCUs;
     }
@@ -294,20 +298,26 @@ public class DuplicationAnalyzer {
         if (DuplicationDetectorSettings.getEnableLSH()) {
             return findCandidatesLSH(sequences);
         }
-        // Brute force fallback - requires full normalization
+        return findCandidatesBruteForce(sequences);
+    }
+
+    /**
+     * Brute force fallback - requires full (eager) normalization of every sequence.
+     */
+    List<SimilarityPair> findCandidatesBruteForce(List<StatementSequence> sequences) {
         List<NormalizedSequence> normalizedSequences = sequences.stream()
             .map(seq -> new NormalizedSequence(
                     seq,
                     astNormalizer.normalize(seq.statements())))
             .toList();
-        return findCandidatesBruteForce(normalizedSequences);
+        return compareAllPairs(normalizedSequences);
     }
 
     /**
      * Find candidate duplicate pairs using LSH and pre-filtering.
      * Uses FuzzyTokenizer for fast indexing and Lazy Normalization for verification.
      */
-    private List<SimilarityPair> findCandidatesLSH(List<StatementSequence> sequences) {
+    List<SimilarityPair> findCandidatesLSH(List<StatementSequence> sequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
         com.raditha.dedup.normalization.FuzzyTokenizer tokenizer = new com.raditha.dedup.normalization.FuzzyTokenizer();
 
@@ -413,7 +423,7 @@ public class DuplicationAnalyzer {
      * Find candidate duplicate pairs using O(N^2) brute force comparison.
      * Fallback when LSH is disabled.
      */
-    private List<SimilarityPair> findCandidatesBruteForce(List<NormalizedSequence> normalizedSequences) {
+    private List<SimilarityPair> compareAllPairs(List<NormalizedSequence> normalizedSequences) {
         List<SimilarityPair> candidates = new ArrayList<>();
 
         // Compare all pairs
