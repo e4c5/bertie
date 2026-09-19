@@ -62,7 +62,10 @@ public class AIParameterNamer {
             } else {
                 logger.debug("AI response '{}' is not a valid Java identifier", response);
             }
-        } catch (IOException | InterruptedException | RuntimeException e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("AI naming failed, falling back to patterns", e);
+        } catch (IOException | RuntimeException e) {
             logger.warn("AI naming failed, falling back to patterns", e);
         }
 

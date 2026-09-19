@@ -263,7 +263,7 @@ class ASTVariationAnalyzerTest {
                 .isAssignableBy(new ASTVariationAnalyzer.SimpleResolvedType("Integer")));
         var generic = new ASTVariationAnalyzer.SimpleResolvedType("List<String>");
         assertEquals("List<String>", generic.describe());
-        assertFalse(generic.equals(new ASTVariationAnalyzer.SimpleResolvedType("List<Integer>")));
+        assertNotEquals(new ASTVariationAnalyzer.SimpleResolvedType("List<Integer>"), generic);
     }
 
     @Test

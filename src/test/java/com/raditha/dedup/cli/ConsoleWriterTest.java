@@ -36,4 +36,16 @@ class ConsoleWriterTest {
             System.setOut(originalOut);
         }
     }
+
+    @Test
+    void writesErrorsToConfiguredErrorStream() {
+        ByteArrayOutputStream errors = new ByteArrayOutputStream();
+        ConsoleWriter writer = new ConsoleWriter(
+                new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8),
+                new PrintStream(errors, true, StandardCharsets.UTF_8));
+
+        writer.errln("error");
+
+        assertEquals("error" + System.lineSeparator(), errors.toString(StandardCharsets.UTF_8));
+    }
 }

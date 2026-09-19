@@ -211,11 +211,14 @@ public class MethodNameGenerator {
 
             // Extract text from response
             return extractTextFromGeminiResponse(responseBody);
-        } catch (java.io.IOException | InterruptedException | RuntimeException e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.debug("AI service request failed; falling back to other naming strategies", e);
+        } catch (java.io.IOException | RuntimeException e) {
             // AI service failed - fall back to semantic/sequential naming
             logger.debug("AI service request failed; falling back to other naming strategies", e);
-            return null;
         }
+        return null;
     }
 
     /**

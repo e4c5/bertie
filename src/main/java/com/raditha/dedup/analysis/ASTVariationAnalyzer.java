@@ -223,19 +223,12 @@ public class ASTVariationAnalyzer {
             }
         }
 
-        if (e1 instanceof BinaryExpr binary1 && e2 instanceof BinaryExpr binary2
-                && binary1.getOperator() != binary2.getOperator()) {
-            return false;
-        }
-        if (e1 instanceof UnaryExpr unary1 && e2 instanceof UnaryExpr unary2
-                && unary1.getOperator() != unary2.getOperator()) {
-            return false;
-        }
-        if (e1 instanceof AssignExpr assign1 && e2 instanceof AssignExpr assign2
-                && assign1.getOperator() != assign2.getOperator()) {
-            return false;
-        }
-        return true;
+        return !(e1 instanceof BinaryExpr binary1 && e2 instanceof BinaryExpr binary2
+                        && binary1.getOperator() != binary2.getOperator())
+                && !(e1 instanceof UnaryExpr unary1 && e2 instanceof UnaryExpr unary2
+                        && unary1.getOperator() != unary2.getOperator())
+                && !(e1 instanceof AssignExpr assign1 && e2 instanceof AssignExpr assign2
+                        && assign1.getOperator() != assign2.getOperator());
     }
 
     private boolean sameShapeNode(Node n1, Node n2) {
@@ -647,26 +640,34 @@ public class ASTVariationAnalyzer {
             if (other.isNull()) return true;
 
             if (context != null) {
-                TypeWrapper self = lookupType(context, rawName);
-                String otherName = other.isReferenceType() && !(other instanceof SimpleResolvedType)
-                        ? other.asReferenceType().getQualifiedName()
-                        : other.describe();
-                TypeWrapper otherWrapper = lookupType(context, otherName);
-                if (self != null && otherWrapper != null) {
-                    return self.isAssignableFrom(otherWrapper);
-                }
+                Boolean contextResult = assignableViaContext(other);
+                if (contextResult != null) return contextResult;
             }
 
             if (other.isReferenceType() && !(other instanceof SimpleResolvedType)) {
-                ResolvedReferenceType ref = other.asReferenceType();
-                if (matchesName(ref.getQualifiedName())) return true;
-                try {
-                    for (ResolvedReferenceType ancestor : ref.getAllAncestors()) {
-                        if (matchesName(ancestor.getQualifiedName())) return true;
-                    }
-                } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException e) {
-                    logger.debug("[ASTVariationAnalyzer] Failed to inspect type ancestors", e);
+                return assignableViaAncestors(other.asReferenceType());
+            }
+            return false;
+        }
+
+        private Boolean assignableViaContext(ResolvedType other) {
+            TypeWrapper self = lookupType(context, rawName);
+            String otherName = other.isReferenceType() && !(other instanceof SimpleResolvedType)
+                    ? other.asReferenceType().getQualifiedName()
+                    : other.describe();
+            TypeWrapper otherWrapper = lookupType(context, otherName);
+            if (self == null || otherWrapper == null) return null;
+            return self.isAssignableFrom(otherWrapper);
+        }
+
+        private boolean assignableViaAncestors(ResolvedReferenceType ref) {
+            if (matchesName(ref.getQualifiedName())) return true;
+            try {
+                for (ResolvedReferenceType ancestor : ref.getAllAncestors()) {
+                    if (matchesName(ancestor.getQualifiedName())) return true;
                 }
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException e) {
+                logger.debug("[ASTVariationAnalyzer] Failed to inspect type ancestors", e);
             }
             return false;
         }

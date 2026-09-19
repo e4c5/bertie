@@ -151,7 +151,7 @@ public class BertieCLI implements Callable<Integer> {
                 this.verifyMode = VerifyMode.fromString(verifyProp.toString());
             } catch (IllegalArgumentException e) {
                 logger.debug("Invalid verify mode in configuration: {}", verifyProp, e);
-                System.err.println("Warning: Invalid verify mode in config: " + verifyProp);
+                console.errln("Warning: Invalid verify mode in config: " + verifyProp);
             }
         }
 
@@ -303,7 +303,7 @@ public class BertieCLI implements Callable<Integer> {
             console.println("Resuming session from .bertie/last_session.json...");
             reports = SessionManager.loadSession(Paths.get(".bertie/last_session.json"));
             if (reports == null) {
-                System.err.println("Error: No session found to resume. Running full analysis instead.");
+                console.errln("Error: No session found to resume. Running full analysis instead.");
                 reports = performAnalysis();
             }
         } else {

@@ -164,14 +164,11 @@ public class RefactoringEngine {
                 session.addSuccess(cluster, result.description(), diffStatsByFile);
                 verifier.clearBackups();
             } else {
-                logger.warn("Verification failed: {}", String.join("; ", verify.errors()));
+                logger.warn("Verification failed: {}", verify.errors());
                 // Rollback
                 verifier.rollback();
                 session.addFailed(cluster, String.join("; ", verify.errors()));
             }
-        } catch (InterruptedException ie) {
-            logger.debug("Refactoring interrupted", ie);
-            throw ie;
         } catch (RuntimeException t) {
             logger.error("Refactoring failed for cluster {}", cluster, t);
             // Ensure checking if rollback is needed in case files offered partial writes
@@ -219,13 +216,13 @@ public class RefactoringEngine {
         // Safety validation
         SafetyValidator.ValidationResult validation = validator.validate(cluster, recommendation);
         if (!validation.isValid() && mode != RefactoringMode.DRY_RUN) {
-            logger.info("Skipped due to safety validation errors: {}", String.join("; ", validation.getErrors()));
+            logger.info("Skipped due to safety validation errors: {}", validation.getErrors());
             session.addSkipped(cluster, String.join("; ", validation.getErrors()));
             return false;
         }
 
         if (validation.hasWarnings()) {
-            logger.info("Warnings: {}", String.join("; ", validation.getWarnings()));
+            logger.info("Warnings: {}", validation.getWarnings());
         }
 
         // Interactive mode: show diff and ask for confirmation
