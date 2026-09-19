@@ -22,6 +22,8 @@
         <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
         <picocli.version>4.7.6</picocli.version>
         <antikythera.version>0.1.3.0</antikythera.version>
+        <!-- This is a JitPack tag build of this commit; use the hash as the version to pin harder if the tag moves. -->
+        <antikythera.commit>837c900e606d509a2aad6257bd5ea1ef6c89aa94</antikythera.commit>
     </properties>
 
     <dependencies>

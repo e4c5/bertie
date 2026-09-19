@@ -9,12 +9,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * Manages saving and loading of refactoring sessions.
  * Resumes an interrupted session by loading metadata and re-hydrating AST nodes.
  */
 public class SessionManager {
 
+    private static final Logger logger = LoggerFactory.getLogger(SessionManager.class);
     private static final ObjectMapper mapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
@@ -88,10 +91,10 @@ public class SessionManager {
             return null;
         }
 
-        System.out.println("Resuming session from " + filePath + "...");
+        logger.info("Resuming session from {}...", filePath);
         SessionDTO dto = mapper.readValue(filePath.toFile(), SessionDTO.class);
 
-        System.out.println("DEBUG: Re-hydrated metadata for " + dto.clusters().size() + " clusters.");
+        logger.debug("Re-hydrated metadata for {} clusters.", dto.clusters().size());
 
         // In a full implementation, we would map DTOs back to DuplicationReports
         // by finding sequences in allCUs that match the DTO ranges.

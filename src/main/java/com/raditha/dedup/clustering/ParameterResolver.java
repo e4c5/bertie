@@ -16,6 +16,9 @@ import com.raditha.dedup.model.StatementSequence;
 import com.raditha.dedup.model.VariableReference;
 import com.raditha.dedup.model.VariationAnalysis;
 import com.github.javaparser.resolution.types.ResolvedType;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.ArrayList;
@@ -34,6 +37,7 @@ import com.github.javaparser.ast.body.CallableDeclaration;
  */
 public class ParameterResolver extends AbstractResolver {
 
+    private static final Logger logger = LoggerFactory.getLogger(ParameterResolver.class);
     private final ASTParameterExtractor extractor;
 
     /**
@@ -265,8 +269,9 @@ public class ParameterResolver extends AbstractResolver {
                 if (AbstractCompiler.findType(cu, val) != null) {
                     return true;
                 }
-            } catch (Exception e) {
-                // ignored
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                    | IllegalArgumentException e) {
+                logger.debug("Could not resolve static class reference {}", val, e);
             }
         }
         return false;
@@ -298,7 +303,9 @@ public class ParameterResolver extends AbstractResolver {
             if (type.isVoid()) {
                 return true;
             }
-        } catch (Exception ex) {
+        } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                | IllegalArgumentException ex) {
+            logger.debug("Could not resolve expression type while checking void expression", ex);
             if (e.isMethodCallExpr()) {
                 return isMethodCallVoid(e.asMethodCallExpr(), cluster);
             }
@@ -336,8 +343,8 @@ public class ParameterResolver extends AbstractResolver {
             Type inferred = null;
             try {
                 inferred = findTypeInContext(cluster.primary(), val);
-            } catch (Exception e) {
-                // ignore
+            } catch (RuntimeException e) {
+                logger.debug("Could not refine parameter type for {}", val, e);
             }
 
             if (inferred != null && !inferred.asString().equals(OBJECT)) {

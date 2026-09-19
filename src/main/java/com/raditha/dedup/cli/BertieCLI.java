@@ -23,6 +23,8 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Command-line interface for the Duplication Detector.
@@ -33,10 +35,19 @@ import java.util.concurrent.Callable;
  * Configuration priority: CLI arguments > generator.yml > defaults
  */
 @Command(name = "bertie", mixinStandardHelpOptions = true, version = "Bertie v1.0.0", description = "Duplicate Code Detector and Refactoring Tool")
-@SuppressWarnings("java:S106")
 public class BertieCLI implements Callable<Integer> {
 
     private static final String VERSION = "1.0.0";
+    private static final Logger logger = LoggerFactory.getLogger(BertieCLI.class);
+    private final ConsoleWriter console;
+
+    public BertieCLI() {
+        this(new ConsoleWriter());
+    }
+
+    BertieCLI(ConsoleWriter console) {
+        this.console = console;
+    }
 
     // Global Options
     @Option(names = "--config-file", description = "Use custom configuration file", paramLabel = "<path>")
@@ -117,7 +128,7 @@ public class BertieCLI implements Callable<Integer> {
             preset = "lenient";
         }
         if (preset != null) {
-            System.out.println("Using preset: " + preset);
+            console.println("Using preset: " + preset);
         }
         
         // Pass java settings to DuplicationDetectorSettings (they are handled as regular properties)
@@ -138,8 +149,9 @@ public class BertieCLI implements Callable<Integer> {
         if (verifyProp != null) {
             try {
                 this.verifyMode = VerifyMode.fromString(verifyProp.toString());
-            } catch (Exception e) {
-                System.err.println("Warning: Invalid verify mode in config: " + verifyProp);
+            } catch (IllegalArgumentException e) {
+                logger.debug("Invalid verify mode in configuration: {}", verifyProp, e);
+                console.errln("Warning: Invalid verify mode in config: " + verifyProp);
             }
         }
 
@@ -251,6 +263,7 @@ public class BertieCLI implements Callable<Integer> {
                 try {
                     outputDir.mkdirs();
                 } catch (SecurityException e) {
+                    logger.debug("Cannot create output directory {}", outputPath, e);
                     throw new IllegalArgumentException("Cannot create output directory: " + outputPath);
                 }
             }
@@ -282,15 +295,15 @@ public class BertieCLI implements Callable<Integer> {
     }
 
     private void runRefactoring() throws IOException, InterruptedException {
-        System.out.println("=== PHASE 1: Duplicate Detection ===");
-        System.out.println();
+        console.println("=== PHASE 1: Duplicate Detection ===");
+        console.println();
 
         List<DuplicationReport> reports;
         if (resumeSession) {
-            System.out.println("Resuming session from .bertie/last_session.json...");
+            console.println("Resuming session from .bertie/last_session.json...");
             reports = SessionManager.loadSession(Paths.get(".bertie/last_session.json"));
             if (reports == null) {
-                System.err.println("Error: No session found to resume. Running full analysis instead.");
+                console.errln("Error: No session found to resume. Running full analysis instead.");
                 reports = performAnalysis();
             }
         } else {
@@ -299,7 +312,7 @@ public class BertieCLI implements Callable<Integer> {
         }
 
         if (reports.isEmpty()) {
-            System.out.println("No files found matching criteria");
+            console.println("No files found matching criteria");
             return;
         }
 
@@ -311,18 +324,18 @@ public class BertieCLI implements Callable<Integer> {
                 .mapToInt(r -> r.clusters().size())
                 .sum();
 
-        System.out.println();
-        System.out.printf("Found %d duplicate pairs in %d clusters%n", totalDuplicates, totalClusters);
-        System.out.println();
+        console.println();
+        console.printf("Found %d duplicate pairs in %d clusters%n", totalDuplicates, totalClusters);
+        console.println();
 
         if (totalClusters == 0) {
-            System.out.println("No duplicates found. Nothing to refactor.");
+            console.println("No duplicates found. Nothing to refactor.");
             return;
         }
 
         // Phase 2: Refactoring
-        System.out.println("=== PHASE 2: Automated Refactoring ===");
-        System.out.println();
+        console.println("=== PHASE 2: Automated Refactoring ===");
+        console.println();
 
         // Create refactoring engine
         Path projectRoot = Paths.get(Settings.getBasePath());
@@ -353,7 +366,7 @@ public class BertieCLI implements Callable<Integer> {
 
         for (DuplicationReport report : reports) {
             if (!report.clusters().isEmpty()) {
-                System.out.println("Processing file: " + report.sourceFile().getFileName());
+                console.println("Processing file: " + report.sourceFile().getFileName());
                 
                 // Find valid CU for this report
                 // Keys in allCUs are class names, so we must check the Storage path of the CU itself
@@ -376,31 +389,31 @@ public class BertieCLI implements Callable<Integer> {
                     totalAddedLines += session.getAddedLines();
                     totalRemovedLines += session.getRemovedLines();
                 } else {
-                    System.out.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
+                    console.println("Warning: Could not find CompilationUnit for " + report.sourceFile() + ". Skipping.");
                 }
             }
         }
 
         // Final summary
-        System.out.println();
-        System.out.println("=== FINAL SUMMARY ===");
-        System.out.printf("✓ Successful refactorings: %d%n", totalSuccess);
-        System.out.printf("⊘ Skipped: %d%n", totalSkipped);
-        System.out.printf("✗ Failed: %d%n", totalFailed);
+        console.println();
+        console.println("=== FINAL SUMMARY ===");
+        console.printf("✓ Successful refactorings: %d%n", totalSuccess);
+        console.printf("⊘ Skipped: %d%n", totalSkipped);
+        console.printf("✗ Failed: %d%n", totalFailed);
         if (totalSuccess > 0) {
             int netChange = totalAddedLines - totalRemovedLines;
-            System.out.printf("Δ Actual LOC removed: %d (added: %d, net: %d)%n",
+            console.printf("Δ Actual LOC removed: %d (added: %d, net: %d)%n",
                     totalRemovedLines, totalAddedLines, netChange);
         }
-        System.out.println();
+        console.println();
 
         if (totalSuccess > 0) {
-            System.out.println("Refactoring complete! Please review the changes and run your tests.");
+            console.println("Refactoring complete! Please review the changes and run your tests.");
         }
     }
 
 
-    private static void printTextReport(List<DuplicationReport> reports) {
+    void printTextReport(List<DuplicationReport> reports) {
         int totalDuplicates = reports.stream()
                 .mapToInt(DuplicationReport::getDuplicateCount)
                 .sum();
@@ -409,20 +422,20 @@ public class BertieCLI implements Callable<Integer> {
                 .mapToInt(r -> r.clusters().size())
                 .sum();
 
-        System.out.println("=".repeat(80));
-        System.out.println("DUPLICATION DETECTION REPORT");
-        System.out.println("=".repeat(80));
-        System.out.println();
-        System.out.printf("Files analyzed: %d%n", reports.size());
-        System.out.printf("Total duplicates found: %d%n", totalDuplicates);
-        System.out.printf("Duplicate clusters: %d%n", totalClusters);
-        System.out.printf("Configuration: min-lines=%d, threshold=%.0f%%%n",
+        console.println("=".repeat(80));
+        console.println("DUPLICATION DETECTION REPORT");
+        console.println("=".repeat(80));
+        console.println();
+        console.printf("Files analyzed: %d%n", reports.size());
+        console.printf("Total duplicates found: %d%n", totalDuplicates);
+        console.printf("Duplicate clusters: %d%n", totalClusters);
+        console.printf("Configuration: min-lines=%d, threshold=%.0f%%%n",
                 DuplicationDetectorSettings.getMinLines(), DuplicationDetectorSettings.getThreshold() * 100);
-        System.out.println();
+        console.println();
 
         if (totalDuplicates == 0) {
-            System.out.println("✓ No significant code duplication found!");
-            System.out.println();
+            console.println("✓ No significant code duplication found!");
+            console.println();
             return;
         }
 
@@ -431,31 +444,31 @@ public class BertieCLI implements Callable<Integer> {
         }
 
         // Final summary
-        System.out.println("=".repeat(80));
-        System.out.println("SUMMARY");
-        System.out.println("=".repeat(80));
+        console.println("=".repeat(80));
+        console.println("SUMMARY");
+        console.println("=".repeat(80));
         int totalLOCReduction = reports.stream()
                 .flatMap(r -> r.clusters().stream())
                 .mapToInt(DuplicateCluster::estimatedLOCReduction)
                 .sum();
-        System.out.printf("Total potential LOC reduction: %d lines%n", totalLOCReduction);
-        System.out.printf("Refactorable duplicates: %d%n",
+        console.printf("Total potential LOC reduction: %d lines%n", totalLOCReduction);
+        console.printf("Refactorable duplicates: %d%n",
                 reports.stream()
                         .flatMap(r -> r.duplicates().stream())
                         .filter(p -> p.similarity().canRefactor())
                         .count());
-        System.out.println();
+        console.println();
     }
 
-    private static void showReport(DuplicationReport report) {
+    void showReport(DuplicationReport report) {
         if (!report.hasDuplicates()) {
             return;
         }
 
-        System.out.println("-".repeat(80));
-        System.out.println("File: " + report.sourceFile().getFileName());
-        System.out.println("-".repeat(80));
-        System.out.println();
+        console.println("-".repeat(80));
+        console.println("File: " + report.sourceFile().getFileName());
+        console.println("-".repeat(80));
+        console.println();
 
         // Show top duplicates with details
         var duplicates = report.duplicates();
@@ -465,71 +478,71 @@ public class BertieCLI implements Callable<Integer> {
 
         // Show cluster summary
         if (!report.clusters().isEmpty()) {
-            System.out.println("REFACTORING OPPORTUNITIES:");
+            console.println("REFACTORING OPPORTUNITIES:");
             for (int i = 0; i < report.clusters().size(); i++) {
                 var cluster = report.clusters().get(i);
-                System.out.printf("  Cluster #%d: %d duplicates, potential %d LOC reduction%n",
+                console.printf("  Cluster #%d: %d duplicates, potential %d LOC reduction%n",
                         i + 1,
                         cluster.duplicates().size(),
                         cluster.estimatedLOCReduction());
 
                 if (cluster.recommendation() != null) {
                     var rec = cluster.recommendation();
-                    System.out.printf("    → Strategy: %s%n", rec.getStrategy());
-                    System.out.printf("    → Confidence: %s%n", rec.formatConfidence());
+                    console.printf("    → Strategy: %s%n", rec.getStrategy());
+                    console.printf("    → Confidence: %s%n", rec.formatConfidence());
                     if (rec.getSuggestedMethodName() != null) {
-                        System.out.printf("    → Suggested method: %s%n", rec.getSuggestedMethodName());
+                        console.printf("    → Suggested method: %s%n", rec.getSuggestedMethodName());
                     }
                 }
             }
-            System.out.println();
+            console.println();
         }
     }
 
-    private static void showDuplications(DuplicationReport report, List<SimilarityPair> duplicates, int i) {
+    void showDuplications(DuplicationReport report, List<SimilarityPair> duplicates, int i) {
         var pair = duplicates.get(i);
         var seq1 = pair.seq1();
         var seq2 = pair.seq2();
         var similarity = pair.similarity();
 
-        System.out.printf("DUPLICATE #%d (Similarity: %.1f%%)%n", i + 1,
+        console.printf("DUPLICATE #%d (Similarity: %.1f%%)%n", i + 1,
                 similarity.overallScore() * 100);
-        System.out.println();
+        console.println();
 
         // Display the duplicated code segment once
-        System.out.println("  Duplicated Code:");
+        console.println("  Duplicated Code:");
         printFullCodeSnippet(seq1.statements());
-        System.out.println();
+        console.println();
 
         // List all locations where this duplication appears
-        System.out.println("  Found in:");
+        console.println("  Found in:");
         printLocation(report, seq1, 1);
         printLocation(report, seq2, 2);
-        System.out.println();
+        console.println();
 
         // Similarity breakdown
-        System.out.printf("  Similarity: LCS=%.1f%%, Levenshtein=%.1f%%, Structural=%.1f%%%n",
+        console.printf("  Similarity: LCS=%.1f%%, Levenshtein=%.1f%%, Structural=%.1f%%%n",
                 similarity.lcsScore() * 100,
                 similarity.levenshteinScore() * 100,
                 similarity.structuralScore() * 100);
 
         if (similarity.canRefactor()) {
-            System.out.println("  ✓ Can be refactored - extract to helper method");
+            console.println("  ✓ Can be refactored - extract to helper method");
             if (similarity.variations().hasVariations()) {
-                System.out.println("  Parameters needed: " +
+                console.println("  Parameters needed: " +
                         similarity.variations().getVariationCount());
             }
         } else {
-            System.out.println("  ⚠ Manual review needed - variations may be complex");
+            console.println("  ⚠ Manual review needed - variations may be complex");
         }
 
-        System.out.println();
+        console.println();
     }
 
     /**
      * Print location information for a code sequence.
      */
-    private static void printLocation(DuplicationReport report,
+    void printLocation(DuplicationReport report,
             StatementSequence seq,
             int locNum) {
         Path sourcePath = seq.sourceFilePath() != null ? seq.sourceFilePath() : report.sourceFile();
@@ -538,9 +551,9 @@ public class BertieCLI implements Callable<Integer> {
         int startLine = seq.range().startLine();
         int endLine = seq.range().endLine();
 
-        System.out.printf("    %d. Class: %s%n", locNum, className);
-        System.out.printf("       Method: %s%n", methodName);
-        System.out.printf("       Lines: %d-%d%n", startLine, endLine);
+        console.printf("    %d. Class: %s%n", locNum, className);
+        console.printf("       Method: %s%n", methodName);
+        console.printf("       Lines: %d-%d%n", startLine, endLine);
     }
 
     /**
@@ -555,9 +568,9 @@ public class BertieCLI implements Callable<Integer> {
     /**
      * Print the full code snippet without truncation.
      */
-    private static void printFullCodeSnippet(List<com.github.javaparser.ast.stmt.Statement> statements) {
+    void printFullCodeSnippet(List<com.github.javaparser.ast.stmt.Statement> statements) {
         if (statements.isEmpty()) {
-            System.out.println("    (empty)");
+            console.println("    (empty)");
             return;
         }
 
@@ -566,36 +579,36 @@ public class BertieCLI implements Callable<Integer> {
             // Print each line with proper indentation
             String[] lines = code.split("\n");
             for (String line : lines) {
-                System.out.println("    " + line);
+                console.println("    " + line);
             }
         }
     }
 
-    private static void printJsonReport(List<DuplicationReport> reports) {
+    void printJsonReport(List<DuplicationReport> reports) {
         // Simple JSON output (would use proper JSON library in production)
-        System.out.println("{");
-        System.out.printf("  \"version\": \"%s\",%n", VERSION);
-        System.out.printf("  \"filesAnalyzed\": %d,%n", reports.size());
-        System.out.printf("  \"totalDuplicates\": %d,%n",
+        console.println("{");
+        console.printf("  \"version\": \"%s\",%n", VERSION);
+        console.printf("  \"filesAnalyzed\": %d,%n", reports.size());
+        console.printf("  \"totalDuplicates\": %d,%n",
                 reports.stream().mapToInt(DuplicationReport::getDuplicateCount).sum());
-        System.out.println("  \"files\": [");
+        console.println("  \"files\": [");
 
         for (int i = 0; i < reports.size(); i++) {
             DuplicationReport report = reports.get(i);
             if (report.hasDuplicates()) {
-                System.out.println("    {");
-                System.out.printf("      \"path\": \"%s\",%n", report.sourceFile());
-                System.out.printf("      \"duplicates\": %d,%n", report.getDuplicateCount());
-                System.out.printf("      \"clusters\": %d%n", report.clusters().size());
-                System.out.print("    }");
+                console.println("    {");
+                console.printf("      \"path\": \"%s\",%n", report.sourceFile());
+                console.printf("      \"duplicates\": %d,%n", report.getDuplicateCount());
+                console.printf("      \"clusters\": %d%n", report.clusters().size());
+                console.print("    }");
                 if (i < reports.size() - 1)
-                    System.out.print(",");
-                System.out.println();
+                    console.print(",");
+                console.println();
             }
         }
 
-        System.out.println("  ]");
-        System.out.println("}");
+        console.println("  ]");
+        console.println("}");
     }
 
     /**
@@ -617,13 +630,13 @@ public class BertieCLI implements Callable<Integer> {
         if ("csv".equals(exportFormat) || "both".equals(exportFormat)) {
             Path csvPath = outputDir.resolve("duplication-metrics.csv");
             exporter.exportToCsv(metrics, csvPath);
-            System.out.println("\n✓ Metrics exported to: " + csvPath.toAbsolutePath());
+            console.println("\n✓ Metrics exported to: " + csvPath.toAbsolutePath());
         }
 
         if ("json".equals(exportFormat) || "both".equals(exportFormat)) {
             Path jsonPath = outputDir.resolve("duplication-metrics.json");
             exporter.exportToJson(metrics, jsonPath);
-            System.out.println("✓ Metrics exported to: " + jsonPath.toAbsolutePath());
+            console.println("✓ Metrics exported to: " + jsonPath.toAbsolutePath());
         }
     }
 

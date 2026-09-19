@@ -1,6 +1,7 @@
 package com.raditha.dedup.clustering;
 
 import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.NodeList;
@@ -23,10 +24,13 @@ import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.type.WildcardType;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.resolution.types.ResolvedType;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.StatementSequence;
 import sa.com.cloudsolutions.antikythera.evaluator.AntikytheraRunTime;
 import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.List;
@@ -40,6 +44,7 @@ import java.util.Set;
  */
 public abstract class AbstractResolver {
 
+    private static final Logger logger = LoggerFactory.getLogger(AbstractResolver.class);
     protected static final String OBJECT = "Object";
     protected final DataFlowAnalyzer dataFlowAnalyzer;
 
@@ -77,7 +82,9 @@ public abstract class AbstractResolver {
         try {
             ResolvedType resolved = expr.calculateResolvedType();
             return convertResolvedTypeToJavaParserType(resolved);
-        } catch (Exception e) {
+        } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                | IllegalArgumentException e) {
+            logger.debug("Could not resolve expression type", e);
             if (expr.isMethodCallExpr()) {
                 Type type = inferTypeFromMethodCall(expr.asMethodCallExpr(), sequence);
                 if (type != null) return type;
@@ -160,7 +167,9 @@ public abstract class AbstractResolver {
         try {
             ResolvedType resolved = methodCall.calculateResolvedType();
             return convertResolvedTypeToJavaParserType(resolved);
-        } catch (Exception e) {
+        } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                | IllegalArgumentException e) {
+            logger.debug("Could not resolve method call type", e);
             return inferTypeFromMethodCallManually(methodCall, sequence);
         }
     }
@@ -448,7 +457,8 @@ public abstract class AbstractResolver {
 
         try {
             return simplifyQualifiers(StaticJavaParser.parseType(resolvedType.describe()));
-        } catch (Exception e) {
+        } catch (ParseProblemException e) {
+            logger.debug("Could not parse resolved type {}", resolvedType.describe(), e);
             return new ClassOrInterfaceType(null, simplifyType(erase(resolvedType.describe())));
         }
     }

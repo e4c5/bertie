@@ -1,9 +1,15 @@
 package com.raditha.dedup.analysis;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.AssignExpr;
+import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
@@ -11,6 +17,8 @@ import com.github.javaparser.resolution.types.ResolvedType;
 import com.raditha.dedup.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sa.com.cloudsolutions.antikythera.generator.TypeWrapper;
+import sa.com.cloudsolutions.antikythera.parser.AbstractCompiler;
 
 import java.util.*;
 
@@ -128,43 +136,168 @@ public class ASTVariationAnalyzer {
             Statement stmt2,
             int position,
             List<VaryingExpression> variations) {
-        // Get all expressions from both statements, excluding EnclosedExpr (parentheses)
-        // to ensure alignment between "(x+1)" and "x+1"
-        List<Expression> exprs1 = stmt1.findAll(Expression.class, e -> !e.isEnclosedExpr());
-        List<Expression> exprs2 = stmt2.findAll(Expression.class, e -> !e.isEnclosedExpr());
+        List<Expression> ordered = stmt1.findAll(Expression.class, e -> !e.isEnclosedExpr());
+        alignNodes(stmt1, stmt2, position, ordered, variations);
+    }
 
-        // Compare expressions at same positions
-        int minExprs = Math.min(exprs1.size(), exprs2.size());
+    private void alignNodes(
+            Node n1,
+            Node n2,
+            int position,
+            List<Expression> ordered,
+            List<VaryingExpression> variations) {
+        if (n1 instanceof Expression e1 && n2 instanceof Expression e2) {
+            alignExpressions(unwrap(e1), unwrap(e2), position, ordered, variations);
+            return;
+        }
 
-        for (int i = 0; i < minExprs; i++) {
-            Expression e1 = exprs1.get(i);
-            Expression e2 = exprs2.get(i);
+        if (n1.getClass() != n2.getClass()) {
+            logger.debug("Structural divergence while aligning {} and {}", n1.getClass(), n2.getClass());
+            return;
+        }
 
-            if (!expressionsEquivalent(e1, e2)) {
+        List<Node> children1 = nonCommentChildren(n1);
+        List<Node> children2 = nonCommentChildren(n2);
+        int childCount = Math.min(children1.size(), children2.size());
+        if (children1.size() != children2.size()) {
+            logger.debug("Child count mismatch while aligning {} and {}", n1.getClass(), n2.getClass());
+        }
+        for (int i = 0; i < childCount; i++) {
+            Node child1 = children1.get(i);
+            Node child2 = children2.get(i);
+            if (child1.getClass() != child2.getClass()
+                    && !(child1 instanceof Expression && child2 instanceof Expression)) {
+                break;
+            }
+            alignNodes(child1, child2, position, ordered, variations);
+        }
+    }
 
-                // Resolve type
-                ResolvedType type1 = resolveExpressionType(e1);
-                ResolvedType type2 = resolveExpressionType(e2);
+    private void alignExpressions(
+            Expression e1,
+            Expression e2,
+            int position,
+            List<Expression> ordered,
+            List<VaryingExpression> variations) {
+        if (expressionsEquivalent(e1, e2)) {
+            return;
+        }
 
-                // CRITICAL FIX: Ensure type compatibility using Common Supertype Resolution
-                ResolvedType commonType = null;
-                if (type1 != null && type2 != null) {
-                    commonType = findCommonSupertype(type1, type2);
+        if (sameShape(e1, e2)) {
+            int before = variations.size();
+            List<Node> children1 = nonCommentChildren(e1);
+            List<Node> children2 = nonCommentChildren(e2);
+            for (int i = 0; i < children1.size(); i++) {
+                Node child1 = children1.get(i);
+                Node child2 = children2.get(i);
+                if (child1 instanceof Expression expression1 && child2 instanceof Expression expression2) {
+                    alignExpressions(unwrap(expression1), unwrap(expression2), position, ordered, variations);
+                } else if (child1.getClass() == child2.getClass()) {
+                    alignNodes(child1, child2, position, ordered, variations);
                 }
+            }
+            if (variations.size() == before) {
+                recordVariation(e1, e2, position, ordered, variations);
+            }
+            return;
+        }
 
-                // CRITICAL FIX: Ensure unique position for each expression in statement
-                // Encode statement position in high bits, expression index in low bits
-                int uniquePos = (position << 16) + i;
-                variations.add(new VaryingExpression(uniquePos, e1, e2, commonType));
+        recordVariation(e1, e2, position, ordered, variations);
+    }
+
+    private boolean sameShape(Expression e1, Expression e2) {
+        e1 = unwrap(e1);
+        e2 = unwrap(e2);
+        if (e1.getClass() != e2.getClass()) {
+            return false;
+        }
+
+        List<Node> children1 = nonCommentChildren(e1);
+        List<Node> children2 = nonCommentChildren(e2);
+        if (children1.size() != children2.size()) {
+            return false;
+        }
+        for (int i = 0; i < children1.size(); i++) {
+            if (!sameShapeNode(children1.get(i), children2.get(i))) {
+                return false;
             }
         }
+
+        return !(e1 instanceof BinaryExpr binary1 && e2 instanceof BinaryExpr binary2
+                        && binary1.getOperator() != binary2.getOperator())
+                && !(e1 instanceof UnaryExpr unary1 && e2 instanceof UnaryExpr unary2
+                        && unary1.getOperator() != unary2.getOperator())
+                && !(e1 instanceof AssignExpr assign1 && e2 instanceof AssignExpr assign2
+                        && assign1.getOperator() != assign2.getOperator());
+    }
+
+    private boolean sameShapeNode(Node n1, Node n2) {
+        if (n1 instanceof Expression && n2 instanceof Expression) {
+            return true;
+        }
+        if (n1.getClass() != n2.getClass()) {
+            return false;
+        }
+
+        List<Node> children1 = nonCommentChildren(n1);
+        List<Node> children2 = nonCommentChildren(n2);
+        if (children1.size() != children2.size()) {
+            return false;
+        }
+        if (children1.isEmpty()) {
+            return n1.equals(n2);
+        }
+        for (int i = 0; i < children1.size(); i++) {
+            if (!sameShapeNode(children1.get(i), children2.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<Node> nonCommentChildren(Node node) {
+        return node.getChildNodes().stream()
+                .filter(child -> !(child instanceof Comment))
+                .toList();
+    }
+
+    private void recordVariation(
+            Expression e1,
+            Expression e2,
+            int position,
+            List<Expression> ordered,
+            List<VaryingExpression> variations) {
+        ResolvedType type1 = resolveExpressionType(e1);
+        ResolvedType type2 = resolveExpressionType(e2);
+
+        ResolvedType commonType = null;
+        if (type1 != null && type2 != null) {
+            commonType = findCommonSupertype(type1, type2);
+        }
+
+        int idx = indexOfIdentity(ordered, e1);
+        if (idx < 0) {
+            idx = ordered.size() + variations.size();
+            logger.debug("Could not find expression identity in ordered sequence: {}", e1);
+        }
+        int uniquePos = (position << 16) + idx;
+        variations.add(new VaryingExpression(uniquePos, e1, e2, commonType));
+    }
+
+    private int indexOfIdentity(List<Expression> expressions, Expression target) {
+        for (int i = 0; i < expressions.size(); i++) {
+            if (expressions.get(i) == target) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
      * Check if two expressions are semantically equivalent.
      * Uses AST comparison, ignoring parentheses and comments.
      */
-    private boolean expressionsEquivalent(Expression e1, Expression e2) {
+    boolean expressionsEquivalent(Expression e1, Expression e2) {
         // Create clones to avoid modifying original AST
         Expression u1 = e1.clone();
         Expression u2 = e2.clone();
@@ -180,9 +313,7 @@ public class ASTVariationAnalyzer {
         u1 = unwrap(u1);
         u2 = unwrap(u2);
 
-        // Use toString() which uses the pretty printer.
-        // Since we removed comments and parentheses, this should be robust.
-        return u1.toString().equals(u2.toString());
+        return u1.equals(u2);
     }
 
     /**
@@ -261,7 +392,14 @@ public class ASTVariationAnalyzer {
                 logger.debug("[ASTVariationAnalyzer] Variable reference: {} (scope: {})",
                         name, scope);
 
-            } catch (Exception e) {
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                    | IllegalArgumentException e) {
+                logger.debug("[ASTVariationAnalyzer] Variable reference resolution failed for {}", name, e);
+                CompilationUnit cu = nameExpr.findCompilationUnit().orElse(null);
+                if (cu != null && lookupType(cu, name) != null) {
+                    logger.debug("[ASTVariationAnalyzer] Resolved as type reference: {}", name);
+                    return;
+                }
                 // Heuristic: If name starts with Uppercase and resolution failed, assume it's a
                 // Class reference (e.g. System)
                 if (Character.isUpperCase(name.charAt(0))) {
@@ -278,7 +416,7 @@ public class ASTVariationAnalyzer {
                 } else {
                     // If resolution fails, add as UNKNOWN
                     varRefs.add(VariableReference.unknown(name));
-                    logger.debug("[ASTVariationAnalyzer] Could not resolve variable: {}", name);
+                    logger.debug("[ASTVariationAnalyzer] Could not resolve variable: {}", name, e);
                 }
             }
         });
@@ -304,7 +442,9 @@ public class ASTVariationAnalyzer {
     private ResolvedType resolveExpressionType(Expression expr) {
         try {
             return expr.calculateResolvedType();
-        } catch (Exception e) {
+        } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                | IllegalArgumentException e) {
+            logger.debug("[ASTVariationAnalyzer] Could not resolve expression type", e);
             // Fallback: manual AST lookup for fields
             if (expr.isNameExpr()) {
                 String name = expr.asNameExpr().getNameAsString();
@@ -324,10 +464,24 @@ public class ASTVariationAnalyzer {
             Optional<com.github.javaparser.ast.body.FieldDeclaration> field = classDecl.get().getFieldByName(name);
             if (field.isPresent()) {
                 String typeName = field.get().getCommonType().asString();
-                return new SimpleResolvedType(typeName);
+                CompilationUnit cu = node.findCompilationUnit().orElse(null);
+                return new SimpleResolvedType(typeName, cu);
             }
         }
         return null;
+    }
+
+    private static TypeWrapper lookupType(CompilationUnit cu, String name) {
+        try {
+            return AbstractCompiler.findType(cu, name);
+        } catch (RuntimeException e) {
+            logger.debug("[ASTVariationAnalyzer] Type lookup failed for {}", name, e);
+            return null;
+        }
+    }
+
+    private static String stripTypeArguments(String typeName) {
+        return typeName.replaceFirst("<.*>", "");
     }
 
     /**
@@ -348,9 +502,10 @@ public class ASTVariationAnalyzer {
         if (t1 instanceof ResolvedReferenceType && t2 instanceof ResolvedReferenceType) {
             try {
                 return findLCA((ResolvedReferenceType) t1, (ResolvedReferenceType) t2);
-            } catch (Exception e) {
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException
+                    | IllegalArgumentException e) {
                 // If resolution fails, fallback to Object
-                logger.debug("Failed to resolve LCA for types {} and {}: {}", t1.describe(), t2.describe(), e.getMessage());
+                logger.debug("Failed to resolve LCA for types {} and {}", t1.describe(), t2.describe(), e);
                 return null;
             }
         }
@@ -412,6 +567,7 @@ public class ASTVariationAnalyzer {
             return target.isAssignableBy(source);
         } catch (UnsupportedOperationException e) {
             // NullType.isAssignableBy(Other) throws this
+            logger.debug("Could not check assignability", e);
             return false;
         }
     }
@@ -419,8 +575,10 @@ public class ASTVariationAnalyzer {
     /**
      * Minimal implementation of ResolvedType for fallback scenarios.
      */
-    private static class SimpleResolvedType implements ResolvedType {
+    static class SimpleResolvedType implements ResolvedType {
         private final String typeName;
+        private final String rawName;
+        private final CompilationUnit context;
 
         /**
          * Creates a new SimpleResolvedType.
@@ -428,7 +586,13 @@ public class ASTVariationAnalyzer {
          * @param typeName The type name
          */
         public SimpleResolvedType(String typeName) {
+            this(typeName, null);
+        }
+
+        public SimpleResolvedType(String typeName, CompilationUnit context) {
             this.typeName = typeName;
+            this.rawName = stripTypeArguments(typeName);
+            this.context = context;
         }
 
         /**
@@ -476,8 +640,56 @@ public class ASTVariationAnalyzer {
          */
         @Override
         public boolean isAssignableBy(ResolvedType other) {
-            // Minimal implementation: exact name match
-            return other.describe().equals(this.describe());
+            if (other.describe().equals(typeName)) return true;
+            if (other.isNull()) return true;
+
+            if (context != null) {
+                Boolean contextResult = assignableViaContext(other);
+                if (contextResult != null) return contextResult;
+            }
+
+            if (other.isReferenceType() && !(other instanceof SimpleResolvedType)) {
+                return assignableViaAncestors(other.asReferenceType());
+            }
+            return false;
+        }
+
+        private Boolean assignableViaContext(ResolvedType other) {
+            TypeWrapper self = lookupType(context, rawName);
+            String otherName = other.isReferenceType() && !(other instanceof SimpleResolvedType)
+                    ? other.asReferenceType().getQualifiedName()
+                    : stripTypeArguments(other.describe());
+            TypeWrapper otherWrapper = lookupType(context, otherName);
+            if (self == null || otherWrapper == null) return null;
+            return self.isAssignableFrom(otherWrapper);
+        }
+
+        private boolean assignableViaAncestors(ResolvedReferenceType ref) {
+            if (matchesName(ref.getQualifiedName())) return true;
+            try {
+                for (ResolvedReferenceType ancestor : ref.getAllAncestors()) {
+                    if (matchesName(ancestor.getQualifiedName())) return true;
+                }
+            } catch (UnsolvedSymbolException | UnsupportedOperationException | IllegalStateException e) {
+                logger.debug("[ASTVariationAnalyzer] Failed to inspect type ancestors", e);
+            }
+            return false;
+        }
+
+        private boolean matchesName(String qualifiedName) {
+            return qualifiedName.equals(rawName) || qualifiedName.endsWith("." + rawName);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof SimpleResolvedType other)) return false;
+            return typeName.equals(other.typeName);
+        }
+
+        @Override
+        public int hashCode() {
+            return typeName.hashCode();
         }
     }
 }

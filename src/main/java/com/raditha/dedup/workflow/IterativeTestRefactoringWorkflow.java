@@ -8,6 +8,8 @@ import com.raditha.dedup.model.DuplicateCluster;
 import com.raditha.dedup.model.RefactoringStrategy;
 import com.raditha.dedup.refactoring.RefactoringEngine;
 import com.raditha.dedup.refactoring.RefactoringEngine.RefactoringSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -21,6 +23,7 @@ import java.util.List;
  */
 public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
 
+    private static final Logger logger = LoggerFactory.getLogger(IterativeTestRefactoringWorkflow.class);
     private final DuplicationAnalyzer analyzer;
     private final RefactoringEngine engine;
 
@@ -54,7 +57,7 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         Path sourceFile = com.raditha.dedup.util.ASTUtility.getSourcePath(cu);
 
         // --- PASS 1: Initial Clusters (Parameterized Tests Priority) ---
-        System.out.println(">>> PASS 1: Prioritizing Parameterized Tests for " + clazz.getNameAsString());
+        logger.info(">>> PASS 1: Prioritizing Parameterized Tests for {}", clazz.getNameAsString());
         
         // Filter clusters to only those relevant to this class
         // (Orchestrator passed us class-specific clusters)
@@ -71,12 +74,12 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         mergeSessions(totalSession, pass1Session);
 
         if (pass1Session.hasFailures()) {
-            System.out.println(">>> PASS 1 had failures. Aborting iteration.");
+            logger.warn(">>> PASS 1 had failures. Aborting iteration.");
             return totalSession;
         }
 
         if (pass1Session.getSuccessful().isEmpty()) {
-             System.out.println(">>> PASS 1 made no changes. Proceeding with remaining clusters (Helpers).");
+             logger.info(">>> PASS 1 made no changes. Proceeding with remaining clusters (Helpers).");
              List<DuplicateCluster> remainingClusters = initialClusters.stream()
                 .filter(c -> c.recommendation().getStrategy() != RefactoringStrategy.EXTRACT_TO_PARAMETERIZED_TEST)
                 .toList();
@@ -89,7 +92,7 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         }
 
         // --- PASS 2: Re-Analyze and Deduplicate (Helpers) ---
-        System.out.println(">>> PASS 2: Re-analyzing for remaining duplicates (Helpers)...");
+        logger.info(">>> PASS 2: Re-analyzing for remaining duplicates (Helpers)...");
 
         // Re-analyze the file. CRITICAL: We must re-parse the CU to ensure new nodes have valid ranges.
         // In-memory modifications (Pass 1) often leave nodes without ranges, causing StatementExtractor to crash.
@@ -103,7 +106,7 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
         DuplicationReport pass2Report = analyzer.analyzeFile(reParsedCU, sourceFile);
 
         if (!pass2Report.hasDuplicates()) {
-            System.out.println(">>> PASS 2: No duplicates found.");
+            logger.info(">>> PASS 2: No duplicates found.");
         } else {
              // We need to filter clusters again to ensure we only process this class
              // (though analyzeFile usually scopes to the file, and we are handling the file here)
@@ -114,7 +117,7 @@ public class IterativeTestRefactoringWorkflow implements RefactoringWorkflow {
              // But usually test files have one main class. And duplicates in nested classes are fine to refactor.
              
              List<DuplicateCluster> pass2Clusters = pass2Report.clusters();
-             System.out.println(">>> PASS 2: Found " + pass2Clusters.size() + " new clusters.");
+             logger.info(">>> PASS 2: Found {} new clusters.", pass2Clusters.size());
              
              RefactoringSession pass2Session = engine.processClusters(pass2Clusters);
              mergeSessions(totalSession, pass2Session);

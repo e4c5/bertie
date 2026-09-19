@@ -1,8 +1,14 @@
 package com.raditha.dedup.analysis;
 
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.*;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.resolution.types.ResolvedReferenceType;
+import com.github.javaparser.symbolsolver.JavaSymbolSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 import com.raditha.dedup.model.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -121,5 +127,271 @@ class ASTVariationAnalyzerTest {
                 .anyMatch(ref -> ref.name().equals("userName")));
         assertTrue(result.variableReferences().stream()
                 .anyMatch(ref -> ref.name().equals("age")));
+    }
+
+    @Test
+    void testExpressionsEquivalentIgnoresFormattingAndParentheses() {
+        assertTrue(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("a + b"),
+                StaticJavaParser.parseExpression("a+b")));
+        assertTrue(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("a + (b)"),
+                StaticJavaParser.parseExpression("(a + b)")));
+    }
+
+    @Test
+    void testExpressionsEquivalentIgnoresComments() {
+        Expression withComment = StaticJavaParser.parseBlock("{ foo(1, // c\n 2); }")
+                .findFirst(ExpressionStmt.class)
+                .orElseThrow()
+                .getExpression();
+
+        assertTrue(analyzer.expressionsEquivalent(
+                withComment,
+                StaticJavaParser.parseExpression("foo(1, 2)")));
+    }
+
+    @Test
+    void testExpressionsEquivalentDetectsStructuralDifferences() {
+        assertFalse(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("a + b"),
+                StaticJavaParser.parseExpression("a - b")));
+        assertFalse(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("foo(1)"),
+                StaticJavaParser.parseExpression("foo(2)")));
+        assertFalse(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("x.y()"),
+                StaticJavaParser.parseExpression("x.z()")));
+    }
+
+    @Test
+    void testWholeStatementFormattingAndParenthesesAreEquivalent() {
+        String code1 = """
+                class Test {
+                    void method1(String userName) {
+                        logger.info("Starting: " + userName);
+                    }
+                }
+                """;
+        String code2 = """
+                class Test {
+                    void method2(String userName) {
+                        logger.info(("Starting: " + userName));
+                    }
+                }
+                """;
+
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+        MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class).orElseThrow();
+        MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class).orElseThrow();
+
+        StatementSequence seq1 = new StatementSequence(m1.getBody().orElseThrow().getStatements(),
+                null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().orElseThrow().getStatements(),
+                null, 0, m2, ContainerType.METHOD, cu2, null);
+
+        assertEquals(0, analyzer.analyzeVariations(seq1, seq2, cu1).varyingExpressions().size());
+    }
+
+    @Test
+    void testDifferentArgumentCountsRecordWholeCall() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        foo(a, b);
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        foo(a, b, c);
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("foo(a, b)", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    @Test
+    void testNestedArgumentVariationAlignsByStructure() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        assertEquals("x", svc.get(1));
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        assertEquals("y", svc.get(1));
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("\"x\"", result.varyingExpressions().get(0).expr1().toString());
+        assertEquals("\"y\"", result.varyingExpressions().get(0).expr2().toString());
+    }
+
+    @Test
+    void testNestedArgumentShapeVariationRecordsNestedCall() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        assertEquals("x", svc.get(1));
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        assertEquals("x", svc.get(1, 2));
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("svc.get(1)", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    @Test
+    void testSimpleResolvedTypeAssignability() {
+        assertTrue(new ASTVariationAnalyzer.SimpleResolvedType("String")
+                .isAssignableBy(new ASTVariationAnalyzer.SimpleResolvedType("String")));
+        assertFalse(new ASTVariationAnalyzer.SimpleResolvedType("String")
+                .isAssignableBy(new ASTVariationAnalyzer.SimpleResolvedType("Integer")));
+        var generic = new ASTVariationAnalyzer.SimpleResolvedType("List<String>");
+        assertEquals("List<String>", generic.describe());
+        assertNotEquals(new ASTVariationAnalyzer.SimpleResolvedType("List<Integer>"), generic);
+    }
+
+    @Test
+    void testSimpleResolvedTypeMatchesReferenceAncestors() {
+        ParserConfiguration configuration = new ParserConfiguration()
+                .setSymbolResolver(new JavaSymbolSolver(new ReflectionTypeSolver()));
+        JavaParser parser = new JavaParser(configuration);
+        CompilationUnit cu = parser.parse("""
+                import java.util.ArrayList;
+                class Test {
+                    ArrayList<String> values;
+                }
+                """).getResult().orElseThrow();
+        ResolvedReferenceType arrayListType = cu.findFirst(FieldDeclaration.class)
+                .orElseThrow()
+                .getVariable(0)
+                .getType()
+                .resolve()
+                .asReferenceType();
+
+        assertTrue(new ASTVariationAnalyzer.SimpleResolvedType("List").isAssignableBy(arrayListType));
+        assertFalse(new ASTVariationAnalyzer.SimpleResolvedType("Map").isAssignableBy(arrayListType));
+    }
+
+    @Test
+    void testManualFieldLookupCarriesCompilationUnitContext() {
+        VariationAnalysis result = analyzeMethods("""
+                import java.util.List;
+                import java.util.ArrayList;
+                class Test {
+                    List<String> a;
+                    ArrayList<String> b;
+                    void method1() {
+                        use(a);
+                    }
+                    void use(Object value) {}
+                }
+                """, """
+                import java.util.List;
+                import java.util.ArrayList;
+                class Test {
+                    List<String> a;
+                    ArrayList<String> b;
+                    void method2() {
+                        use(b);
+                    }
+                    void use(Object value) {}
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        var commonType = result.varyingExpressions().get(0).type();
+        assertNotNull(commonType);
+        assertTrue(commonType.describe().contains("List"));
+        assertFalse(commonType.describe().contains("ArrayList"));
+    }
+
+    @Test
+    void testVariableReferenceTypeFallbackAndUnknownName() {
+        CompilationUnit cu = StaticJavaParser.parse("""
+                import java.util.Collections;
+                class Test {
+                    void method() {
+                        Collections;
+                        foo;
+                    }
+                }
+                """);
+        MethodDeclaration method = cu.findFirst(MethodDeclaration.class).orElseThrow();
+        StatementSequence sequence = new StatementSequence(method.getBody().orElseThrow().getStatements(),
+                null, 0, method, ContainerType.METHOD, cu, null);
+
+        VariationAnalysis result = analyzer.analyzeVariations(sequence, sequence, cu);
+
+        assertTrue(result.variableReferences().stream().noneMatch(ref -> ref.name().equals("Collections")));
+        assertTrue(result.variableReferences().stream()
+                .anyMatch(ref -> ref.name().equals("foo") && ref.type() == null));
+    }
+
+    @Test
+    void testDifferentStatementKindsAreSkipped() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    int method1(int x) {
+                        return x;
+                    }
+                }
+                """, """
+                class Test {
+                    int method2(int x) {
+                        x = 1;
+                        return x;
+                    }
+                }
+                """);
+
+        assertEquals(0, result.varyingExpressions().size());
+    }
+
+    @Test
+    void testDifferentOperatorsRecordWholeBinaryExpression() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        result = a + b;
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        result = a - b;
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("a + b", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    private VariationAnalysis analyzeMethods(String code1, String code2) {
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+        MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class).orElseThrow();
+        MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class).orElseThrow();
+        StatementSequence seq1 = new StatementSequence(m1.getBody().orElseThrow().getStatements(),
+                null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().orElseThrow().getStatements(),
+                null, 0, m2, ContainerType.METHOD, cu2, null);
+        return analyzer.analyzeVariations(seq1, seq2, cu1);
     }
 }
