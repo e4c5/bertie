@@ -96,7 +96,8 @@ class SafetyValidatorSideEffectTest {
                 SideEffectAnalyzer.Category.DATABASE,
                 SideEffectAnalyzer.Category.EXTERNAL_API,
                 SideEffectAnalyzer.Category.NON_IDEMPOTENT,
-                SideEffectAnalyzer.Category.NON_IDEMPOTENT), categories);
+                SideEffectAnalyzer.Category.NON_IDEMPOTENT,
+                SideEffectAnalyzer.Category.UNKNOWN), categories);
     }
 
     @Test
@@ -187,5 +188,55 @@ class SafetyValidatorSideEffectTest {
                 """);
 
         assertFalse(validator.hasDifferentSideEffects(cluster(a, b)));
+    }
+
+    @Test
+    void unrecognisedStatementLevelCallOnFieldIsNotTreatedAsPure() {
+        StatementSequence a = sequence("""
+                    String s = "a".trim();
+                    items.add(s);
+                    emailService.send(s);
+                """);
+        StatementSequence b = sequence("""
+                    String s = "b".trim();
+                    items.add(s);
+                """);
+
+        List<SideEffectAnalyzer.SideEffect> effects = new SideEffectAnalyzer().analyze(a);
+        assertEquals(List.of(SideEffectAnalyzer.Category.UNKNOWN, SideEffectAnalyzer.Category.UNKNOWN),
+                effects.stream().map(SideEffectAnalyzer.SideEffect::category).toList());
+        assertTrue(validator.hasDifferentSideEffects(cluster(a, b)));
+        assertFalse(validator.hasDifferentSideEffects(cluster(a, sequence("""
+                    String s = "c".trim();
+                    items.add(s);
+                    emailService.send(s);
+                """))));
+    }
+
+    @Test
+    void callsOnLocalsAndPureUtilitiesAreNotReported() {
+        StatementSequence seq = sequence("""
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("x");
+                    Objects.requireNonNull(sb);
+                    String upper = sb.toString().toUpperCase();
+                """);
+        assertTrue(new SideEffectAnalyzer().analyze(seq).isEmpty());
+    }
+
+    @Test
+    void chainedCallInheritsCategoryOfReceiver() {
+        StatementSequence a = sequence("""
+                    connection.prepareStatement("update t set x = 1").executeUpdate();
+                """);
+        List<SideEffectAnalyzer.SideEffect> effects = new SideEffectAnalyzer().analyze(a);
+        assertEquals(List.of("db.executeUpdate", "db.prepareStatement"),
+                effects.stream().map(SideEffectAnalyzer.SideEffect::signature).toList());
+        assertTrue(effects.stream().allMatch(e -> e.category() == SideEffectAnalyzer.Category.DATABASE));
+
+        StatementSequence b = sequence("""
+                    connection.prepareStatement("select 1").executeQuery();
+                """);
+        assertTrue(validator.hasDifferentSideEffects(cluster(a, b)));
     }
 }

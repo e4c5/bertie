@@ -14,6 +14,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import com.raditha.dedup.analysis.DataFlowAnalyzer;
 import com.raditha.dedup.model.ContainerType;
 import com.raditha.dedup.model.StatementSequence;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import sa.com.cloudsolutions.antikythera.configuration.Settings;
@@ -25,6 +26,7 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Exercises the source-level inference fallbacks of {@link AbstractResolver}
@@ -72,17 +74,24 @@ class AbstractResolverTypeInferenceTest {
             """;
 
     private TestResolver resolver;
+    private ParserConfiguration previousConfiguration;
 
     @BeforeEach
     void setUp() throws IOException {
         Settings.loadConfigMap(new File("src/test/resources/analyzer-tests.yml"));
         AntikytheraRunTime.resetAll();
         AbstractCompiler.preProcess();
+        previousConfiguration = StaticJavaParser.getParserConfiguration();
         // Parse project classes WITHOUT a symbol solver so calculateResolvedType() fails
         StaticJavaParser.setConfiguration(new ParserConfiguration());
         AntikytheraRunTime.addCompilationUnit("demo.Box", StaticJavaParser.parse(BOX));
         AntikytheraRunTime.addCompilationUnit("demo.Holder", StaticJavaParser.parse(HOLDER));
         resolver = new TestResolver();
+    }
+
+    @AfterEach
+    void restoreParserConfiguration() {
+        StaticJavaParser.setConfiguration(previousConfiguration);
     }
 
     private record Ctx(StatementSequence seq, MethodCallExpr call) {}
@@ -138,6 +147,21 @@ class AbstractResolverTypeInferenceTest {
         Type t = resolver.methodCall(ctx.call(), ctx.seq());
         assertNotNull(t);
         assertEquals("String", t.asString());
+    }
+
+    @Test
+    void unmatchedArityDoesNotFallBackToArbitraryOverload() {
+        Ctx ctx = contextFor("h.name(1, 2, 3)");
+        assertNull(resolver.methodCall(ctx.call(), ctx.seq()));
+    }
+
+    @Test
+    void conditionalExpressionUsesCommonBranchType() {
+        assertEquals("double", resolver.expression(StaticJavaParser.parseExpression("c ? 1 : 2.5")).asString());
+        assertEquals("long", resolver.expression(StaticJavaParser.parseExpression("c ? 1L : 2")).asString());
+        assertEquals("String", resolver.expression(StaticJavaParser.parseExpression("c ? \"a\" : \"b\"")).asString());
+        assertEquals("String", resolver.expression(StaticJavaParser.parseExpression("c ? null : \"b\"")).asString());
+        assertEquals("Object", resolver.expression(StaticJavaParser.parseExpression("c ? 1 : \"b\"")).asString());
     }
 
     @Test

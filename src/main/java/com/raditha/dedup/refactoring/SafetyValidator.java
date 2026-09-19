@@ -87,11 +87,8 @@ public class SafetyValidator {
      */
     private void validateControlFlow(DuplicateCluster cluster, List<ValidationIssue> issues) {
         SimilarityResult similarity = cluster.duplicates().isEmpty() ? null : cluster.duplicates().get(0).similarity();
-        if (similarity != null && similarity.variations() != null
-                && similarity.variations().hasControlFlowDifferences()) {
-            issues.add(ValidationIssue.error(CONTROL_FLOW_ERROR));
-            return;
-        }
+        boolean flaggedByVariationAnalysis = similarity != null && similarity.variations() != null
+                && similarity.variations().hasControlFlowDifferences();
 
         ControlFlowVariationAnalyzer.Result worst = ControlFlowVariationAnalyzer.Result.NONE;
         StatementSequence primary = cluster.primary();
@@ -103,7 +100,11 @@ public class SafetyValidator {
         }
 
         switch (worst.kind()) {
-            case NONE -> { }
+            case NONE -> {
+                if (flaggedByVariationAnalysis) {
+                    issues.add(ValidationIssue.error(CONTROL_FLOW_ERROR));
+                }
+            }
             case UNSAFE -> issues.add(ValidationIssue.error(CONTROL_FLOW_ERROR + ": " + worst.detail()));
             case PARAMETERIZABLE -> {
                 if (DuplicationDetectorSettings.getAllowParameterizableControlFlow()) {

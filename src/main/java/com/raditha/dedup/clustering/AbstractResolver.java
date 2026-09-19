@@ -10,6 +10,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
@@ -225,8 +226,7 @@ public abstract class AbstractResolver {
                         || (m.getParameters().isNonEmpty()
                             && m.getParameters().getLast().get().isVarArgs()
                             && arity >= m.getParameters().size() - 1))
-                .findFirst()
-                .or(() -> candidates.stream().findFirst());
+                .findFirst();
     }
 
     private Type resolveScopeType(Expression scope, StatementSequence sequence) {
@@ -315,7 +315,7 @@ public abstract class AbstractResolver {
         if (expr.isCastExpr()) return expr.asCastExpr().getType().clone();
         if (expr.isObjectCreationExpr()) return inferTypeFromObjectCreation(expr.asObjectCreationExpr());
         if (expr.isArrayCreationExpr()) return expr.asArrayCreationExpr().createdType().clone();
-        if (expr.isConditionalExpr()) return inferTypeFromExpression(expr.asConditionalExpr().getThenExpr());
+        if (expr.isConditionalExpr()) return inferConditionalType(expr.asConditionalExpr());
         if (expr.isUnaryExpr()) {
             var unary = expr.asUnaryExpr();
             if (unary.getOperator() == UnaryExpr.Operator.LOGICAL_COMPLEMENT) {
@@ -372,6 +372,26 @@ public abstract class AbstractResolver {
                 return StaticJavaParser.parseType(promote(left.asString(), right.asString()));
             }
         }
+    }
+
+    private Type inferConditionalType(ConditionalExpr conditional) {
+        Type thenType = inferTypeFromExpression(conditional.getThenExpr());
+        Type elseType = inferTypeFromExpression(conditional.getElseExpr());
+        String t = thenType.asString();
+        String e = elseType.asString();
+        if (t.equals(e)) {
+            return thenType;
+        }
+        if (NUMERIC_RANK.contains(t) && NUMERIC_RANK.contains(e)) {
+            return StaticJavaParser.parseType(promote(t, e));
+        }
+        if (conditional.getThenExpr().isNullLiteralExpr() || OBJECT.equals(t)) {
+            return elseType;
+        }
+        if (conditional.getElseExpr().isNullLiteralExpr() || OBJECT.equals(e)) {
+            return thenType;
+        }
+        return StaticJavaParser.parseType(OBJECT);
     }
 
     private static final List<String> NUMERIC_RANK = List.of("double", "float", "long", "int");

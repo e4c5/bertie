@@ -3,7 +3,9 @@ package com.raditha.dedup.refactoring;
 import com.raditha.dedup.analysis.ControlFlowVariationAnalyzer;
 import com.raditha.dedup.model.RefactoringRecommendation;
 import com.raditha.dedup.model.RefactoringStrategy;
+import com.raditha.dedup.model.SimilarityResult;
 import com.raditha.dedup.model.StatementSequence;
+import com.raditha.dedup.model.VariationAnalysis;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -170,5 +172,61 @@ class SafetyValidatorControlFlowTest {
 
         result = validator.validate(cluster(sequence(IF_A), sequence(IF_B_NESTED_RETURN)), recommendation);
         assertFalse(result.isValid());
+    }
+
+    @Test
+    void legacyControlFlowFlagDoesNotOverrideParameterizableClassification() {
+        allowParameterizable(true);
+        StatementSequence a = sequence(IF_A);
+        StatementSequence b = sequence(IF_B_DIFFERENT_CONDITION);
+        var cl = cluster(a, b);
+        flagControlFlow(cl);
+
+        SafetyValidator.ValidationResult result = validator.validate(cl, recommendation);
+
+        assertTrue(result.getErrors().stream().noneMatch(e -> e.startsWith(SafetyValidator.CONTROL_FLOW_ERROR)),
+                result.getErrors().toString());
+        assertTrue(result.getWarnings().stream().anyMatch(w -> w.startsWith(SafetyValidator.CONTROL_FLOW_WARNING)));
+    }
+
+    @Test
+    void legacyControlFlowFlagStillBlocksWhenAnalyzerSeesNoDifference() {
+        var cl = cluster(sequence(IF_A), sequence(IF_A));
+        flagControlFlow(cl);
+
+        SafetyValidator.ValidationResult result = validator.validate(cl, recommendation);
+
+        assertFalse(result.isValid());
+        assertTrue(result.getErrors().contains(SafetyValidator.CONTROL_FLOW_ERROR));
+    }
+
+    private static void flagControlFlow(com.raditha.dedup.model.DuplicateCluster cl) {
+        VariationAnalysis variations = mock(VariationAnalysis.class);
+        when(variations.hasControlFlowDifferences()).thenReturn(true);
+        when(variations.getVariations()).thenReturn(List.of());
+        SimilarityResult similarity = cl.duplicates().get(0).similarity();
+        when(similarity.variations()).thenReturn(variations);
+    }
+
+    @Test
+    void labelsAreComparedByIdentifierAcrossSeparatelyParsedSequences() {
+        String labelled = """
+                outer:
+                for (int i = 0; i < 3; i++) {
+                    for (int j = 0; j < 3; j++) {
+                        if (j == %s) { break outer; }
+                        if (i == 1) { continue outer; }
+                    }
+                }
+                """;
+        ControlFlowVariationAnalyzer analyzer = new ControlFlowVariationAnalyzer();
+
+        ControlFlowVariationAnalyzer.Result same = analyzer.analyze(sequence(labelled.formatted("1")),
+                sequence(labelled.formatted("2")));
+        assertEquals(ControlFlowVariationAnalyzer.Kind.PARAMETERIZABLE, same.kind(), same.detail());
+
+        ControlFlowVariationAnalyzer.Result different = analyzer.analyze(sequence(labelled.formatted("1")),
+                sequence(labelled.formatted("1").replace("break outer", "break")));
+        assertEquals(ControlFlowVariationAnalyzer.Kind.UNSAFE, different.kind());
     }
 }

@@ -2,6 +2,7 @@ package com.raditha.dedup.analysis;
 
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.SimpleName;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
 import com.github.javaparser.ast.stmt.ContinueStmt;
@@ -203,14 +204,14 @@ public class ControlFlowVariationAnalyzer {
         }
         if (s1 instanceof BreakStmt br1) {
             BreakStmt br2 = (BreakStmt) s2;
-            if (!br1.getLabel().equals(br2.getLabel())) {
+            if (!br1.getLabel().map(SimpleName::getIdentifier).equals(br2.getLabel().map(SimpleName::getIdentifier))) {
                 return Result.unsafe("break targets differ");
             }
             return Result.NONE;
         }
         if (s1 instanceof ContinueStmt c1) {
             ContinueStmt c2 = (ContinueStmt) s2;
-            if (!c1.getLabel().equals(c2.getLabel())) {
+            if (!c1.getLabel().map(SimpleName::getIdentifier).equals(c2.getLabel().map(SimpleName::getIdentifier))) {
                 return Result.unsafe("continue targets differ");
             }
             return Result.NONE;

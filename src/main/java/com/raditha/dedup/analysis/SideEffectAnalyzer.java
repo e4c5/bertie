@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.raditha.dedup.model.StatementSequence;
 
@@ -19,14 +20,17 @@ import java.util.regex.Pattern;
 /**
  * Conservative, name-based detection of observable side effects in a statement
  * sequence. The analyzer does not attempt full type resolution; it recognises
- * well-known JDK / framework APIs by scope and method name. Anything it cannot
- * classify is treated as pure, so the result is a lower bound on the real side
- * effects (see design doc, "Side Effect Detection").
+ * well-known JDK / framework APIs by scope and method name. A call it cannot
+ * classify is still reported as {@link Category#UNKNOWN} when its result is
+ * discarded (a statement-level call on a field, parameter, implicit {@code this}
+ * or unrecognised static scope), since such calls exist only for their effect.
+ * Calls whose value is consumed, and calls on locals declared in the enclosing
+ * callable, are treated as pure (see design doc, "Side Effect Detection").
  */
 public class SideEffectAnalyzer {
 
     public enum Category {
-        FILE_IO, CONSOLE_IO, NETWORK, DATABASE, EXTERNAL_API, NON_IDEMPOTENT
+        FILE_IO, CONSOLE_IO, NETWORK, DATABASE, EXTERNAL_API, NON_IDEMPOTENT, UNKNOWN
     }
 
     /**
@@ -90,6 +94,12 @@ public class SideEffectAnalyzer {
             "longs", "doubles");
     private static final Pattern RANDOM_TYPES = Pattern.compile("^(Random|SecureRandom|ThreadLocalRandom|SplittableRandom)$");
 
+    private static final Set<String> PURE_STATIC_SCOPES = Set.of(
+            "String", "Math", "StrictMath", "Objects", "Optional", "Integer", "Long", "Double", "Float", "Short",
+            "Byte", "Boolean", "Character", "Arrays", "Collections", "List", "Set", "Map", "Stream", "Collectors",
+            "Comparator", "Assertions", "Assert", "Mockito", "ArgumentMatchers", "Matchers", "Duration", "BigDecimal",
+            "BigInteger", "Pattern", "Locale", "TimeUnit");
+
     /**
      * Detect side effects in statement order.
      */
@@ -101,6 +111,9 @@ public class SideEffectAnalyzer {
         for (Statement stmt : sequence.statements()) {
             for (MethodCallExpr call : stmt.findAll(MethodCallExpr.class)) {
                 SideEffect effect = classify(call);
+                if (effect == null && isDiscardedResult(call)) {
+                    effect = classifyUnknown(call);
+                }
                 if (effect != null) {
                     effects.add(effect);
                 }
@@ -126,11 +139,54 @@ public class SideEffectAnalyzer {
         return null;
     }
 
+    private static boolean isDiscardedResult(MethodCallExpr call) {
+        return call.getParentNode().map(p -> p instanceof ExpressionStmt).orElse(false);
+    }
+
+    /**
+     * A statement-level call that no whitelist recognises. Locals declared in the enclosing
+     * callable and well-known pure JDK/test utility classes are exempt; everything else
+     * (fields, parameters, implicit {@code this}, unknown static scopes, chained calls) is
+     * reported so that a duplicate lacking the call cannot pass as equivalent.
+     */
+    private SideEffect classifyUnknown(MethodCallExpr call) {
+        Optional<Expression> scope = call.getScope();
+        if (scope.isPresent()) {
+            Expression s = scope.get();
+            if (s.isNameExpr()) {
+                String var = s.asNameExpr().getNameAsString();
+                if (PURE_STATIC_SCOPES.contains(var) || isLocalVariable(s, var)) {
+                    return null;
+                }
+            } else if (!s.isFieldAccessExpr() && !s.isThisExpr() && !s.isMethodCallExpr()) {
+                return null;
+            }
+        }
+        return new SideEffect(Category.UNKNOWN, "?." + call.getNameAsString(), call.toString());
+    }
+
+    private static boolean isLocalVariable(Expression scope, String varName) {
+        Optional<CallableDeclaration<?>> callable = scope.findAncestor(CallableDeclaration.class)
+                .map(c -> (CallableDeclaration<?>) c);
+        return callable.isPresent()
+                && callable.get().findFirst(VariableDeclarator.class, v -> v.getNameAsString().equals(varName)).isPresent();
+    }
+
     private SideEffect classify(MethodCallExpr call) {
         String name = call.getNameAsString();
         String scopeText = call.getScope().map(Expression::toString).orElse("");
         String scopeType = scopeTypeName(call.getScope().orElse(null));
         String qualified = scopeText.isEmpty() ? name : scopeText + "." + name;
+
+        if (call.getScope().isPresent() && call.getScope().get().isMethodCallExpr()) {
+            SideEffect inner = classify(call.getScope().get().asMethodCallExpr());
+            if (inner != null) {
+                SideEffect chained = sameCategoryIfKnownMethod(inner.category(), name, call);
+                if (chained != null) {
+                    return chained;
+                }
+            }
+        }
 
         if (CONSOLE_SCOPES.contains(scopeText)) {
             return new SideEffect(Category.CONSOLE_IO, qualified, call.toString());
@@ -154,6 +210,32 @@ public class SideEffectAnalyzer {
             return new SideEffect(Category.FILE_IO, "file." + name, call.toString());
         }
         return null;
+    }
+
+    /**
+     * {@code conn.prepareStatement(sql).executeQuery()}: the receiver is an expression whose
+     * type is not syntactically visible, so inherit the category of the inner call when the
+     * outer method name belongs to that category.
+     */
+    private static SideEffect sameCategoryIfKnownMethod(Category category, String name, MethodCallExpr call) {
+        boolean known = switch (category) {
+            case FILE_IO -> FILE_METHODS.contains(name);
+            case NETWORK -> NETWORK_METHODS.contains(name);
+            case DATABASE -> DATABASE_METHODS.contains(name);
+            case EXTERNAL_API -> EXTERNAL_API_METHODS.contains(name);
+            case CONSOLE_IO, NON_IDEMPOTENT, UNKNOWN -> false;
+        };
+        if (!known) {
+            return null;
+        }
+        String prefix = switch (category) {
+            case FILE_IO -> "file.";
+            case NETWORK -> "net.";
+            case DATABASE -> "db.";
+            case EXTERNAL_API -> "api.";
+            default -> "";
+        };
+        return new SideEffect(category, prefix + name, call.toString());
     }
 
     /**
