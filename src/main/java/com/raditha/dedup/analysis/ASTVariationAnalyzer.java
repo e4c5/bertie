@@ -369,10 +369,19 @@ public class ASTVariationAnalyzer {
 
         List<ResolvedReferenceType> common = new ArrayList<>();
         for (ResolvedReferenceType t : ancestors2) {
-            // Must check name match AND assignability to handle generics correctly
-            // e.g. List<String> vs List<Integer> -> List (raw) or Collection
-            if (ancestors1.contains(t.getQualifiedName()) && isAssignable(t, r1)) {
+            if (!ancestors1.contains(t.getQualifiedName())) {
+                continue;
+            }
+            // Same generic declaration with incompatible type arguments
+            // (List<String> vs List<Integer>): fall back to the erasure, which both
+            // sides can be assigned to, instead of walking further up to Object.
+            if (isAssignable(t, r1)) {
                 common.add(t);
+            } else if (!t.getTypeParametersMap().isEmpty()) {
+                ResolvedReferenceType erased = t.erasure().asReferenceType();
+                if (isAssignable(erased, r1) || isAssignable(erased, r1.erasure())) {
+                    common.add(erased);
+                }
             }
         }
 
