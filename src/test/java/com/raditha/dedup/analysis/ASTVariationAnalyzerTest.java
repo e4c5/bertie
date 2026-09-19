@@ -2,7 +2,9 @@ package com.raditha.dedup.analysis;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.raditha.dedup.model.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -121,5 +123,70 @@ class ASTVariationAnalyzerTest {
                 .anyMatch(ref -> ref.name().equals("userName")));
         assertTrue(result.variableReferences().stream()
                 .anyMatch(ref -> ref.name().equals("age")));
+    }
+
+    @Test
+    void testExpressionsEquivalentIgnoresFormattingAndParentheses() {
+        assertTrue(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("a + b"),
+                StaticJavaParser.parseExpression("a+b")));
+        assertTrue(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("a + (b)"),
+                StaticJavaParser.parseExpression("(a + b)")));
+    }
+
+    @Test
+    void testExpressionsEquivalentIgnoresComments() {
+        Expression withComment = StaticJavaParser.parseBlock("{ foo(1, // c\n 2); }")
+                .findFirst(ExpressionStmt.class)
+                .orElseThrow()
+                .getExpression();
+
+        assertTrue(analyzer.expressionsEquivalent(
+                withComment,
+                StaticJavaParser.parseExpression("foo(1, 2)")));
+    }
+
+    @Test
+    void testExpressionsEquivalentDetectsStructuralDifferences() {
+        assertFalse(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("a + b"),
+                StaticJavaParser.parseExpression("a - b")));
+        assertFalse(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("foo(1)"),
+                StaticJavaParser.parseExpression("foo(2)")));
+        assertFalse(analyzer.expressionsEquivalent(
+                StaticJavaParser.parseExpression("x.y()"),
+                StaticJavaParser.parseExpression("x.z()")));
+    }
+
+    @Test
+    void testWholeStatementFormattingAndParenthesesAreEquivalent() {
+        String code1 = """
+                class Test {
+                    void method1(String userName) {
+                        logger.info("Starting: " + userName);
+                    }
+                }
+                """;
+        String code2 = """
+                class Test {
+                    void method2(String userName) {
+                        logger.info(("Starting: " + userName));
+                    }
+                }
+                """;
+
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+        MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class).orElseThrow();
+        MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class).orElseThrow();
+
+        StatementSequence seq1 = new StatementSequence(m1.getBody().orElseThrow().getStatements(),
+                null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().orElseThrow().getStatements(),
+                null, 0, m2, ContainerType.METHOD, cu2, null);
+
+        assertEquals(0, analyzer.analyzeVariations(seq1, seq2, cu1).varyingExpressions().size());
     }
 }

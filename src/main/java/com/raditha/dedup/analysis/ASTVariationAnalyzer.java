@@ -165,7 +165,7 @@ public class ASTVariationAnalyzer {
      * Check if two expressions are semantically equivalent.
      * Uses AST comparison, ignoring parentheses and comments.
      */
-    private boolean expressionsEquivalent(Expression e1, Expression e2) {
+    boolean expressionsEquivalent(Expression e1, Expression e2) {
         // Create clones to avoid modifying original AST
         Expression u1 = e1.clone();
         Expression u2 = e2.clone();
@@ -181,9 +181,7 @@ public class ASTVariationAnalyzer {
         u1 = unwrap(u1);
         u2 = unwrap(u2);
 
-        // Use toString() which uses the pretty printer.
-        // Since we removed comments and parentheses, this should be robust.
-        return u1.toString().equals(u2.toString());
+        return u1.equals(u2);
     }
 
     /**
