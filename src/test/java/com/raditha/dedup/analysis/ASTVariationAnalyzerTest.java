@@ -189,4 +189,117 @@ class ASTVariationAnalyzerTest {
 
         assertEquals(0, analyzer.analyzeVariations(seq1, seq2, cu1).varyingExpressions().size());
     }
+
+    @Test
+    void testDifferentArgumentCountsRecordWholeCall() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        foo(a, b);
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        foo(a, b, c);
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("foo(a, b)", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    @Test
+    void testNestedArgumentVariationAlignsByStructure() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        assertEquals("x", svc.get(1));
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        assertEquals("y", svc.get(1));
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("\"x\"", result.varyingExpressions().get(0).expr1().toString());
+        assertEquals("\"y\"", result.varyingExpressions().get(0).expr2().toString());
+    }
+
+    @Test
+    void testNestedArgumentShapeVariationRecordsNestedCall() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        assertEquals("x", svc.get(1));
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        assertEquals("x", svc.get(1, 2));
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("svc.get(1)", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    @Test
+    void testDifferentStatementKindsAreSkipped() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    int method1(int x) {
+                        return x;
+                    }
+                }
+                """, """
+                class Test {
+                    int method2(int x) {
+                        x = 1;
+                        return x;
+                    }
+                }
+                """);
+
+        assertEquals(0, result.varyingExpressions().size());
+    }
+
+    @Test
+    void testDifferentOperatorsRecordWholeBinaryExpression() {
+        VariationAnalysis result = analyzeMethods("""
+                class Test {
+                    void method1() {
+                        result = a + b;
+                    }
+                }
+                """, """
+                class Test {
+                    void method2() {
+                        result = a - b;
+                    }
+                }
+                """);
+
+        assertEquals(1, result.varyingExpressions().size());
+        assertEquals("a + b", result.varyingExpressions().get(0).expr1().toString());
+    }
+
+    private VariationAnalysis analyzeMethods(String code1, String code2) {
+        CompilationUnit cu1 = StaticJavaParser.parse(code1);
+        CompilationUnit cu2 = StaticJavaParser.parse(code2);
+        MethodDeclaration m1 = cu1.findFirst(MethodDeclaration.class).orElseThrow();
+        MethodDeclaration m2 = cu2.findFirst(MethodDeclaration.class).orElseThrow();
+        StatementSequence seq1 = new StatementSequence(m1.getBody().orElseThrow().getStatements(),
+                null, 0, m1, ContainerType.METHOD, cu1, null);
+        StatementSequence seq2 = new StatementSequence(m2.getBody().orElseThrow().getStatements(),
+                null, 0, m2, ContainerType.METHOD, cu2, null);
+        return analyzer.analyzeVariations(seq1, seq2, cu1);
+    }
 }

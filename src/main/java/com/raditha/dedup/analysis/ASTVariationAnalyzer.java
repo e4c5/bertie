@@ -1,8 +1,13 @@
 package com.raditha.dedup.analysis;
 
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.comments.Comment;
+import com.github.javaparser.ast.expr.AssignExpr;
+import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.UnaryExpr;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.ResolvedReferenceTypeDeclaration;
@@ -129,36 +134,168 @@ public class ASTVariationAnalyzer {
             Statement stmt2,
             int position,
             List<VaryingExpression> variations) {
-        // Get all expressions from both statements, excluding EnclosedExpr (parentheses)
-        // to ensure alignment between "(x+1)" and "x+1"
-        List<Expression> exprs1 = stmt1.findAll(Expression.class, e -> !e.isEnclosedExpr());
-        List<Expression> exprs2 = stmt2.findAll(Expression.class, e -> !e.isEnclosedExpr());
+        List<Expression> ordered = stmt1.findAll(Expression.class, e -> !e.isEnclosedExpr());
+        alignNodes(stmt1, stmt2, position, ordered, variations);
+    }
 
-        // Compare expressions at same positions
-        int minExprs = Math.min(exprs1.size(), exprs2.size());
+    private void alignNodes(
+            Node n1,
+            Node n2,
+            int position,
+            List<Expression> ordered,
+            List<VaryingExpression> variations) {
+        if (n1 instanceof Expression e1 && n2 instanceof Expression e2) {
+            alignExpressions(unwrap(e1), unwrap(e2), position, ordered, variations);
+            return;
+        }
 
-        for (int i = 0; i < minExprs; i++) {
-            Expression e1 = exprs1.get(i);
-            Expression e2 = exprs2.get(i);
+        if (n1.getClass() != n2.getClass()) {
+            logger.debug("Structural divergence while aligning {} and {}", n1.getClass(), n2.getClass());
+            return;
+        }
 
-            if (!expressionsEquivalent(e1, e2)) {
+        List<Node> children1 = nonCommentChildren(n1);
+        List<Node> children2 = nonCommentChildren(n2);
+        int childCount = Math.min(children1.size(), children2.size());
+        if (children1.size() != children2.size()) {
+            logger.debug("Child count mismatch while aligning {} and {}", n1.getClass(), n2.getClass());
+        }
+        for (int i = 0; i < childCount; i++) {
+            Node child1 = children1.get(i);
+            Node child2 = children2.get(i);
+            if (child1.getClass() != child2.getClass()
+                    && !(child1 instanceof Expression && child2 instanceof Expression)) {
+                break;
+            }
+            alignNodes(child1, child2, position, ordered, variations);
+        }
+    }
 
-                // Resolve type
-                ResolvedType type1 = resolveExpressionType(e1);
-                ResolvedType type2 = resolveExpressionType(e2);
+    private void alignExpressions(
+            Expression e1,
+            Expression e2,
+            int position,
+            List<Expression> ordered,
+            List<VaryingExpression> variations) {
+        if (expressionsEquivalent(e1, e2)) {
+            return;
+        }
 
-                // CRITICAL FIX: Ensure type compatibility using Common Supertype Resolution
-                ResolvedType commonType = null;
-                if (type1 != null && type2 != null) {
-                    commonType = findCommonSupertype(type1, type2);
+        if (sameShape(e1, e2)) {
+            int before = variations.size();
+            List<Node> children1 = nonCommentChildren(e1);
+            List<Node> children2 = nonCommentChildren(e2);
+            for (int i = 0; i < children1.size(); i++) {
+                Node child1 = children1.get(i);
+                Node child2 = children2.get(i);
+                if (child1 instanceof Expression expression1 && child2 instanceof Expression expression2) {
+                    alignExpressions(unwrap(expression1), unwrap(expression2), position, ordered, variations);
+                } else if (child1.getClass() == child2.getClass()) {
+                    alignNodes(child1, child2, position, ordered, variations);
                 }
+            }
+            if (variations.size() == before) {
+                recordVariation(e1, e2, position, ordered, variations);
+            }
+            return;
+        }
 
-                // CRITICAL FIX: Ensure unique position for each expression in statement
-                // Encode statement position in high bits, expression index in low bits
-                int uniquePos = (position << 16) + i;
-                variations.add(new VaryingExpression(uniquePos, e1, e2, commonType));
+        recordVariation(e1, e2, position, ordered, variations);
+    }
+
+    private boolean sameShape(Expression e1, Expression e2) {
+        e1 = unwrap(e1);
+        e2 = unwrap(e2);
+        if (e1.getClass() != e2.getClass()) {
+            return false;
+        }
+
+        List<Node> children1 = nonCommentChildren(e1);
+        List<Node> children2 = nonCommentChildren(e2);
+        if (children1.size() != children2.size()) {
+            return false;
+        }
+        for (int i = 0; i < children1.size(); i++) {
+            if (!sameShapeNode(children1.get(i), children2.get(i))) {
+                return false;
             }
         }
+
+        if (e1 instanceof BinaryExpr binary1 && e2 instanceof BinaryExpr binary2
+                && binary1.getOperator() != binary2.getOperator()) {
+            return false;
+        }
+        if (e1 instanceof UnaryExpr unary1 && e2 instanceof UnaryExpr unary2
+                && unary1.getOperator() != unary2.getOperator()) {
+            return false;
+        }
+        if (e1 instanceof AssignExpr assign1 && e2 instanceof AssignExpr assign2
+                && assign1.getOperator() != assign2.getOperator()) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean sameShapeNode(Node n1, Node n2) {
+        if (n1 instanceof Expression && n2 instanceof Expression) {
+            return true;
+        }
+        if (n1.getClass() != n2.getClass()) {
+            return false;
+        }
+
+        List<Node> children1 = nonCommentChildren(n1);
+        List<Node> children2 = nonCommentChildren(n2);
+        if (children1.size() != children2.size()) {
+            return false;
+        }
+        if (children1.isEmpty()) {
+            return n1.equals(n2);
+        }
+        for (int i = 0; i < children1.size(); i++) {
+            if (!sameShapeNode(children1.get(i), children2.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<Node> nonCommentChildren(Node node) {
+        return node.getChildNodes().stream()
+                .filter(child -> !(child instanceof Comment))
+                .toList();
+    }
+
+    private void recordVariation(
+            Expression e1,
+            Expression e2,
+            int position,
+            List<Expression> ordered,
+            List<VaryingExpression> variations) {
+        ResolvedType type1 = resolveExpressionType(e1);
+        ResolvedType type2 = resolveExpressionType(e2);
+
+        ResolvedType commonType = null;
+        if (type1 != null && type2 != null) {
+            commonType = findCommonSupertype(type1, type2);
+        }
+
+        int idx = indexOfIdentity(ordered, e1);
+        if (idx < 0) {
+            idx = ordered.size() + variations.size();
+            logger.debug("Could not find expression identity in ordered sequence: {}", e1);
+        }
+        int uniquePos = (position << 16) + idx;
+        variations.add(new VaryingExpression(uniquePos, e1, e2, commonType));
+    }
+
+    private int indexOfIdentity(List<Expression> expressions, Expression target) {
+        for (int i = 0; i < expressions.size(); i++) {
+            if (expressions.get(i) == target) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
